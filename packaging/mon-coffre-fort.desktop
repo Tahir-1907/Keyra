@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Mon Coffre-Fort
+GenericName=Gestionnaire de mots de passe
+Comment=Gestionnaire de mots de passe local, hors ligne et chiffré
+Exec=mon-coffre-fort
+# Installé en Phase 6 dans /usr/share/icons/hicolor/<taille>/apps/mon-coffre-fort.png
+# à partir de app/resources/icons/logo-<taille>.png
+Icon=mon-coffre-fort
+Terminal=false
+Categories=Utility;Security;Qt;
+Keywords=mot de passe;password;coffre;vault;sécurité;
+StartupWMClass=mon-coffre-fort
+StartupNotify=true

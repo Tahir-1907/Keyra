@@ -1,0 +1,463 @@
+{
+  "app_version": "1.0.0",
+  "categories": [
+    {
+      "id": 1,
+      "is_builtin": true,
+      "name": "Personnel"
+    },
+    {
+      "id": 2,
+      "is_builtin": true,
+      "name": "Travail"
+    },
+    {
+      "id": 3,
+      "is_builtin": true,
+      "name": "Finances"
+    },
+    {
+      "id": 4,
+      "is_builtin": true,
+      "name": "Réseaux sociaux"
+    },
+    {
+      "id": 5,
+      "is_builtin": true,
+      "name": "Courriel"
+    },
+    {
+      "id": 6,
+      "is_builtin": true,
+      "name": "Achats"
+    },
+    {
+      "id": 7,
+      "is_builtin": false,
+      "name": "Projets BTS"
+    },
+    {
+      "id": 8,
+      "is_builtin": false,
+      "name": "Santé & Mutuelle"
+    }
+  ],
+  "entries": [
+    {
+      "category": "Finances",
+      "category_id": 3,
+      "created_at": "2026-09-27T18:27:35.738851+00:00",
+      "deleted_at": "",
+      "email": "jean.dupont@example.test",
+      "entry_type": "login",
+      "extra": {},
+      "history": [
+        {
+          "category_id": 3,
+          "password": "Mdp-Banque-FICTIF-001-b",
+          "service_name": "Banque Exemple",
+          "url": "https://banque.example/connexion",
+          "username": "jean.dupont@example.test"
+        },
+        {
+          "category_id": 3,
+          "password": "Mdp-Banque-FICTIF-001",
+          "service_name": "Banque Exemple",
+          "url": "https://banque.example/connexion",
+          "username": "jean.dupont@example.test"
+        }
+      ],
+      "id": 1,
+      "in_trash": false,
+      "is_favorite": true,
+      "notes": "Code client : 000000 (fictif)",
+      "password": "Mdp-Banque-FICTIF-001-c",
+      "password_changed_at": "2026-09-27T18:27:35.739804+00:00",
+      "service_name": "Banque Exemple",
+      "updated_at": "2026-09-27T18:27:35.739804+00:00",
+      "url": "https://banque.example/connexion",
+      "username": "jean.dupont@example.test"
+    },
+    {
+      "category": "Projets BTS",
+      "category_id": 7,
+      "created_at": "2026-09-27T18:27:35.738963+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "login",
+      "extra": {},
+      "history": [
+        {
+          "category_id": 7,
+          "password": "Tux-FICTIF-002",
+          "service_name": "Forum Linux",
+          "url": "forum.example.org",
+          "username": "tux_fictif"
+        }
+      ],
+      "id": 2,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "",
+      "password": "Tux-FICTIF-002",
+      "password_changed_at": "2026-09-27T18:27:35.738963+00:00",
+      "service_name": "Forum Linux",
+      "updated_at": "2026-09-27T18:27:35.739923+00:00",
+      "url": "https://forum.example.org",
+      "username": "tux_renomme"
+    },
+    {
+      "category": "Achats",
+      "category_id": 6,
+      "created_at": "2026-09-27T18:27:35.739015+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "login",
+      "extra": {},
+      "history": [],
+      "id": 3,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "",
+      "password": "Cafe-FICTIF-003",
+      "password_changed_at": "2026-09-27T18:27:35.739015+00:00",
+      "service_name": "Éléphant Café",
+      "updated_at": "2026-09-27T18:27:35.739015+00:00",
+      "url": "https://cafe.example",
+      "username": "client.cafe"
+    },
+    {
+      "category": "Personnel",
+      "category_id": 1,
+      "created_at": "2026-09-27T18:27:35.739059+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "secure_note",
+      "extra": {},
+      "history": [],
+      "id": 4,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "Réseau invités : demander au bureau (fictif)",
+      "password": "",
+      "password_changed_at": "2026-09-27T18:27:35.739059+00:00",
+      "service_name": "Note Wi-Fi invités",
+      "updated_at": "2026-09-27T18:27:35.739059+00:00",
+      "url": "",
+      "username": ""
+    },
+    {
+      "category": "Finances",
+      "category_id": 3,
+      "created_at": "2026-09-27T18:27:35.739102+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "card",
+      "extra": {
+        "card_number": "4111 1111 1111 1111",
+        "cardholder": "JEAN DUPONT",
+        "cvv": "123",
+        "expiry": "12/2030",
+        "pin": "0000"
+      },
+      "history": [],
+      "id": 5,
+      "in_trash": false,
+      "is_favorite": true,
+      "notes": "",
+      "password": "",
+      "password_changed_at": "2026-09-27T18:27:35.739102+00:00",
+      "service_name": "Carte Fictive",
+      "updated_at": "2026-09-27T18:27:35.739102+00:00",
+      "url": "",
+      "username": ""
+    },
+    {
+      "category": null,
+      "category_id": null,
+      "created_at": "2026-09-27T18:27:35.739155+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "wifi",
+      "extra": {
+        "security": "WPA3",
+        "ssid": "BoxFictive-5G"
+      },
+      "history": [],
+      "id": 6,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "",
+      "password": "Wifi-FICTIF-004",
+      "password_changed_at": "2026-09-27T18:27:35.739155+00:00",
+      "service_name": "Box Maison",
+      "updated_at": "2026-09-27T18:27:35.739155+00:00",
+      "url": "",
+      "username": ""
+    },
+    {
+      "category": "Travail",
+      "category_id": 2,
+      "created_at": "2026-09-27T18:27:35.739203+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "server",
+      "extra": {
+        "hostname": "srv.example",
+        "port": "22",
+        "protocol": "SSH"
+      },
+      "history": [],
+      "id": 7,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "",
+      "password": "Srv-FICTIF-005",
+      "password_changed_at": "2026-09-27T18:27:35.739203+00:00",
+      "service_name": "Serveur Debian",
+      "updated_at": "2026-09-27T18:27:35.739203+00:00",
+      "url": "ssh://srv.example",
+      "username": "admin-fictif"
+    },
+    {
+      "category": "Santé & Mutuelle",
+      "category_id": 8,
+      "created_at": "2026-09-27T18:27:35.739246+00:00",
+      "deleted_at": "",
+      "email": "id@example.test",
+      "entry_type": "identity",
+      "extra": {
+        "birth_date": "01/01/1990",
+        "full_name": "Jean Dupont",
+        "id_number": "X0000000",
+        "phone": "01 23 45 67 89"
+      },
+      "history": [],
+      "id": 8,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "",
+      "password": "",
+      "password_changed_at": "2026-09-27T18:27:35.739246+00:00",
+      "service_name": "Identité fictive",
+      "updated_at": "2026-09-27T18:27:35.739246+00:00",
+      "url": "",
+      "username": ""
+    },
+    {
+      "category": null,
+      "category_id": null,
+      "created_at": "2026-09-27T18:27:35.739290+00:00",
+      "deleted_at": "",
+      "email": "",
+      "entry_type": "login",
+      "extra": {},
+      "history": [],
+      "id": 9,
+      "in_trash": false,
+      "is_favorite": false,
+      "notes": "",
+      "password": "",
+      "password_changed_at": "2026-09-27T18:27:35.739290+00:00",
+      "service_name": "Compte sans catégorie",
+      "updated_at": "2026-09-27T18:27:35.739290+00:00",
+      "url": "https://orphelin.example",
+      "username": "orphelin"
+    },
+    {
+      "category": null,
+      "category_id": null,
+      "created_at": "2026-09-27T18:27:35.739397+00:00",
+      "deleted_at": "2026-09-27T18:27:35.739469+00:00",
+      "email": "",
+      "entry_type": "login",
+      "extra": {},
+      "history": [],
+      "id": 10,
+      "in_trash": true,
+      "is_favorite": false,
+      "notes": "",
+      "password": "Old-FICTIF-006",
+      "password_changed_at": "2026-09-27T18:27:35.739397+00:00",
+      "service_name": "Ancien compte (corbeille)",
+      "updated_at": "2026-09-27T18:27:35.739397+00:00",
+      "url": "",
+      "username": "ancien"
+    },
+    {
+      "category": null,
+      "category_id": null,
+      "created_at": "2026-09-27T18:27:35.739437+00:00",
+      "deleted_at": "2001-01-01T00:00:00+00:00",
+      "email": "",
+      "entry_type": "login",
+      "extra": {},
+      "history": [],
+      "id": 11,
+      "in_trash": true,
+      "is_favorite": false,
+      "notes": "",
+      "password": "Old-FICTIF-007",
+      "password_changed_at": "2026-09-27T18:27:35.739437+00:00",
+      "service_name": "Très ancien compte (corbeille)",
+      "updated_at": "2026-09-27T18:27:35.739437+00:00",
+      "url": "",
+      "username": ""
+    }
+  ],
+  "master_password": "fixture-mot-de-passe-maitre-FICTIF",
+  "note": "Données 100 % fictives. Voir generate_v16_fixtures.py.",
+  "recovery_key": null,
+  "schema_version": 2,
+  "searches": [
+    {
+      "filter": {},
+      "result": [
+        1,
+        6,
+        5,
+        9,
+        3,
+        2,
+        8,
+        4,
+        7
+      ]
+    },
+    {
+      "filter": {
+        "text": "banque"
+      },
+      "result": [
+        1
+      ]
+    },
+    {
+      "filter": {
+        "text": "EXEMPLE"
+      },
+      "result": [
+        1
+      ]
+    },
+    {
+      "filter": {
+        "text": "elephant"
+      },
+      "result": [
+        3
+      ]
+    },
+    {
+      "filter": {
+        "text": "café"
+      },
+      "result": [
+        3
+      ]
+    },
+    {
+      "filter": {
+        "text": "tux"
+      },
+      "result": [
+        2
+      ]
+    },
+    {
+      "filter": {
+        "text": "finances"
+      },
+      "result": [
+        1,
+        5
+      ]
+    },
+    {
+      "filter": {
+        "text": "srv"
+      },
+      "result": [
+        7
+      ]
+    },
+    {
+      "filter": {
+        "text": "sante"
+      },
+      "result": [
+        8
+      ]
+    },
+    {
+      "filter": {
+        "text": "serveur debian"
+      },
+      "result": [
+        7
+      ]
+    },
+    {
+      "filter": {
+        "text": "inexistant"
+      },
+      "result": []
+    },
+    {
+      "filter": {
+        "favorites_only": true
+      },
+      "result": [
+        1,
+        5
+      ]
+    },
+    {
+      "filter": {
+        "category_id": 3
+      },
+      "result": [
+        1,
+        5
+      ]
+    },
+    {
+      "filter": {
+        "category_id": 7
+      },
+      "result": [
+        2
+      ]
+    },
+    {
+      "filter": {
+        "category_id": -1
+      },
+      "result": [
+        6,
+        9
+      ]
+    },
+    {
+      "filter": {
+        "in_trash": true
+      },
+      "result": [
+        10,
+        11
+      ]
+    },
+    {
+      "filter": {
+        "in_trash": true,
+        "text": "ancien"
+      },
+      "result": [
+        10,
+        11
+      ]
+    }
+  ],
+  "vault_id": "coffre-fixture",
+  "vault_name": "Coffre de test (fictif)"
+}

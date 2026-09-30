@@ -1,0 +1,147 @@
+"""Paramètres de l'application (non sensibles), par utilisateur Linux.
+
+Fichier : ~/.config/mon-coffre/settings.json (ou $XDG_CONFIG_HOME), 0600.
+Aucun secret n'y figure : uniquement des préférences (délais, dossier des
+sauvegardes, options du générateur, dernier coffre utilisé, géométrie de
+fenêtre). Toute valeur absente, inconnue ou invalide est remplacée par sa
+valeur par défaut : un fichier abîmé ne peut ni empêcher le démarrage, ni
+désactiver silencieusement une protection (ex. délai hors liste).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import asdict, dataclass, fields
+from pathlib import Path
+
+from app.core.generator import (
+    MAX_PASSPHRASE_WORDS,
+    MAX_PASSWORD_LENGTH,
+    MIN_PASSPHRASE_WORDS,
+    MIN_PASSWORD_LENGTH,
+)
+from app.core.session import AUTO_LOCK_CHOICES_SECONDS
+from app.utils.files import write_private_atomic
+from app.utils.logging import get_logger
+from app.utils.paths import config_dir, default_backup_dir
+
+SETTINGS_FILENAME = "settings.json"
+
+AUTO_LOCK_CHOICES = AUTO_LOCK_CHOICES_SECONDS  # libellé -> secondes (None = jamais)
+CLIPBOARD_CHOICES: dict[str, int] = {
+    "10 secondes": 10, "20 secondes": 20, "30 secondes": 30,
+    "1 minute": 60, "2 minutes": 120, "5 minutes": 300,
+}
+TRASH_RETENTION_CHOICES: dict[str, int | None] = {
+    "7 jours": 7, "30 jours": 30, "90 jours": 90, "1 an": 365, "Jamais (vidage manuel)": None,
+}
+PASSPHRASE_SEPARATORS = ("-", " ", ".", "_", "")
+MIN_AUTO_BACKUPS, MAX_AUTO_BACKUPS = 1, 100
+
+
+@dataclass(slots=True)
+class Settings:
+    # Sécurité
+    auto_lock_seconds: int | None = 5 * 60
+    lock_on_session_lock: bool = True
+    clipboard_clear_seconds: int = 30
+    # Corbeille et sauvegardes
+    trash_retention_days: int | None = 30
+    auto_backup: bool = True
+    auto_backups_kept: int = 10
+    backup_dir: str = ""  # vide = <Documents>/MonCoffre/backup
+    # Générateur (valeurs par défaut)
+    generator_mode: str = "password"  # "password" | "passphrase"
+    generator_length: int = 20
+    generator_lowercase: bool = True
+    generator_uppercase: bool = True
+    generator_digits: bool = True
+    generator_symbols: bool = True
+    generator_exclude_ambiguous: bool = False
+    passphrase_words: int = 6
+    passphrase_separator: str = "-"  # noqa: S105 - séparateur de mots
+    passphrase_capitalize: bool = False
+    passphrase_add_number: bool = False
+    # Interface
+    animations: bool = True
+    last_vault_id: str = ""
+    window_geometry: str = ""  # QMainWindow.saveGeometry() en base64
+
+    def validated(self) -> Settings:
+        """Copie où chaque valeur hors domaine est remise à sa valeur par défaut."""
+        default = Settings()
+        checks = {
+            "auto_lock_seconds": lambda v: v in AUTO_LOCK_CHOICES.values(),
+            "clipboard_clear_seconds": lambda v: v in CLIPBOARD_CHOICES.values(),
+            "trash_retention_days": lambda v: v in TRASH_RETENTION_CHOICES.values(),
+            "auto_backups_kept": lambda v: isinstance(v, int) and not isinstance(v, bool)
+            and MIN_AUTO_BACKUPS <= v <= MAX_AUTO_BACKUPS,
+            "backup_dir": lambda v: isinstance(v, str) and (v == "" or Path(v).is_absolute()),
+            "generator_mode": lambda v: v in ("password", "passphrase"),
+            "generator_length": lambda v: isinstance(v, int) and not isinstance(v, bool)
+            and MIN_PASSWORD_LENGTH <= v <= MAX_PASSWORD_LENGTH,
+            "passphrase_words": lambda v: isinstance(v, int) and not isinstance(v, bool)
+            and MIN_PASSPHRASE_WORDS <= v <= MAX_PASSPHRASE_WORDS,
+            "passphrase_separator": lambda v: v in PASSPHRASE_SEPARATORS,
+            "last_vault_id": lambda v: isinstance(v, str) and len(v) < 128 and "/" not in v,
+            "window_geometry": lambda v: isinstance(v, str) and len(v) < 10_000,
+        }
+        values = {}
+        for f in fields(Settings):
+            value = getattr(self, f.name)
+            default_value = getattr(default, f.name)
+            if isinstance(default_value, bool):
+                ok = isinstance(value, bool)
+            else:
+                ok = checks.get(f.name, lambda v: True)(value)
+            values[f.name] = value if ok else default_value
+        result = Settings(**values)
+        if not any((result.generator_lowercase, result.generator_uppercase,
+                    result.generator_digits, result.generator_symbols)):
+            result.generator_lowercase = result.generator_uppercase = True
+            result.generator_digits = result.generator_symbols = True
+        return result
+
+
+def settings_path() -> Path:
+    return config_dir() / SETTINGS_FILENAME
+
+
+def load_settings() -> Settings:
+    path = settings_path()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return Settings()
+    except (OSError, ValueError):
+        get_logger().warning("Unreadable settings file, defaults used")
+        return Settings()
+    if not isinstance(raw, dict):
+        return Settings()
+    known = {f.name for f in fields(Settings)}
+    settings = Settings()
+    for key, value in raw.items():
+        if key in known:
+            setattr(settings, key, value)
+    return settings.validated()
+
+
+def save_settings(settings: Settings) -> None:
+    path = settings_path()
+    data = json.dumps(asdict(settings.validated()), ensure_ascii=False, indent=2)
+    write_private_atomic(path, data.encode("utf-8"), temp_prefix=".settings-",
+                         temp_suffix=".json")
+
+
+def backup_directory(settings: Settings) -> Path:
+    """Dossier des sauvegardes selon les paramètres (créé en 0700 si besoin)."""
+    if not settings.backup_dir:
+        return default_backup_dir()
+    path = Path(settings.backup_dir)
+    if not path.exists():
+        # Seul un dossier créé par l'application est restreint : on ne modifie
+        # jamais les permissions d'un dossier existant choisi par l'utilisateur.
+        path.mkdir(parents=True)
+        os.chmod(path, 0o700)
+    return path

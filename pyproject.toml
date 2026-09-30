@@ -1,0 +1,74 @@
+# Configuration des outils de développement de Mon Coffre-Fort.
+#
+# Pas de table [project] : l'application n'est pas un paquet pip installable
+# (elle se lance avec run.sh ou le paquet .deb), et la version a une source
+# unique, `__version__` dans app/__init__.py, lue par packaging/build-deb.sh.
+# Python 3.11 minimum (README, dépendance python3 du .deb).
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Les tests restent aussi compatibles `python -m unittest discover -s tests`.
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+filterwarnings = [
+    # Une ressource non fermée (connexion SQLite, fichier) fait échouer la suite.
+    "error::ResourceWarning",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+# .venv, build/ et dist/ font partie des exclusions par défaut de Ruff.
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle (erreurs)
+    "W",    # pycodestyle (avertissements)
+    "F",    # pyflakes : imports et variables inutilisés, noms indéfinis
+    "I",    # ordre des imports
+    "UP",   # syntaxe Python moderne (3.11)
+    "B",    # bugbear : pièges courants
+    "BLE",  # « except Exception » : chaque cas doit être justifié (noqa commenté)
+    "SIM",  # simplifications
+    "DTZ",  # dates sans fuseau horaire
+    "S",    # sécurité (règles de bandit)
+    "RUF",  # règles propres à Ruff
+    # Contrôles de Bandit absents des règles stables de Ruff (voir README > Développement) :
+    "PLE2502",  # caractères Unicode bidirectionnels (« trojan source », Bandit B613)
+    "S401", "S402", "S403", "S404", "S405", "S406", "S407", "S408", "S409",
+    "S411", "S412", "S413", "S415",  # imports de modules sensibles (Bandit B401-B415)
+]
+# Les règles S4xx sont en « preview » : activées une par une, sans autre règle preview.
+preview = true
+explicit-preview-rules = true
+ignore = [
+    # Libellés et textes de l'interface en français : « ’ », « « », « … » sont voulus.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Feuille de style QSS : une règle par ligne, plus lisible que découpée.
+"app/ui/theme.py" = ["E501"]
+"tests/**" = [
+    "S101",  # assert : normal dans les tests
+    "S103",  # chmod permissif volontaire (test de conservation des permissions)
+    "S105",  # mots de passe « en dur » : valeurs de test
+    "S106",
+    "S107",
+    "S404",  # import de subprocess, pour appeler pdftotext
+    "S603",  # appels à pdftotext pour vérifier les PDF produits
+    "S607",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# Valeurs par défaut immuables : dataclasses frozen et index Qt vide.
+extend-immutable-calls = [
+    "app.core.generator.PasswordOptions",
+    "app.core.generator.PassphraseOptions",
+    "PySide6.QtCore.QModelIndex",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]

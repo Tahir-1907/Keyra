@@ -1,0 +1,11 @@
+# Outils de développement et de test (jamais embarqués dans le paquet).
+-r requirements.txt
+# Seconde implémentation d'Argon2id : active les tests d'équivalence
+# cryptography <-> argon2-cffi (la version de Debian 13 est la 21.1).
+argon2-cffi>=21.1
+pytest>=8.0
+coverage>=7.0
+# Analyse statique ET analyse de sécurité (règles S = celles de Bandit, plus
+# PLE2502 et S4xx ; configuration dans pyproject.toml). Bandit n'est plus
+# utilisé : Ruff couvre tous ses contrôles pertinents pour ce projet.
+ruff>=0.16

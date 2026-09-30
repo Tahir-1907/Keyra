@@ -1,0 +1,15 @@
+# Dépendances d'exécution (installation via pip / run.sh).
+# Le paquet .deb utilise à la place les paquets Debian équivalents
+# (voir packaging/build-deb.sh).
+
+# AES-256-GCM, HKDF et Argon2id natif (Argon2id n'existe qu'à partir de la 44).
+# Avec une version plus ancienne (ex. Debian 13 : 43.0), Argon2id est pris dans
+# argon2-cffi (paquet Debian python3-argon2) : les deux donnent la même clé.
+cryptography>=44.0
+
+# Interface graphique (validé avec 6.8.2 — Debian 13 — et 6.11).
+PySide6-Essentials>=6.8
+
+# Chiffrement AES-256 des copies papier PDF (paquet Debian python3-pikepdf,
+# fondé sur qpdf ; validé avec 9.5.2 — Debian 13 — et 9.11).
+pikepdf>=9.5

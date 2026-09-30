@@ -1,0 +1,35 @@
+# Environnements Python
+.venv/
+venv/
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Caches d'outils
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Ne jamais versionner de coffres, sauvegardes, exports ou logs locaux
+*.db
+# Exception : coffres de TEST fictifs, produits par les versions précédentes (migrations)
+!tests/fixtures/*/vault.db
+*.db-wal
+*.db-shm
+*.mcfbak
+*.mcfexport
+/backup/
+*.log
+
+# Construction (paquets .deb générés par packaging/build-deb.sh)
+build/
+dist/
+
+# Éditeurs / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
