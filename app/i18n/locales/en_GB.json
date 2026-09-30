@@ -1,0 +1,18 @@
+{
+  "@parent": "en_US",
+  "dashboard.analyze": "Analyse security",
+  "dashboard.analyzing": "Analysing the vault…",
+  "detail.favorite.add": "Add to favourites",
+  "detail.favorite.remove": "Remove from favourites",
+  "entry_dialog.favorite": "Favourite",
+  "generator.capitalize": "Capitalise each word",
+  "import.error.unknown_format": "Unrecognised CSV format. Accepted formats: Bitwarden, KeePassXC, Chrome, Firefox, Keyra, or a CSV with at least a \"password\" column and a \"name\", \"title\", \"url\" or \"username\" column.",
+  "pdf.uncategorized": "Uncategorised",
+  "settings.backup_dir.hint": "A synchronised folder is fine: the backup content is encrypted (only the vault name and some technical information stay readable).",
+  "vault.category.delete.text.one": "Its {count} entry will not be deleted: it will become \"Uncategorised\".",
+  "vault.category.delete.text.other": "Its {count} entries will not be deleted: they will become \"Uncategorised\".",
+  "vault.category.none_count": "Uncategorised   ·  {count}",
+  "vault.empty.favorites": "No favourites",
+  "vault.filter.category_none": "Category: uncategorised",
+  "vault.filter.favorites": "Favourites"
+}

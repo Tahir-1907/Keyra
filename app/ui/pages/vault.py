@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from app.core.entries import ENTRY_TYPES, UNCATEGORIZED, EntryFilter
 from app.core.exceptions import CategoryError, EntryError
+from app.i18n import tr, tr_n
 from app.ui import components as ui
 from app.ui import dialogs, lucide, theme
 from app.ui.detail_panel import DetailPanel
@@ -28,8 +29,8 @@ SEARCH_DEBOUNCE_MS = 150
 
 class VaultPage(Page):
     key = "vault"
-    title = "Vault"
-    subtitle = "Your entries and credentials"
+    title_key = "page.vault.title"
+    subtitle_key = "page.vault.subtitle"
     icon = "key-round"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -44,8 +45,8 @@ class VaultPage(Page):
         self._search_timer.timeout.connect(self._on_search_timeout)
 
         # --- Filter bar ---------------------------------------------------------
-        self.all_chip = ui.button("All", kind="Chip")
-        self.fav_chip = ui.button("Favorites", "star", "Chip")
+        self.all_chip = ui.button(tr("vault.filter.all"), kind="Chip")
+        self.fav_chip = ui.button(tr("vault.filter.favorites"), "star", "Chip")
         for chip in (self.all_chip, self.fav_chip):
             chip.setCheckable(True)
         group = QButtonGroup(self)
@@ -54,7 +55,7 @@ class VaultPage(Page):
         self.all_chip.setChecked(True)
         self.all_chip.clicked.connect(lambda: self._set_favorites(False))
         self.fav_chip.clicked.connect(lambda: self._set_favorites(True))
-        self.category_button = ui.button("Category: all", "folder", "Chip")
+        self.category_button = ui.button(tr("vault.filter.category_all"), "folder", "Chip")
         self.category_menu = QMenu(self.category_button)
         self.category_menu.aboutToShow.connect(self._fill_category_menu)
         self.category_button.setMenu(self.category_menu)
@@ -75,9 +76,9 @@ class VaultPage(Page):
         self.list.entry_selected.connect(self._on_selected)
         self.list.favorite_clicked.connect(self._toggle_favorite_from_list)
         self.list.activated_entry.connect(self.edit_entry)
-        self.empty = ui.EmptyState("key-round", "Your vault is empty",
-                                   "Add your first entry to start protecting "
-                                   "your credentials.", "Add an entry", self.new_entry)
+        self.empty = ui.EmptyState("key-round", tr("vault.empty.title"),
+                                   tr("vault.empty.text"), tr("vault.empty.action"),
+                                   self.new_entry)
         self.list_stack = QStackedWidget()
         self.list_stack.addWidget(self.list)
         self.list_stack.addWidget(self.empty)
@@ -154,7 +155,8 @@ class VaultPage(Page):
         menu = self.category_menu
         menu.clear()
         overview = self.ctx.categories.overview()
-        menu.addAction(lucide.icon("folder-open"), f"All   ·  {overview.total}",
+        menu.addAction(lucide.icon("folder-open"),
+                       tr("vault.category.all_count", count=overview.total),
                        lambda: self._set_category(None))
         menu.addSeparator()
         for cat in overview.categories:
@@ -162,24 +164,31 @@ class VaultPage(Page):
                                     lambda c=cat.id: self._set_category(c))
             action.setCheckable(True)
             action.setChecked(cat.id == self._category_id)
-        menu.addAction(lucide.icon("folder"), f"Uncategorized   ·  {overview.uncategorized}",
+        menu.addAction(lucide.icon("folder"),
+                       tr("vault.category.none_count", count=overview.uncategorized),
                        lambda: self._set_category(UNCATEGORIZED))
         menu.addSeparator()
-        menu.addAction(lucide.icon("plus"), "New category…", self._create_category)
+        menu.addAction(lucide.icon("plus"), tr("vault.category.new_menu"), self._create_category)
         current = next((c for c in overview.categories if c.id == self._category_id), None)
         if current is not None and not current.is_builtin:
-            menu.addAction(lucide.icon("square-pen"), f"Rename \"{current.name}\"…",
+            menu.addAction(lucide.icon("square-pen"),
+                           tr("vault.category.rename_named", name=current.name),
                            lambda: self._rename_category(current.id, current.name))
-            menu.addAction(lucide.icon("trash-2", theme.DANGER), f"Delete \"{current.name}\"…",
+            menu.addAction(lucide.icon("trash-2", theme.DANGER),
+                           tr("vault.category.delete_named", name=current.name),
                            lambda: self._delete_category(current.id, current.name,
                                                          current.entry_count))
 
     def _set_category(self, category_id: int | None) -> None:
         self._category_id = category_id
         names = {c.id: c.name for c in self.ctx.categories.list_categories()}
-        label = ("all" if category_id is None else
-                 "uncategorized" if category_id == UNCATEGORIZED else names.get(category_id, ""))
-        self.category_button.setText(f"Category: {label}")
+        if category_id is None:
+            self.category_button.setText(tr("vault.filter.category_all"))
+        elif category_id == UNCATEGORIZED:
+            self.category_button.setText(tr("vault.filter.category_none"))
+        else:
+            self.category_button.setText(tr("vault.filter.category_named",
+                                            name=names.get(category_id, "")))
         self.category_button.setChecked(category_id is not None)
         self.refresh()
 
@@ -193,7 +202,7 @@ class VaultPage(Page):
         keep = select_id if select_id is not None else self.detail.current_entry_id()
         rows = self.ctx.entries.list_entries(self._filter())
         self.list.set_entries(rows, animate=animate)
-        self.count_label.setText(f"{len(rows)} entr{'ies' if len(rows) > 1 else 'y'}")
+        self.count_label.setText(tr_n("vault.count", len(rows)))
         if rows:
             self.list_stack.setCurrentWidget(self.list)
         else:
@@ -206,20 +215,18 @@ class VaultPage(Page):
 
     def _show_empty(self) -> None:
         if self._text.strip():
-            self.empty.set_text("No results",
-                                f"No entry matches \"{self._text.strip()}\".")
+            self.empty.set_text(tr("palette.no_results"),
+                                tr("vault.empty.search", text=self._text.strip()))
             self.empty.halo.set_icon("search")
         elif self._favorites_only:
-            self.empty.set_text("No favorites",
-                                "Click the star of an entry to find it here.")
+            self.empty.set_text(tr("vault.empty.favorites"),
+                                tr("vault.empty.favorites.text"))
             self.empty.halo.set_icon("star")
         elif self._category_id is not None:
-            self.empty.set_text("Empty category", "No entry in this category.")
+            self.empty.set_text(tr("vault.empty.category"), tr("vault.empty.category.text"))
             self.empty.halo.set_icon("folder")
         else:
-            self.empty.set_text("Your vault is empty",
-                                "Add your first entry to start protecting "
-                                "your credentials.")
+            self.empty.set_text(tr("vault.empty.title"), tr("vault.empty.text"))
             self.empty.halo.set_icon("key-round")
         if self.empty.action is not None:
             self.empty.action.setVisible(not self._text.strip() and not self._favorites_only)
@@ -248,7 +255,7 @@ class VaultPage(Page):
         self._favorites_only = False
         self._category_id = None
         self.all_chip.setChecked(True)
-        self.category_button.setText("Category: all")
+        self.category_button.setText(tr("vault.filter.category_all"))
         self.refresh(select_id=entry_id)
         self.list.select_entry(entry_id, emit=False)
         self.list.setFocus()
@@ -269,7 +276,7 @@ class VaultPage(Page):
         if dialog.exec() and dialog.saved_entry_id is not None:
             self.ctx.changed()
             self.open_entry(dialog.saved_entry_id)
-            self.ctx.notify("Entry added", dialog.name.text().strip(), icon="plus")
+            self.ctx.notify(tr("vault.entry_added"), dialog.name.text().strip(), icon="plus")
 
     def edit_entry(self, entry_id: int | None = None) -> None:
         entry_id = entry_id if entry_id is not None else self.selected_id()
@@ -278,7 +285,7 @@ class VaultPage(Page):
         try:
             entry = self.ctx.entries.get_entry(entry_id)
         except EntryError as exc:
-            dialogs.alert(self, "Edit impossible", str(exc))
+            dialogs.alert(self, tr("vault.edit_impossible"), str(exc))
             return
         dialog = EntryDialog(self.ctx.entries, self.ctx.categories.list_categories(),
                              self.ctx.clipboard, entry=entry, parent=self,
@@ -287,30 +294,29 @@ class VaultPage(Page):
             self.detail.clear()
             self.ctx.changed()
             self.refresh(animate=False, select_id=entry_id)
-            self.ctx.notify("Changes saved", entry.service_name, icon="check")
+            self.ctx.notify(tr("vault.changes_saved"), entry.service_name, icon="check")
 
     def delete_entry(self, entry_id: int | None = None) -> None:
         entry_id = entry_id if entry_id is not None else self.selected_id()
         if entry_id is None:
             return
         summary = self.list.model().summary(self.list.model().row_of(entry_id))
-        name = summary.service_name if summary else "this entry"
-        if not dialogs.confirm(self, f"Delete {name}?",
-                               "This entry will be moved to the Trash. You will be able to "
-                               "restore it for as long as the Trash keeps it.",
-                               "Move to Trash", danger=True, icon="trash-2"):
+        name = summary.service_name if summary else tr("vault.this_entry")
+        if not dialogs.confirm(self, tr("vault.delete.title", name=name),
+                               tr("vault.delete.text"),
+                               tr("action.delete_entry"), danger=True, icon="trash-2"):
             return
 
         def remove() -> None:
             try:
                 self.ctx.entries.delete_entry(entry_id)
             except EntryError as exc:
-                dialogs.alert(self, "Deletion impossible", str(exc))
+                dialogs.alert(self, tr("delete_vault.impossible"), str(exc))
                 return
             self.detail.clear()
             self.ctx.changed()
             self.refresh(animate=False)
-            self.ctx.notify("Moved to Trash", name, icon="trash-2")
+            self.ctx.notify(tr("vault.moved_to_trash"), name, icon="trash-2")
 
         self.list.animate_removal(entry_id, remove)
 
@@ -321,17 +327,17 @@ class VaultPage(Page):
         try:
             new_id = self.ctx.entries.duplicate_entry(entry_id)
         except EntryError as exc:
-            dialogs.alert(self, "Duplicate impossible", str(exc))
+            dialogs.alert(self, tr("vault.duplicate_impossible"), str(exc))
             return
         self.ctx.changed()
         self.refresh(animate=False, select_id=new_id)
-        self.ctx.notify("Entry duplicated", icon="copy-plus")
+        self.ctx.notify(tr("vault.duplicated"), icon="copy-plus")
 
     def set_favorite(self, entry_id: int, value: bool) -> None:
         try:
             self.ctx.entries.set_favorite(entry_id, value)
         except EntryError as exc:
-            dialogs.alert(self, "Favorites", str(exc))
+            dialogs.alert(self, tr("vault.filter.favorites"), str(exc))
             return
         self.detail.set_favorite_state(value)
         self.refresh(animate=False)
@@ -350,7 +356,7 @@ class VaultPage(Page):
             self.detail.clear()
             self.ctx.changed()
             self.refresh(animate=False, select_id=entry_id)
-            self.ctx.notify("History updated", icon="history")
+            self.ctx.notify(tr("vault.history_updated"), icon="history")
 
     def copy_selected_password(self) -> None:
         entry_id = self.selected_id()
@@ -359,11 +365,11 @@ class VaultPage(Page):
         try:
             entry = self.ctx.entries.get_entry(entry_id)
         except EntryError as exc:
-            dialogs.alert(self, "Copy impossible", str(exc))
+            dialogs.alert(self, tr("vault.copy_impossible"), str(exc))
             return
         spec = ENTRY_TYPES[entry.entry_type]
         if not spec.uses_password or not entry.password:
-            self.ctx.notify("No password", "This entry has no password.",
+            self.ctx.notify(tr("vault.no_password"), tr("vault.no_password.text"),
                             kind="warning")
             return
         self.ctx.clipboard.copy(entry.password, spec.password_label)
@@ -371,46 +377,47 @@ class VaultPage(Page):
     def copy_selected_username(self) -> None:
         summary = self.list.selected_summary()
         if summary is None or not summary.username:
-            self.ctx.notify("No username", kind="warning")
+            self.ctx.notify(tr("vault.no_username"), kind="warning")
             return
-        self.ctx.clipboard.copy(summary.username, "Username", sensitive=False)
+        self.ctx.clipboard.copy(summary.username, tr("field.username"), sensitive=False)
 
     # --- Categories -------------------------------------------------------------------------------
 
     def _create_category(self) -> None:
-        name = dialogs.prompt_text(self, "New category", "Category name",
-                                   placeholder="E.g. Video games", icon="folder")
+        name = dialogs.prompt_text(self, tr("vault.category.new"), tr("vault.category.name"),
+                                   placeholder=tr("vault.category.placeholder"), icon="folder")
         if name is None:
             return
         try:
             category_id = self.ctx.categories.create_category(name)
         except CategoryError as exc:
-            dialogs.alert(self, "Category", str(exc))
+            dialogs.alert(self, tr("field.category"), str(exc))
             return
         self._set_category(category_id)
-        self.ctx.notify("Category created", name.strip(), icon="folder")
+        self.ctx.notify(tr("vault.category.created"), name.strip(), icon="folder")
 
     def _rename_category(self, category_id: int, current: str) -> None:
-        name = dialogs.prompt_text(self, "Rename the category", "New name", current,
+        name = dialogs.prompt_text(self, tr("vault.category.rename"),
+                                   tr("settings.vault.new_name"), current,
                                    icon="folder")
         if name is None:
             return
         try:
             self.ctx.categories.rename_category(category_id, name)
         except CategoryError as exc:
-            dialogs.alert(self, "Category", str(exc))
+            dialogs.alert(self, tr("field.category"), str(exc))
             return
         self._set_category(category_id)
 
     def _delete_category(self, category_id: int, name: str, count: int) -> None:
-        if not dialogs.confirm(self, f"Delete the category \"{name}\"?",
-                               f"Its {count} entry(ies) will not be deleted: they will become "
-                               "\"Uncategorized\".", "Delete the category", danger=True):
+        if not dialogs.confirm(self, tr("vault.category.delete.title", name=name),
+                               tr_n("vault.category.delete.text", count),
+                               tr("vault.category.delete"), danger=True):
             return
         try:
             self.ctx.categories.delete_category(category_id)
         except CategoryError as exc:
-            dialogs.alert(self, "Category", str(exc))
+            dialogs.alert(self, tr("field.category"), str(exc))
             return
         self._set_category(None)
         self.ctx.changed()

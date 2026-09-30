@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import SLOT, QObject, Signal, Slot
 
+from app.i18n import tr
 from app.utils.logging import get_logger
 
 try:
@@ -58,9 +59,9 @@ class SystemLockMonitor(QObject):
     @Slot(bool)
     def _on_screensaver(self, active: bool) -> None:
         if active:
-            self.lock_requested.emit("Vault locked: the session was locked.")
+            self.lock_requested.emit(tr("lock.reason.session"))
 
     @Slot(bool)
     def _on_prepare_for_sleep(self, going_to_sleep: bool) -> None:
         if going_to_sleep:
-            self.lock_requested.emit("Vault locked: the system is going to sleep.")
+            self.lock_requested.emit(tr("lock.reason.sleep"))

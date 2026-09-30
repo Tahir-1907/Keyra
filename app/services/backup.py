@@ -56,6 +56,7 @@ from app.core.vault import (
 from app.database import database
 from app.database.models import VaultMeta
 from app.database.repositories import VaultMetaRepository
+from app.i18n import tr
 from app.utils.files import write_private_atomic
 from app.utils.logging import get_logger
 from app.utils.paths import default_backup_dir, vault_path
@@ -71,12 +72,14 @@ DEFAULT_AUTO_BACKUPS_KEPT = 10
 KIND_MANUAL = "manuelle"
 KIND_AUTO = "auto"
 KIND_MIGRATION = "migration"  # made just before a schema migration; never rotated
-KIND_LABELS = {KIND_MANUAL: "Manual", KIND_AUTO: "Automatic", KIND_MIGRATION: "Migration"}
+# Translation keys (app/i18n) of the persisted kinds; the stored values never change.
+KIND_LABELS = {KIND_MANUAL: "backup.kind.manual", KIND_AUTO: "backup.kind.auto",
+               KIND_MIGRATION: "backup.kind.migration"}
 
 
 def kind_label(kind: str) -> str:
-    """English display label of a persisted backup kind (unknown kinds shown as is)."""
-    return KIND_LABELS.get(kind, kind)
+    """Display label of a persisted backup kind (unknown kinds shown as is)."""
+    return tr(KIND_LABELS[kind]) if kind in KIND_LABELS else kind
 
 
 class BackupError(VaultError):
@@ -108,7 +111,7 @@ def _unb64(value: object) -> bytes:
 def _header_for(vault: Vault, kind: str) -> dict:
     meta = VaultMetaRepository(vault.connection).get()
     if meta is None:
-        raise VaultCorruptedError("Vault metadata missing.")
+        raise VaultCorruptedError(tr("vault.error.meta_missing"))
     return {
         "format": "mon-coffre-fort-backup",
         "version": 1,
@@ -143,7 +146,7 @@ def _meta_from_header(header: dict) -> VaultMeta:
             updated_at=str(header["created_at"]),
         )
     except (KeyError, TypeError, ValueError) as exc:
-        raise BackupError("Invalid backup header.") from exc
+        raise BackupError(tr("backup.error.header_invalid")) from exc
 
 
 def _read(path: Path) -> tuple[bytes, dict, bytes]:
@@ -151,25 +154,25 @@ def _read(path: Path) -> tuple[bytes, dict, bytes]:
     try:
         data = path.read_bytes()
     except OSError as exc:
-        raise BackupError(f"Cannot read {path.name}.") from exc
+        raise BackupError(tr("backup.error.cannot_read", name=path.name)) from exc
     if not data.startswith(MAGIC) or len(data) < len(MAGIC) + 4:
-        raise BackupError(f"{path.name} is not a Keyra backup.")
+        raise BackupError(tr("backup.error.not_keyra", name=path.name))
     (length,) = struct.unpack(">I", data[len(MAGIC):len(MAGIC) + 4])
     start = len(MAGIC) + 4
     if length > _MAX_HEADER_SIZE or start + length > len(data):
-        raise BackupError("Truncated or invalid backup.")
+        raise BackupError(tr("backup.error.truncated_or_invalid"))
     header_bytes = data[start:start + length]
     try:
         header = json.loads(header_bytes)
     except json.JSONDecodeError as exc:
-        raise BackupError("Unreadable backup header.") from exc
+        raise BackupError(tr("backup.error.header_unreadable")) from exc
     if not isinstance(header, dict) or header.get("format") != "mon-coffre-fort-backup":
-        raise BackupError("Unknown backup format.")
+        raise BackupError(tr("backup.error.unknown_format"))
     version = header.get("version")
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
-        raise BackupError("Invalid backup version.")
+        raise BackupError(tr("backup.error.version_invalid"))
     if version > 1:
-        raise BackupError("Backup created by a newer version of the application.")
+        raise BackupError(tr("backup.error.newer"))
     return header_bytes, header, data[start + length:]
 
 
@@ -254,9 +257,9 @@ def delete_backup(path: Path, vault_id: str) -> None:
     """
     path = Path(path)
     if path.suffix != BACKUP_SUFFIX or not path.is_file():
-        raise BackupError("This file is not a backup.")
+        raise BackupError(tr("backup.error.not_backup"))
     if read_backup_info(path).vault_id != vault_id:
-        raise BackupError("This backup belongs to another vault.")
+        raise BackupError(tr("backup.error.other_vault"))
     path.unlink()
 
 
@@ -286,26 +289,26 @@ def verify_backup(path: Path, dek: bytes) -> None:
     header_bytes, header, rest = _read(path)
     meta = _meta_from_header(header)
     if len(rest) < crypto.NONCE_SIZE + crypto.TAG_SIZE:
-        raise BackupError("Truncated backup.")
+        raise BackupError(tr("backup.error.truncated"))
     key = crypto.derive_subkey(dek, _BACKUP_KEY_INFO)
     try:
         image = bytearray(zlib.decompress(crypto.aes_gcm_decrypt(
             key, rest[:crypto.NONCE_SIZE], rest[crypto.NONCE_SIZE:], MAGIC + header_bytes)))
     except (crypto.AuthenticationFailed, zlib.error) as exc:
-        raise BackupError("The backup does not decrypt with the key of this vault.") from exc
+        raise BackupError(tr("backup.error.wrong_key")) from exc
     if len(image) < 100 or not image.startswith(b"SQLite format 3\x00"):
-        raise BackupError("The backup content is not a valid database.")
+        raise BackupError(tr("backup.error.not_database"))
     image[18] = image[19] = 1  # classic journal mode (as when restoring)
     conn = sqlite3.connect(":memory:")
     try:
         conn.deserialize(bytes(image))
         if conn.execute("PRAGMA integrity_check;").fetchone()[0] != "ok":
-            raise BackupError("The database contained in the backup is inconsistent.")
+            raise BackupError(tr("backup.error.inconsistent"))
         stored = conn.execute("SELECT schema_version FROM vault_meta WHERE id = 1;").fetchone()
         if stored is None or stored[0] != meta.schema_version:
-            raise BackupError("The backup header and content do not match.")
+            raise BackupError(tr("backup.error.mismatch"))
     except sqlite3.DatabaseError as exc:
-        raise BackupError("The database contained in the backup is unreadable.") from exc
+        raise BackupError(tr("backup.error.database_unreadable")) from exc
     finally:
         conn.close()
 
@@ -322,18 +325,20 @@ def restore_backup(path: Path, master_password: str) -> VaultInfo:
     dek = unwrap_data_key(master_password, meta)  # WrongMasterPasswordError if wrong
 
     if len(rest) < crypto.NONCE_SIZE + 16:
-        raise BackupError("Truncated backup.")
+        raise BackupError(tr("backup.error.truncated"))
     nonce, ciphertext = rest[:crypto.NONCE_SIZE], rest[crypto.NONCE_SIZE:]
     key = crypto.derive_subkey(dek, _BACKUP_KEY_INFO)
     try:
         compressed = crypto.aes_gcm_decrypt(key, nonce, ciphertext, MAGIC + header_bytes)
         database_bytes = zlib.decompress(compressed)
     except (crypto.AuthenticationFailed, zlib.error) as exc:
-        raise VaultCorruptedError("The backup has been tampered with or is corrupted.") from exc
+        raise VaultCorruptedError(tr("backup.error.tampered")) from exc
 
-    suffix = f" (restored {datetime.now().astimezone():%Y-%m-%d %H:%M})"
+    # Part of the NEW vault's name, written in the interface language of the moment.
+    suffix = tr("backup.restored_suffix", date=f"{datetime.now().astimezone():%Y-%m-%d %H:%M}")
     # The name comes from the header (not authenticated at this point): bounded and cleaned.
-    base = " ".join(meta.vault_name.split())[:MAX_VAULT_NAME_LENGTH - len(suffix)] or "Vault"
+    base = (" ".join(meta.vault_name.split())[:MAX_VAULT_NAME_LENGTH - len(suffix)]
+            or tr("backup.default_vault_name"))
     restored_name = validate_vault_name(base + suffix)
     new_id = generate_vault_id(meta.vault_name)
     directory = vault_path(new_id)
@@ -341,7 +346,7 @@ def restore_backup(path: Path, master_password: str) -> VaultInfo:
     try:
         image = bytearray(database_bytes)
         if len(image) < 100 or not image.startswith(b"SQLite format 3\x00"):
-            raise BackupError("The backup content is not a valid database.")
+            raise BackupError(tr("backup.error.not_database"))
         # Bytes 18-19 of the SQLite header = 2 in WAL mode: switch back to classic
         # journal mode so that the file is readable on its own (without -wal);
         # database.connect() then re-enables WAL.
@@ -351,7 +356,7 @@ def restore_backup(path: Path, master_password: str) -> VaultInfo:
         conn = database.connect(db_path)
         try:
             if conn.execute("PRAGMA integrity_check;").fetchone()[0] != "ok":
-                raise BackupError("The database contained in the backup is inconsistent.")
+                raise BackupError(tr("backup.error.inconsistent"))
             with conn:
                 VaultMetaRepository(conn).rename_vault(
                     restored_name, datetime.now(UTC).isoformat()
@@ -370,7 +375,7 @@ def restore_backup(path: Path, master_password: str) -> VaultInfo:
         shutil.rmtree(directory, ignore_errors=True)
         if isinstance(exc, VaultError):
             raise
-        raise BackupError("The restore failed; no vault was created.") from exc
+        raise BackupError(tr("backup.error.restore_failed")) from exc
 
     get_logger().info("Backup restored as new vault: %s", new_id)
     return VaultInfo(new_id, restored_name, meta.format_version, meta.created_at, meta.created_at)

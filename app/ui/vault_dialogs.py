@@ -10,6 +10,7 @@ from app import __version__
 from app.core.exceptions import VaultError, WrongMasterPasswordError
 from app.core.strength import estimate_strength
 from app.core.vault import MIN_MASTER_PASSWORD_LENGTH, Vault, delete_vault
+from app.i18n import tr
 from app.ui import components as ui
 from app.ui import theme
 from app.ui.dialogs import PremiumDialog
@@ -38,29 +39,28 @@ def _labeled(title: str, widget: QWidget) -> QWidget:
 
 class ChangeMasterPasswordDialog(PremiumDialog):
     def __init__(self, vault: Vault, parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Change master password",
-                         "Only the wrapped key is re-encrypted: your data is not "
-                         "rewritten.", icon="key-round", width=500)
+        super().__init__(parent, tr("password_change.title"),
+                         tr("password_change.subtitle"), icon="key-round", width=500)
         self._vault = vault
-        note = ui.label("Backups created earlier remain protected by the OLD "
-                        "password. A new backup is created right after the change.",
-                        "Faint", wrap=True)
+        note = ui.label(tr("password_change.note"), "Faint", wrap=True)
         self.body.addWidget(note)
-        self.current = PasswordField("Current master password")
-        self.new = PasswordField(f"{MIN_MASTER_PASSWORD_LENGTH} characters minimum")
-        self.confirm = PasswordField("Confirm the new password")
+        self.current = PasswordField(tr("password_change.current_placeholder"))
+        self.new = PasswordField(tr("password_change.new_placeholder",
+                                                min=MIN_MASTER_PASSWORD_LENGTH))
+        self.confirm = PasswordField(tr("password_change.confirm_placeholder"))
         self.meter = ui.StrengthBar()
         self.meter_label = ui.label("", "Faint")
         self.new.textChanged.connect(self._update_meter)
-        self.body.addWidget(_labeled("Current password", self.current))
-        self.body.addWidget(_labeled("New password", self.new))
+        self.body.addWidget(_labeled(tr("password_change.current"), self.current))
+        self.body.addWidget(_labeled(tr("password_change.new"), self.new))
         self.body.addWidget(self.meter)
         self.body.addWidget(self.meter_label)
-        self.body.addWidget(_labeled("Confirmation", self.confirm))
+        self.body.addWidget(_labeled(tr("password_change.confirmation"), self.confirm))
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, ok = self.add_buttons("Cancel", "Change password", confirm_icon="key-round")
+        _, ok = self.add_buttons(tr("common.cancel"), tr("password_change.submit"),
+                                 confirm_icon="key-round")
         ok.clicked.connect(self._submit)
 
     def _update_meter(self, text: str) -> None:
@@ -70,7 +70,8 @@ class ChangeMasterPasswordDialog(PremiumDialog):
             return
         result = estimate_strength(text)
         self.meter.set_score(result.score, result.entropy_bits)
-        self.meter_label.setText(f"{result.label} · ~{result.entropy_bits:.0f} bits")
+        self.meter_label.setText(tr("strength.summary", label=result.label,
+                                    bits=f"{result.entropy_bits:.0f}"))
 
     def _fail(self, message: str) -> None:
         self.error.setText(message)
@@ -78,21 +79,20 @@ class ChangeMasterPasswordDialog(PremiumDialog):
 
     def _submit(self) -> None:
         if self.new.text() != self.confirm.text():
-            self._fail("The two new passwords do not match.")
+            self._fail(tr("password_change.error.mismatch"))
             return
         if self.new.text() == self.current.text():
-            self._fail("The new password must differ from the current one.")
+            self._fail(tr("password_change.error.same"))
             return
         if len(self.new.text()) >= MIN_MASTER_PASSWORD_LENGTH and \
                 estimate_strength(self.new.text()).score < 2:
-            self._fail("This master password is too easy to guess. "
-                       "A passphrase of 5 to 6 words is recommended.")
+            self._fail(tr("password_change.error.weak"))
             return
         try:
             with _Busy():
                 self._vault.change_master_password(self.current.text(), self.new.text())
         except WrongMasterPasswordError:
-            self._fail("The current master password is wrong.")
+            self._fail(tr("vault.error.wrong_current_password"))
             return
         except VaultError as exc:
             self._fail(str(exc))
@@ -113,25 +113,24 @@ class DeleteVaultDialog(PremiumDialog):
     """
 
     def __init__(self, vault_id: str, vault_name: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent, f"Delete the vault \"{vault_name}\"?",
+        super().__init__(parent, tr("delete_vault.title", name=vault_name),
                          icon="triangle-alert", width=500)
         self._vault_name = vault_name
         self.entered_password = ""
         warning = ui.label(
-            "The vault and ALL its content (entries, history, Trash) will be permanently "
-            "deleted from this computer. The backup files (.mcfbak) are kept and "
-            "will allow it to be restored.", wrap=True)
+            tr("delete_vault.warning"), wrap=True)
         warning.setStyleSheet(f"color: {theme.DANGER};")
         self.body.addWidget(warning)
         self.name = QLineEdit()
         self.name.setPlaceholderText(vault_name)
-        self.password = PasswordField("Master password of this vault")
-        self.body.addWidget(_labeled("Type the vault name to confirm", self.name))
-        self.body.addWidget(_labeled("Master password", self.password))
+        self.password = PasswordField(tr("delete_vault.password_placeholder"))
+        self.body.addWidget(_labeled(tr("delete_vault.type_name"), self.name))
+        self.body.addWidget(_labeled(tr("common.master_password"), self.password))
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, self.ok = self.add_buttons("Cancel", "Delete permanently", "Danger", "trash-2")
+        _, self.ok = self.add_buttons(tr("common.cancel"), tr("delete_vault.submit"), "Danger",
+                                      "trash-2")
         self.ok.setEnabled(False)
         self.ok.clicked.connect(self._submit)
         self.name.textChanged.connect(
@@ -139,7 +138,7 @@ class DeleteVaultDialog(PremiumDialog):
 
     def _submit(self) -> None:
         if not self.password.text():
-            self.error.setText("Enter the master password.")
+            self.error.setText(tr("delete_vault.error.password"))
             self.error.show()
             return
         self.entered_password = self.password.text()
@@ -156,37 +155,38 @@ def delete_closed_vault(vault_id: str, password: str) -> None:
         delete_vault(vault_id, password)
 
 
+# (keys, translation key of the description)
 SHORTCUTS = (
-    ("Ctrl+K", "Command palette"),
-    ("Ctrl+N", "New entry"),
-    ("Ctrl+F", "Search"),
-    ("Ctrl+G", "Password generator"),
-    ("Enter / Ctrl+E", "Edit the selected entry"),
-    ("Ctrl+D", "Duplicate the selected entry"),
-    ("Del", "Move to Trash"),
-    ("Ctrl+C", "Copy the password (list)"),
-    ("Ctrl+B", "Copy the username (list)"),
-    ("Alt+1 … Alt+6", "Switch view"),
-    ("Ctrl+,", "Settings"),
-    ("Ctrl+L", "Lock the vault"),
-    ("Esc", "Close / clear the search"),
-    ("F11", "Full screen"),
-    ("F1", "This help"),
+    ("Ctrl+K", "action.palette"),
+    ("Ctrl+N", "action.new_entry"),
+    ("Ctrl+F", "action.search"),
+    ("Ctrl+G", "action.generator"),
+    ("Enter / Ctrl+E", "shortcuts.edit"),
+    ("Ctrl+D", "shortcuts.duplicate"),
+    ("Del", "action.delete_entry"),
+    ("Ctrl+C", "shortcuts.copy_password"),
+    ("Ctrl+B", "shortcuts.copy_username"),
+    ("Alt+1 … Alt+6", "shortcuts.switch_view"),
+    ("Ctrl+,", "action.settings"),
+    ("Ctrl+L", "shortcuts.lock"),
+    ("Esc", "shortcuts.escape"),
+    ("F11", "action.fullscreen"),
+    ("F1", "shortcuts.help"),
 )
 
 
 class ShortcutsDialog(PremiumDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Keyboard shortcuts", icon="keyboard", width=480)
+        super().__init__(parent, tr("action.shortcuts"), icon="keyboard", width=480)
         grid = QGridLayout()
         grid.setHorizontalSpacing(20)
         grid.setVerticalSpacing(9)
         for row, (keys, action) in enumerate(SHORTCUTS):
             grid.addWidget(ui.label(keys, "Badge"), row, 0, Qt.AlignLeft)
-            grid.addWidget(ui.label(action, "Muted"), row, 1)
+            grid.addWidget(ui.label(tr(action), "Muted"), row, 1)
         grid.setColumnStretch(1, 1)
         self.body.addLayout(grid)
-        _, ok = self.add_buttons("", "Close")
+        _, ok = self.add_buttons("", tr("common.close"))
         ok.clicked.connect(self.accept)
 
 
@@ -198,15 +198,13 @@ class AboutDialog(PremiumDialog):
         title = ui.label("Keyra", "H1")
         title.setAlignment(Qt.AlignCenter)
         self.body.addWidget(title)
-        version = ui.label(f"Version {__version__}", "BadgeAccent")
+        version = ui.label(tr("about.version", version=__version__), "BadgeAccent")
         self.body.addWidget(version, 0, Qt.AlignHCenter)
-        text = ui.label("Local, offline, encrypted password manager.\n"
-                        "Argon2id + AES-256-GCM (envelope encryption).\n"
-                        "No data is sent over the Internet.", "Muted", wrap=True)
+        text = ui.label(tr("about.description"), "Muted", wrap=True)
         text.setAlignment(Qt.AlignCenter)
         self.body.addWidget(text)
-        credits_ = ui.label("Inter font (OFL) · Lucide icons (ISC)", "Faint")
+        credits_ = ui.label(tr("about.credits"), "Faint")
         credits_.setAlignment(Qt.AlignCenter)
         self.body.addWidget(credits_)
-        _, ok = self.add_buttons("", "Close")
+        _, ok = self.add_buttons("", tr("common.close"))
         ok.clicked.connect(self.accept)

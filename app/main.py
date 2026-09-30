@@ -10,8 +10,9 @@ import os
 import sys
 import threading
 
-from app import __version__
+from app import __version__, i18n
 from app.core import strength
+from app.i18n import tr
 from app.utils.logging import setup_logging
 
 # Must match the name of the .desktop file (packaging/mon-coffre-fort.desktop)
@@ -28,8 +29,7 @@ def _check_user_environment() -> str | None:
       once with sudo, or a shared/misconfigured HOME).
     """
     if os.geteuid() == 0:
-        return ("Keyra must not be run as root (sudo).\n"
-                "Start it with your usual user account.")
+        return tr("startup.root")
     for env, default in (("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")):
         base = os.environ.get(env) or os.path.join(os.path.expanduser("~"), default)
         path = os.path.join(base, "mon-coffre")
@@ -38,9 +38,7 @@ def _check_user_environment() -> str | None:
         except FileNotFoundError:
             continue
         if owner != os.getuid():
-            return (f"The folder {path} does not belong to the current user.\n"
-                    "It was probably created by running the application with sudo.\n"
-                    f"Fix it with: sudo chown -R $USER: {path}")
+            return tr("startup.foreign_folder", path=path)
     return None
 
 
@@ -48,6 +46,9 @@ def main() -> int:
     # Every file created by the application (vaults, WAL, logs) is readable
     # only by its owner, in addition to the directories already restricted to 0700.
     os.umask(0o077)
+    # Messages before the settings are read: system language (MainWindow then applies
+    # the "language" setting).
+    i18n.set_language(i18n.detector.detect())
     problem = _check_user_environment()
     if problem:
         print(problem, file=sys.stderr)
@@ -65,12 +66,7 @@ def main() -> int:
     try:
         from PySide6.QtWidgets import QApplication
     except ImportError:
-        print(
-            "PySide6 is not installed in this environment.\n"
-            "Install the dependencies with:\n"
-            "    pip install -r requirements.txt\n",
-            file=sys.stderr,
-        )
+        print(tr("startup.no_pyside6"), file=sys.stderr)
         return 1
 
     from app.ui.icons import app_icon

@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.core.exceptions import VaultError
+from app.i18n import tr
 
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 128
@@ -95,13 +96,11 @@ def _character_classes(options: PasswordOptions) -> list[str]:
 def generate_password(options: PasswordOptions = PasswordOptions()) -> GeneratedSecret:
     """Random password containing at least one character from each selected class."""
     if not MIN_PASSWORD_LENGTH <= options.length <= MAX_PASSWORD_LENGTH:
-        raise GeneratorError(
-            f"The length must be between {MIN_PASSWORD_LENGTH} "
-            f"and {MAX_PASSWORD_LENGTH} characters."
-        )
+        raise GeneratorError(tr("generator.error.length", min=MIN_PASSWORD_LENGTH,
+                                max=MAX_PASSWORD_LENGTH))
     classes = _character_classes(options)
     if not classes:
-        raise GeneratorError("Select at least one character type.")
+        raise GeneratorError(tr("generator.error.no_class"))
     alphabet = "".join(classes)
     chars = [secrets.choice(cls) for cls in classes]
     chars += [secrets.choice(alphabet) for _ in range(options.length - len(chars))]
@@ -117,16 +116,13 @@ def load_passphrase_wordlist() -> tuple[str, ...]:
     try:
         text = FRENCH_WORDLIST_PATH.read_text(encoding="utf-8")
     except OSError as exc:
-        raise WordlistUnavailableError(
-            f"Word list not found ({FRENCH_WORDLIST_PATH}). Install the "
-            f"Debian package \"{FRENCH_WORDLIST_PACKAGE}\": "
-            f"sudo apt install {FRENCH_WORDLIST_PACKAGE}"
-        ) from exc
+        raise WordlistUnavailableError(tr(
+            "generator.error.wordlist_missing", path=str(FRENCH_WORDLIST_PATH),
+            package=FRENCH_WORDLIST_PACKAGE)) from exc
     words = sorted({w for w in text.split() if _WORD_PATTERN.match(w)})
     if len(words) < 2048:
-        raise WordlistUnavailableError(
-            f"Word list too short in {FRENCH_WORDLIST_PATH} ({len(words)} words)."
-        )
+        raise WordlistUnavailableError(tr("generator.error.wordlist_short",
+                                          path=str(FRENCH_WORDLIST_PATH), count=len(words)))
     return tuple(words)
 
 
@@ -140,10 +136,8 @@ def passphrase_available() -> bool:
 
 def generate_passphrase(options: PassphraseOptions = PassphraseOptions()) -> GeneratedSecret:
     if not MIN_PASSPHRASE_WORDS <= options.words <= MAX_PASSPHRASE_WORDS:
-        raise GeneratorError(
-            f"The number of words must be between {MIN_PASSPHRASE_WORDS} "
-            f"and {MAX_PASSPHRASE_WORDS}."
-        )
+        raise GeneratorError(tr("generator.error.words", min=MIN_PASSPHRASE_WORDS,
+                                max=MAX_PASSPHRASE_WORDS))
     wordlist = load_passphrase_wordlist()
     words = [secrets.choice(wordlist) for _ in range(options.words)]
     if options.capitalize:

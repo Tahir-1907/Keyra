@@ -32,6 +32,7 @@ from app.core.entries import DEFAULT_ENTRY_TYPE, ENTRY_TYPES, Entry, EntryServic
 from app.core.exceptions import InvalidMasterPasswordPolicyError, VaultError
 from app.core.strength import estimate_strength
 from app.core.vault import MIN_MASTER_PASSWORD_LENGTH, Vault
+from app.i18n import tr, tr_n
 from app.services.import_export import EXPORT_TEMP_PREFIX, _require_master_password
 from app.utils.files import write_private_atomic
 from app.utils.logging import get_logger
@@ -42,8 +43,7 @@ except ImportError:  # pragma: no cover - depends on the installation
     pikepdf = None
 
 PDF_SUFFIX = ".pdf"
-MISSING_DEPENDENCY = ("Password protection requires the Debian package "
-                      "python3-pikepdf (sudo apt install python3-pikepdf).")
+MISSING_DEPENDENCY = "pdf.error.missing_pikepdf"  # translation key (app/i18n)
 
 
 class PdfProtectionUnavailable(VaultError):
@@ -62,11 +62,10 @@ MAX_PDF_PASSWORD_BYTES = 127
 def check_pdf_password_length(password: str) -> None:
     if len(password) < MIN_MASTER_PASSWORD_LENGTH:
         raise InvalidMasterPasswordPolicyError(
-            f"The PDF password must contain at least {MIN_MASTER_PASSWORD_LENGTH} "
-            "characters.")
+            tr("pdf.error.password_too_short", min=MIN_MASTER_PASSWORD_LENGTH))
     if len(password.encode("utf-8")) > MAX_PDF_PASSWORD_BYTES:
         raise InvalidMasterPasswordPolicyError(
-            "Password too long for a PDF (127 bytes maximum).")
+            tr("pdf.error.password_too_long", max=MAX_PDF_PASSWORD_BYTES))
 
 
 def protect(pdf: bytes, password: str) -> bytes:
@@ -76,7 +75,7 @@ def protect(pdf: bytes, password: str) -> bytes:
     would not open is never written.
     """
     if pikepdf is None:
-        raise PdfProtectionUnavailable(MISSING_DEPENDENCY)
+        raise PdfProtectionUnavailable(tr(MISSING_DEPENDENCY))
     check_pdf_password_length(password)
     output = io.BytesIO()
     with pikepdf.open(io.BytesIO(pdf)) as document:
@@ -86,11 +85,10 @@ def protect(pdf: bytes, password: str) -> bytes:
     try:
         with pikepdf.open(io.BytesIO(data), password=password) as check:
             if not check.is_encrypted or len(check.pages) == 0:
-                raise VaultError("The encrypted PDF is invalid.")
+                raise VaultError(tr("pdf.error.invalid"))
     except pikepdf.PdfError as exc:
-        raise VaultError("The encrypted PDF could not be verified; nothing was written.") from exc
+        raise VaultError(tr("pdf.error.unverified")) from exc
     return data
-_NO_CATEGORY = "Uncategorized"
 
 _CSS = """
 body { font-family: 'Inter', 'DejaVu Sans', 'Liberation Sans', sans-serif; font-size: 10pt;
@@ -118,16 +116,16 @@ def _rows(entry: Entry) -> list[tuple[str, str, bool]]:
     spec = ENTRY_TYPES.get(entry.entry_type) or ENTRY_TYPES[DEFAULT_ENTRY_TYPE]
     rows: list[tuple[str, str, bool]] = []
     if spec.uses_url:
-        rows.append(("Address (URL)", entry.url, False))
+        rows.append((tr("pdf.field.url"), entry.url, False))
     if spec.uses_username:
-        rows.append(("Username", entry.username, True))
+        rows.append((tr("field.username"), entry.username, True))
     if spec.uses_email:
-        rows.append(("Email", entry.email, False))
+        rows.append((tr("field.email"), entry.email, False))
     if spec.uses_password:
         rows.append((spec.password_label, entry.password, True))
     for field in spec.extra_fields:
         rows.append((field.label, entry.extra.get(field.key, ""), field.secret))
-    rows.append(("Notes", entry.notes, False))
+    rows.append((tr("field.notes"), entry.notes, False))
     return [(label, value, secret) for label, value, secret in rows if value.strip()]
 
 
@@ -135,22 +133,22 @@ def build_html(vault_name: str, entries: list[Entry], category_names: dict[int, 
                generated_at: datetime | None = None) -> str:
     """HTML document (every value is escaped)."""
     generated_at = generated_at or datetime.now().astimezone()
+    no_category = tr("pdf.uncategorized")
     groups: dict[str, list[Entry]] = {}
     for entry in entries:
         name = category_names.get(entry.category_id, "") if entry.category_id else ""
-        groups.setdefault(name or _NO_CATEGORY, []).append(entry)
+        groups.setdefault(name or no_category, []).append(entry)
+    generated = tr("pdf.generated_on", date=f"{generated_at:%Y-%m-%d}",
+                   time=f"{generated_at:%H:%M}")
     parts = [
         f"<html><head><style>{_CSS}</style></head><body>",
         f"<h1>Keyra — {html.escape(vault_name)}</h1>",
-        f'<p class="meta">{len(entries)} entr{"ies" if len(entries) > 1 else "y"} · '
-        f"generated on {generated_at:%Y-%m-%d at %H:%M}</p>",
-        '<p class="warning"><b>Confidential document.</b> It contains your passwords IN '
-        "PLAINTEXT. Keep it locked away, far from the computer; destroy it (shredder) when it "
-        "is no longer needed, and delete the PDF file after printing.<br>A long password "
-        "may continue on the next line: no character (hyphen, space) is added at the "
-        "break.</p>",
+        f'<p class="meta">{html.escape(tr_n("pdf.entries", len(entries)))} · '
+        f"{html.escape(generated)}</p>",
+        f'<p class="warning"><b>{html.escape(tr("pdf.warning.title"))}</b> '
+        f"{html.escape(tr('pdf.warning.body'))}<br>{html.escape(tr('pdf.warning.wrap'))}</p>",
     ]
-    ordered = sorted(groups, key=lambda g: (g == _NO_CATEGORY, g.casefold()))
+    ordered = sorted(groups, key=lambda g: (g == no_category, g.casefold()))
     for group in ordered:
         parts.append(f"<h2>{html.escape(group)}</h2>")
         # One table per category, fixed-width columns (Qt ignores the CSS width of
@@ -168,7 +166,7 @@ def build_html(vault_name: str, entries: list[Entry], category_names: dict[int, 
             parts.append('<tr><td colspan="2" height="6"></td></tr>')
         parts.append("</table>")
     if not entries:
-        parts.append("<p>This vault contains no entries.</p>")
+        parts.append(f"<p>{html.escape(tr('pdf.empty'))}</p>")
     parts.append("</body></html>")
     return "".join(parts)
 
@@ -208,12 +206,10 @@ def export_pdf(service: EntryService, vault: Vault, master_password: str,
     _require_master_password(vault, master_password)
     if pdf_password is not None:
         if pikepdf is None:
-            raise PdfProtectionUnavailable(MISSING_DEPENDENCY)
+            raise PdfProtectionUnavailable(tr(MISSING_DEPENDENCY))
         check_pdf_password_length(pdf_password)
         if vault.verify_master_password(pdf_password, log_failure=False):
-            raise InvalidMasterPasswordPolicyError(
-                "Choose a password different from the master password: a protected PDF "
-                "withstands guessing attempts for much less time than a vault.")
+            raise InvalidMasterPasswordPolicyError(tr("pdf.error.same_as_master_long"))
     document_html, count = vault_html(service, vault)
     data = render_pdf(document_html, f"Keyra — {vault.info.vault_name}")
     if pdf_password is not None:
@@ -244,46 +240,44 @@ def recovery_html(vault_name: str, key: str, generated_at: datetime | None = Non
     groups = key.split("-")
     lines = "<br>".join(html.escape("-".join(groups[i:i + 4]))
                         for i in range(0, len(groups), 4))
+    def t(key: str, **params) -> str:
+        return html.escape(tr(key, **params))
+
+    meta = t("pdf.recovery.meta", vault=vault_name, date=f"{generated_at:%Y-%m-%d}",
+             time=f"{generated_at:%H:%M}")
     return (
         f"<html><head><style>{_CSS}"
         ".key { font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 22pt;"
         " font-weight: 600; }</style></head><body>"
-        "<h1>Recovery key</h1>"
-        f'<p class="meta">Keyra · vault "{html.escape(vault_name)}" · '
-        f"created on {generated_at:%Y-%m-%d at %H:%M}</p>"
+        f"<h1>{t('pdf.recovery.title')}</h1>"
+        f'<p class="meta">{meta}</p>'
         '<table cellpadding="14" width="100%"><tr><td bgcolor="#EEF2F6" align="center">'
         f'<span class="key">{lines}</span></td></tr></table>'
-        "<h2>If you forget the master password</h2>"
-        "<ol><li>Open Keyra: on the lock screen, click "
-        "<b>\"Forgot password?\"</b>.</li>"
-        "<li>Enter this key (upper or lower case, with or without dashes).</li>"
-        "<li>Choose a new master password. A <b>new</b> key is then given to you: "
-        "this one will no longer work.</li></ol>"
-        '<p class="warning"><b>This key opens your vault WITHOUT the master password.</b> '
-        "Keep this document away from the computer (USB drive, printed copy kept locked "
-        "away). Only the most recent key of this vault works.</p>"
+        f"<h2>{t('pdf.recovery.forgot_title')}</h2>"
+        f"<ol><li>{t('pdf.recovery.step1', button=tr('lock.forgot_password'))}</li>"
+        f"<li>{t('pdf.recovery.step2')}</li>"
+        f"<li>{t('pdf.recovery.step3')}</li></ol>"
+        f'<p class="warning"><b>{t("pdf.recovery.warning_title")}</b> '
+        f"{t('pdf.recovery.warning_body')}</p>"
         "</body></html>")
 
 
 def check_recovery_pdf_password(pdf_password: str, key: str, vault: Vault | None = None) -> None:
     """Rejects a PDF password that is too weak, equal to the key or to the master password."""
     if pikepdf is None:
-        raise PdfProtectionUnavailable(MISSING_DEPENDENCY)
+        raise PdfProtectionUnavailable(tr(MISSING_DEPENDENCY))
     check_pdf_password_length(pdf_password)
     if estimate_strength(pdf_password).score < RECOVERY_PDF_MIN_SCORE:
-        raise InvalidMasterPasswordPolicyError(
-            "This password is too weak to protect a recovery key: "
-            "a passphrase of 5 to 6 words is recommended.")
+        raise InvalidMasterPasswordPolicyError(tr("pdf.error.recovery_password_weak"))
     try:
         same_as_key = recovery.normalize(pdf_password) == recovery.normalize(key)
     except VaultError:
         same_as_key = False
     if same_as_key:
-        raise InvalidMasterPasswordPolicyError("The PDF password cannot be the key itself.")
+        raise InvalidMasterPasswordPolicyError(tr("pdf.error.password_is_key"))
     if vault is not None and not vault.is_locked and \
             vault.verify_master_password(pdf_password, log_failure=False):
-        raise InvalidMasterPasswordPolicyError(
-            "Choose a password different from the master password.")
+        raise InvalidMasterPasswordPolicyError(tr("pdf.error.same_as_master"))
 
 
 def export_recovery_pdf(key: str, vault_name: str, destination: Path, pdf_password: str,
@@ -291,7 +285,7 @@ def export_recovery_pdf(key: str, vault_name: str, destination: Path, pdf_passwo
     """Recovery key PDF, always encrypted (AES-256), written as 0600."""
     check_recovery_pdf_password(pdf_password, key, vault)
     data = render_pdf(recovery_html(vault_name, key),
-                      f"Recovery key — {vault_name}")
+                      tr("pdf.recovery.document_title", vault=vault_name))
     write_private_atomic(destination, protect(data, pdf_password),
                          temp_prefix=EXPORT_TEMP_PREFIX)
     get_logger().info("Password-protected recovery key PDF written")

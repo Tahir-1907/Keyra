@@ -28,6 +28,7 @@ from app.core.exceptions import CategoryError
 from app.core.metadata import CategoryMetadata
 from app.core.vault import Vault, _utc_now_iso
 from app.database.repositories import CategoryRepository
+from app.i18n import tr
 from app.utils.logging import get_logger
 
 # Display names of the built-in categories, in display order (source: builtin_categories).
@@ -150,27 +151,24 @@ class CategoryService:
 
     def _require_custom(self, category_id: int):
         if category_id == UNCATEGORIZED:
-            raise CategoryError("This view is not an editable category.")
+            raise CategoryError(tr("categories.error.not_editable"))
         category = self._store.categories().get(category_id)
         if category is None:
-            raise CategoryError("Category not found.")
+            raise CategoryError(tr("categories.error.not_found"))
         if category.is_builtin:
-            raise CategoryError("Built-in categories cannot be modified.")
+            raise CategoryError(tr("categories.error.builtin"))
         return category
 
     def _validate_name(self, name: str, exclude_id: int | None = None) -> str:
         clean = " ".join(name.split())
         if not clean:
-            raise CategoryError("A category name is required.")
+            raise CategoryError(tr("categories.error.name_required"))
         if len(clean) > MAX_CATEGORY_NAME_LENGTH:
-            raise CategoryError(
-                f"The category name must not exceed {MAX_CATEGORY_NAME_LENGTH} "
-                "characters."
-            )
+            raise CategoryError(tr("categories.error.name_too_long", max=MAX_CATEGORY_NAME_LENGTH))
         # Duplicate check, case- and accent-insensitive ("work" vs "Work"),
         # built-in categories included.
         wanted = normalize_for_search(clean)
         for other in self._store.categories().values():
             if other.id != exclude_id and normalize_for_search(other.name) == wanted:
-                raise CategoryError(f"The category \"{other.name}\" already exists.")
+                raise CategoryError(tr("categories.error.exists", name=other.name))
         return clean

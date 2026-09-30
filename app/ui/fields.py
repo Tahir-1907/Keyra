@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QLineEdit, QWidget
 
+from app.i18n import tr
 from app.ui import lucide, theme
 
 
@@ -20,7 +21,7 @@ class PasswordField(QLineEdit):
             self.addAction(lucide.icon(leading_icon, theme.TEXT_3, 16), QLineEdit.LeadingPosition)
         self._toggle = self.addAction(lucide.icon("eye", theme.TEXT_3, 16),
                                       QLineEdit.TrailingPosition)
-        self._toggle.setToolTip("Afficher / masquer")
+        self._toggle.setToolTip(tr("field.show_hide"))
         self._toggle.triggered.connect(
             lambda: self.set_revealed(self.echoMode() == QLineEdit.Password)
         )

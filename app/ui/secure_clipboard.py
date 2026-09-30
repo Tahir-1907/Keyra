@@ -20,6 +20,7 @@ import secrets
 from PySide6.QtCore import QMimeData, QObject, QTimer, Signal
 from PySide6.QtGui import QClipboard, QGuiApplication
 
+from app.i18n import tr
 from app.utils.logging import get_logger
 
 CLEAR_AFTER_SECONDS = 30
@@ -54,12 +55,11 @@ class SecureClipboard(QObject):
         if sensitive:
             self._digest = self._fingerprint(text)
             self._timer.start(self.clear_after_seconds * 1000)
-            self.copied.emit(
-                f"{label} copied — cleared from the clipboard in {self.clear_after_seconds} s."
-            )
+            self.copied.emit(tr("clipboard.copied_sensitive", label=label,
+                                seconds=self.clear_after_seconds))
             self.copied_item.emit(label, True, self.clear_after_seconds)
         else:
-            self.copied.emit(f"{label} copied.")
+            self.copied.emit(tr("clipboard.copied_plain", label=label))
             self.copied_item.emit(label, False, 0)
 
     def clear_if_ours(self) -> None:

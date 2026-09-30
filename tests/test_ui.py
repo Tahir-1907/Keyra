@@ -37,6 +37,13 @@ class UiTestCase(unittest.TestCase):
         from app.ui import effects, tasks
         from app.ui.main_window import MainWindow
 
+        # The texts checked here are the en_US reference, whatever the language of the
+        # machine running the tests ("System default" resolves to en_US).
+        language = unittest.mock.patch("app.i18n.detector.system_preferences",
+                                       return_value=["en-US"])
+        language.start()
+        self.addCleanup(language.stop)
+
         # Synchronous Argon2id and animations off: deterministic tests. The
         # "background" and "animated" modes have their own tests.
         tasks.BACKGROUND_TASKS = False
@@ -52,6 +59,9 @@ class UiTestCase(unittest.TestCase):
         self.window.deleteLater()
         self.app.processEvents()
         effects.set_animations_enabled(True)
+        from app.i18n import qt as i18n_qt
+
+        i18n_qt.apply("en_US")  # a test that changed the language leaves no trace
         for k, v in self._old_env.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -59,7 +69,7 @@ class UiTestCase(unittest.TestCase):
                 os.environ[k] = v
         self._tmpdir.cleanup()
 
-    # --- Aides -----------------------------------------------------------------------
+    # --- Helpers ---------------------------------------------------------------------
 
     def _create_vault(self, name: str = "Test UI", recovery: bool = False):
         screen = self.window._create_screen

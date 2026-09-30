@@ -21,7 +21,8 @@
 > (see [Upgrading older vaults](#upgrading-older-vaults-v1-to-v3)).
 > An upgraded vault can no longer be opened by version 1.6.
 >
-> The user interface is in **English**. Technical identifiers keep their historical
+> The user interface is available in **17 languages and regional variants** and follows
+> the language of the system (see [Languages](#languages)). Technical identifiers keep their historical
 > names so that existing installations and vaults keep working: Debian package and
 > launcher `mon-coffre-fort`, data folders `mon-coffre` and `MonCoffre`, cryptographic
 > domains `mon-coffre-fort:…`, file extensions `.mcfbak` and `.mcfexport`.
@@ -44,6 +45,7 @@
 * [Import and export](#import-and-export)
 * [Everyday security](#everyday-security)
 * [Multiple vaults, users, settings](#multiple-vaults-users-settings)
+* [Languages](#languages)
 * [Development](#development)
 * [Tests](#tests)
 * [Project structure](#project-structure)
@@ -80,6 +82,7 @@ All data shown is fictitious (demo vault, `example.com` addresses, random passwo
 | Backups | Encrypted `.mcfbak` files, automatic and manual; restored as a new vault |
 | Import / export | Bitwarden, KeePassXC, Chrome, Firefox, CSV; encrypted export, CSV, PDF |
 | Upgrade | v1 to v3 vaults → v4, with preflight, confirmation, backup and verification |
+| Languages | 17 locales, system language by default, switchable live in Settings |
 
 ---
 
@@ -495,12 +498,81 @@ Files are created as `0600`. Neither the trash nor the history is exported.
 * **One Linux account per person** is recommended. The application refuses to start as
   root and checks that its folders belong to the user. A single instance per user (local
   socket restricted to its owner). Vault names are visible on the lock screen.
-* **Settings** (`Ctrl+,`): locking, clipboard clearing, trash, automatic backups
-  (number, folder), generator. The file is validated when read: any unknown value falls
+* **Settings** (`Ctrl+,`): language, locking, clipboard clearing, trash, automatic
+  backups (number, folder), generator. The file is validated when read: any unknown value falls
   back to its default.
 * **Shortcuts**: `Ctrl+N` new, `Ctrl+E` edit, `Ctrl+D` duplicate, `Ctrl+C` / `Ctrl+B`
   copy password / username, `Ctrl+F` search, `Ctrl+K` palette, `Ctrl+G` generator,
   `Ctrl+L` lock, `Alt+1`…`Alt+6` views, `F1` help, `F11` full screen, `Ctrl+Q` quit.
+
+---
+
+## Languages
+
+| Language | Locales |
+|---|---|
+| English | `en_US` English (US) — reference, `en_GB` English (UK) |
+| French | `fr_FR` Français (France), `fr_CH` Français (Suisse), `fr_BE` Français (Belgique), `fr_LU` Français (Luxembourg) |
+| German | `de_DE` Deutsch (Deutschland), `de_CH` Deutsch (Schweiz), `de_LU` Deutsch (Luxemburg), `de_BE` Deutsch (Belgien) |
+| Italian | `it_IT` Italiano (Italia), `it_CH` Italiano (Svizzera) |
+| Spanish | `es_ES` Español (España) |
+| Turkish | `tr_TR` Türkçe |
+| Dutch | `nl_BE` Nederlands (België) |
+| Luxembourgish | `lb_LU` Lëtzebuergesch |
+| Japanese | `ja_JP` 日本語 |
+
+* **System default** (the default setting): at every start, Keyra reads the preferred
+  languages of the system (Linux: `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`; Windows:
+  the display languages of the account, through `QLocale`) and uses the first one it
+  supports. `fr_FR.UTF-8`, `fr-FR` and `French_France` are all understood.
+* **Manual choice**: Settings → Language. The interface is rebuilt immediately, the
+  open vault stays open; the choice is kept even if the system language changes, until
+  "System default" is selected again.
+* **Fallback** (technical rule, applied to each system preference in turn):
+  1. exact locale (`de_CH` → `de_CH`);
+  2. same language: `fr_CA` → `fr_FR`, `de_AT` → `de_DE`, `es_MX` → `es_ES`,
+     `tr_CY` → `tr_TR`, `it_SM` → `it_IT`; `nl_NL` → `nl_BE` (the only Dutch locale
+     available, not a claim that both variants are the same); English: `en_GB` for
+     regions such as `GB`, `IE`, `AU`, `NZ`, `ZA`, `IN`, `en_US` otherwise — a region does
+     not decide which spelling a user prefers, which is why the choice can be changed;
+  3. nothing supported (`pt_BR`, `ko_KR`, `zh_CN`…): `en_US`.
+* **Storage**: the choice is an application setting (`settings.json`, key `language`:
+  `"system"` or a locale such as `"fr_FR"`). It is **never** stored in a vault, a backup
+  or an export, and changing it writes nothing to a vault (checked by a SHA-256 test).
+  Version 1.7.0-rc1 shares this file but does not know the key: if it saves its settings,
+  the key disappears and the next start follows the system language again. Keys unknown
+  to this version are kept when it saves.
+* **What is not translated**: file formats, CSV column names, backup kinds stored in the
+  files, technical identifiers, logs (always English), error details quoting SQLite
+  structures. Dates in lists stay ISO (`2026-09-30 14:05`); the History view uses the
+  long date format of the language. Qt's own texts (text-field context menu, file
+  dialogs) come from the system Qt translations (`qt6-translations-l10n` on Debian) and
+  stay in English when none exists (Luxembourgish).
+* **Built-in categories** are shown in the interface language. An import recognizes them
+  under their name in any supported language, in English and in 1.x French.
+* **Passphrases** are still drawn from a French word list (`wfrench`), whatever the
+  interface language.
+* **Translation quality**: `en_US` is the reference. The other catalogs were written
+  by an AI model and checked automatically (every key, every placeholder, formatting,
+  technical terms), but **they have not been reviewed by native speakers** — above all
+  Luxembourgish, then Japanese and Turkish. Corrections are welcome. Regional variants
+  only contain what really differs: `en_GB` (British spelling), `de_CH` (no `ß`); `fr_CH`,
+  `fr_BE`, `fr_LU`, `de_LU`, `de_BE` and `it_CH` currently use the text of their parent
+  and differ only by their regional formats (numbers, long dates).
+
+### Adding a language
+
+1. Copy `app/i18n/locales/en_US.json` to `app/i18n/locales/<xx_YY>.json` and translate
+   the values (never the keys; keep every `{placeholder}`; plural keys end in `.one` and
+   `.other`). A regional variant can instead contain `"@parent": "<xx_XX>"` and only the
+   keys that differ.
+2. Add the locale and its native name to `LOCALES` in `app/i18n/catalog.py`.
+3. Detection: add the language to `DEFAULT_REGION` in `app/i18n/detector.py` (and its
+   Windows name to `WINDOWS_LANGUAGES` if needed); add a plural rule in
+   `app/i18n/__init__.py` if the language needs more than "one/other".
+4. Add it to the expected lists in `tests/test_i18n.py`.
+5. Run the whole suite: `QT_QPA_PLATFORM=offscreen pytest` — the catalog tests reject a
+   missing key, a lost placeholder or a broken format.
 
 ---
 
@@ -538,7 +610,8 @@ QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p 'test_*.py'
 ruff check .
 ```
 
-* **544 tests and 188 subtests**, compatible with pytest and unittest (all passing, Ruff
+* **584 tests and 15,223 subtests** (most of them check the translation catalogs),
+  compatible with pytest and unittest (all passing, Ruff
   clean, in the environments listed below). There is no continuous integration: the
   suites are run locally.
 * Ruff is also used for security analysis: `S` rules (those of Bandit), `PLE2502`
@@ -548,7 +621,10 @@ ruff check .
   categories, tags, history, trash, backups, import/export, PDF, security (crafted files,
   tampering, leaks), Qt interface in `offscreen` mode, migration (rollback at every step,
   SIGKILL inside and outside the transaction, unexpected structures, confidentiality at
-  byte level), compatibility of the migration backup with the 1.6.0 code.
+  byte level), compatibility of the migration backup with the 1.6.0 code, languages
+  (detection, fallback, catalogs, live switch, Unicode glyphs, vault byte-for-byte
+  unchanged by a language change). The whole suite also passes with a French or a
+  Japanese system locale: the tests pin the interface to `en_US`.
 * **Reference vaults**: `tests/fixtures/v2-app-1.0.0` and `v3-app-1.6.0`, produced by
   versions 1.0.0 and 1.6.0, with entirely fictitious data; the tests work on copies and
   check that these files never change.
@@ -564,7 +640,7 @@ ruff check .
     English interface, with 543 tests at the time);
   * **Debian 13 packages** (those of the `.deb`): system Python 3.13.5, PySide6 6.8.2.1 /
     Qt 6.8.2, cryptography 43.0.0, argon2-cffi 21.1.0, pikepdf 9.5.2, SQLite 3.46.1;
-    pytest on the current code: 544 tests, 540 passed and 4 skipped as expected (3
+    pytest on the current code: 584 tests, 580 passed and 4 skipped as expected (3
     require `cryptography` 44 or later, or both Argon2id implementations, and run in the
     development environment; 1 requires commit `a99f821`, which is not in the public
     history).
@@ -579,6 +655,7 @@ ruff check .
 
 ```text
 app/
+├── i18n/          interface languages: catalogs (locales/*.json), detection, Qt side
 ├── core/          business logic, no UI and no SQL
 │                  crypto (Argon2id, AES-GCM, HKDF), vault (lifecycle, recovery),
 │                  metadata (encrypted v4 JSON, tags), metadata_store (cache), entries,

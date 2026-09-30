@@ -33,6 +33,7 @@ from app.core.exceptions import VaultCorruptedError, VaultError, VaultNotFoundEr
 from app.core.vault import Vault
 from app.database import database
 from app.database.repositories import VaultMetaRepository
+from app.i18n import tr
 from app.services import backup
 from app.services.migration_v4 import MigrationReport, legacy_plaintext_copies, migrate_to_v4
 from app.utils.logging import get_logger
@@ -141,29 +142,29 @@ def inspect(vault_id: str) -> UpgradeCheck:
     """Read-only (no write lock, no file created); no password."""
     db_path = vault_path(vault_id) / _DB_FILENAME
     if not db_path.is_file():
-        raise VaultNotFoundError(f"The vault \"{vault_id}\" cannot be found.")
+        raise VaultNotFoundError(tr("vault.error.not_found", id=vault_id))
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row  # expected by the repositories
         try:
             meta = VaultMetaRepository(conn).get()
             if meta is None:
-                raise VaultCorruptedError("Vault metadata missing or corrupted.")
+                raise VaultCorruptedError(tr("vault.error.meta_missing_or_corrupted"))
             problems = (unexpected_structures(conn, meta.schema_version)
                         if meta.schema_version <= database.V4_SCHEMA_VERSION
                         else ["format newer than the application"])
         finally:
             conn.close()
     except (sqlite3.DatabaseError, ValueError, KeyError, TypeError) as exc:
-        raise VaultCorruptedError("The vault file is unreadable or corrupted.") from exc
+        raise VaultCorruptedError(tr("upgrade.error.unreadable")) from exc
     copies = tuple(sorted(db_path.parent.glob("vault.db.avant-schema-v*.bak")))
     return UpgradeCheck(vault_id, meta.schema_version, tuple(problems), copies)
 
 
 def _refusal_message(problems: list[str] | tuple[str, ...]) -> str:
-    return ("Upgrade impossible: the vault file contains items that the application "
-            "did not create (details: " + "; ".join(problems[:5])
-            + ("…" if len(problems) > 5 else "") + "). The vault has not been modified.")
+    # The details (SQLite object names) stay technical and untranslated.
+    details = "; ".join(problems[:5]) + ("…" if len(problems) > 5 else "")
+    return tr("upgrade.error.refused", details=details)
 
 
 def failure_details(exc: BaseException) -> list[str]:
@@ -185,10 +186,11 @@ def failure_details(exc: BaseException) -> list[str]:
                 # is useful to the user.
                 path = Path(current.filename)
                 shown = path if path.exists() or not path.parent.exists() else path.parent
-                details.append(f"Path: {shown}")
-            return [*details, f"Cause: {current.strerror or type(current).__name__}"]
+                details.append(tr("upgrade.detail.path", path=str(shown)))
+            return [*details, tr("upgrade.detail.cause",
+                                   cause=current.strerror or type(current).__name__)]
         if isinstance(current, VaultError):
-            return [f"Cause: {current}"]
+            return [tr("upgrade.detail.cause", cause=str(current))]
         pending += [current.__cause__, current.__context__]
     return []
 
@@ -245,9 +247,7 @@ def verify_upgraded(vault: Vault, report: MigrationReport) -> list[str]:
             report.vacuumed = True
         except sqlite3.Error:
             get_logger().error("VACUUM after upgrade failed twice: %s", vault.vault_id)
-            warnings.append("The final compaction of the file failed (disk space?): "
-                            "old unencrypted data may remain in its free pages. "
-                            "The vault is usable and verified.")
+            warnings.append(tr("upgrade.warning.vacuum"))
     return warnings
 
 
@@ -258,8 +258,7 @@ def _open_verified(vault_id: str, master_password: str,
         vault = Vault.unlock(vault_id, master_password)
     except VaultError as exc:
         raise UpgradeVerificationError(
-            f"The upgrade was applied but the vault does not open ({exc}). "
-            f"The backup {report.backup_path.name} is kept.",
+            tr("upgrade.error.does_not_open", error=str(exc), backup=report.backup_path.name),
             report.backup_path) from exc
     try:
         warnings = verify_upgraded(vault, report)
@@ -268,9 +267,8 @@ def _open_verified(vault_id: str, master_password: str,
         get_logger().error("Upgrade verification failed: %s (%s)", vault_id,
                            type(exc).__name__)
         raise UpgradeVerificationError(
-            "The upgrade was applied but its verification failed; the vault "
-            f"was not opened. The backup {report.backup_path.name} (original "
-            "format) is kept to restore it.", report.backup_path) from exc
+            tr("upgrade.error.verification_failed", backup=report.backup_path.name),
+            report.backup_path) from exc
     return UpgradeResult(vault, report, warnings=warnings)
 
 
@@ -310,7 +308,7 @@ def recover_and_upgrade(vault_id: str, recovery_key: str, new_master_password: s
     """
     check = inspect(vault_id)
     if not check.needs_upgrade:
-        raise UpgradeRefusedError("This vault is already in the current format.")
+        raise UpgradeRefusedError(tr("vault.error.already_current"))
     if check.problems:
         raise UpgradeRefusedError(_refusal_message(check.problems))
     vault, new_key = Vault.recover(vault_id, recovery_key, new_master_password,
@@ -322,10 +320,7 @@ def recover_and_upgrade(vault_id: str, recovery_key: str, new_master_password: s
         get_logger().error("Recovered vault not upgraded: %s (%s)", vault_id,
                            type(exc).__name__)
         raise RecoveredNotUpgradedError(
-            "The new master password is saved, but the upgrade failed"
-            f" ({exc}). The vault was not modified otherwise. Write down the new recovery "
-            "key, then unlock the vault with the new password to "
-            "try again.", new_key) from exc
+            tr("upgrade.error.recovered_not_upgraded", error=str(exc)), new_key) from exc
     finally:
         vault.close()
     try:

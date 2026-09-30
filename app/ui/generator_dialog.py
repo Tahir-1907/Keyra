@@ -35,14 +35,17 @@ from app.core.generator import (
     load_passphrase_wordlist,
 )
 from app.core.strength import LABELS, score_for_bits
+from app.i18n import qt as i18n_qt
+from app.i18n import tr
 from app.services.settings import Settings
 from app.ui import components as ui
 from app.ui import effects, theme
 from app.ui.dialogs import PremiumDialog
 from app.ui.secure_clipboard import SecureClipboard
 
-_SEPARATORS = (("Dash  -", "-"), ("Space", " "), ("Dot  .", "."), ("Underscore  _", "_"),
-               ("None", ""))
+# (translation key of the label, separator)
+_SEPARATORS = (("separator.dash", "-"), ("separator.space", " "), ("separator.dot", "."),
+               ("separator.underscore", "_"), ("separator.none", ""))
 
 
 class _GeneratedValue(QLabel):
@@ -102,7 +105,7 @@ class _GeneratedValue(QLabel):
 class GeneratorDialog(PremiumDialog):
     def __init__(self, clipboard: SecureClipboard, use_mode: bool = False,
                  parent: QWidget | None = None, settings: Settings | None = None) -> None:
-        super().__init__(parent, "Generator", "System cryptographic randomness (secrets).",
+        super().__init__(parent, tr("settings.generator.title"), tr("generator.subtitle"),
                          icon="wand-sparkles", width=520)
         settings = settings or Settings()
         self._clipboard = clipboard
@@ -111,7 +114,7 @@ class GeneratorDialog(PremiumDialog):
 
         # --- Result ---------------------------------------------------------------------
         self.result = _GeneratedValue()
-        self.copy_button = ui.CopyButton("Copy the password")
+        self.copy_button = ui.CopyButton(tr("generator.copy"))
         self.copy_button.clicked.connect(self._copy)
         result_host = QFrame()
         result_host.setObjectName("Generated")
@@ -128,8 +131,8 @@ class GeneratorDialog(PremiumDialog):
         self.body.addWidget(self.strength_label)
 
         # --- Mode ---------------------------------------------------------------------------
-        self.password_chip = ui.button("Password", "key-round", "Chip")
-        self.passphrase_chip = ui.button("Passphrase", "sticky-note", "Chip")
+        self.password_chip = ui.button(tr("generator.mode.password"), "key-round", "Chip")
+        self.passphrase_chip = ui.button(tr("generator.mode.passphrase"), "sticky-note", "Chip")
         modes = QButtonGroup(self)
         for chip in (self.password_chip, self.passphrase_chip):
             chip.setCheckable(True)
@@ -151,7 +154,7 @@ class GeneratorDialog(PremiumDialog):
         pw_layout.setContentsMargins(0, 6, 0, 0)
         pw_layout.setSpacing(12)
         length_row = QHBoxLayout()
-        length_row.addWidget(ui.label("Length", "FieldLabel"))
+        length_row.addWidget(ui.label(tr("generator.length"), "FieldLabel"))
         length_row.addStretch(1)
         self.length_value = ui.label("", "H2")
         length_row.addWidget(self.length_value)
@@ -164,11 +167,11 @@ class GeneratorDialog(PremiumDialog):
         toggles = QGridLayout()
         toggles.setHorizontalSpacing(24)
         toggles.setVerticalSpacing(10)
-        self.uppercase = ui.ToggleSwitch("Uppercase")
-        self.lowercase = ui.ToggleSwitch("Lowercase")
-        self.digits = ui.ToggleSwitch("Digits")
-        self.symbols = ui.ToggleSwitch("Symbols")
-        self.exclude_ambiguous = ui.ToggleSwitch("No ambiguous characters (I l 1 O 0)")
+        self.uppercase = ui.ToggleSwitch(tr("generator.uppercase"))
+        self.lowercase = ui.ToggleSwitch(tr("generator.lowercase"))
+        self.digits = ui.ToggleSwitch(tr("generator.digits"))
+        self.symbols = ui.ToggleSwitch(tr("generator.symbols"))
+        self.exclude_ambiguous = ui.ToggleSwitch(tr("generator.no_ambiguous"))
         for toggle, value in ((self.uppercase, settings.generator_uppercase),
                               (self.lowercase, settings.generator_lowercase),
                               (self.digits, settings.generator_digits),
@@ -190,7 +193,7 @@ class GeneratorDialog(PremiumDialog):
         pp_layout.setContentsMargins(0, 6, 0, 0)
         pp_layout.setSpacing(12)
         words_row = QHBoxLayout()
-        words_row.addWidget(ui.label("Number of words", "FieldLabel"))
+        words_row.addWidget(ui.label(tr("generator.words"), "FieldLabel"))
         words_row.addStretch(1)
         self.words_value = ui.label("", "H2")
         words_row.addWidget(self.words_value)
@@ -201,18 +204,18 @@ class GeneratorDialog(PremiumDialog):
         self.words_value.setText(str(self.words_slider.value()))
         pp_layout.addWidget(self.words_slider)
         sep_row = QHBoxLayout()
-        sep_row.addWidget(ui.label("Separator", "FieldLabel"))
+        sep_row.addWidget(ui.label(tr("generator.separator"), "FieldLabel"))
         sep_row.addStretch(1)
         self.separator = QComboBox()
-        for text, value in _SEPARATORS:
-            self.separator.addItem(text, value)
+        for key, value in _SEPARATORS:
+            self.separator.addItem(tr(key), value)
         separator_index = self.separator.findData(settings.passphrase_separator)
         self.separator.setCurrentIndex(max(separator_index, 0))
         sep_row.addWidget(self.separator)
         pp_layout.addLayout(sep_row)
-        self.capitalize = ui.ToggleSwitch("Capitalize each word")
+        self.capitalize = ui.ToggleSwitch(tr("generator.capitalize"))
         self.capitalize.setChecked(settings.passphrase_capitalize)
-        self.add_number = ui.ToggleSwitch("Add a digit")
+        self.add_number = ui.ToggleSwitch(tr("generator.add_number"))
         self.add_number.setChecked(settings.passphrase_add_number)
         pp_layout.addWidget(self.capitalize)
         pp_layout.addWidget(self.add_number)
@@ -222,8 +225,8 @@ class GeneratorDialog(PremiumDialog):
         self.body.addWidget(pp)
         try:
             count = len(load_passphrase_wordlist())
-            self.wordlist_info.setText(
-                f"Words drawn from a French dictionary of {count:,} words.".replace(",", " "))
+            self.wordlist_info.setText(tr("generator.wordlist",
+                                          count=i18n_qt.locale().toString(count)))
         except GeneratorError as exc:
             self.passphrase_chip.setEnabled(False)
             self.passphrase_chip.setToolTip(str(exc))
@@ -235,15 +238,15 @@ class GeneratorDialog(PremiumDialog):
         # --- Buttons -----------------------------------------------------------------------------
         row = QHBoxLayout()
         row.setSpacing(10)
-        row.addWidget(ui.button("Generate again", "refresh-cw", on_click=self.regenerate))
+        row.addWidget(ui.button(tr("generator.again"), "refresh-cw", on_click=self.regenerate))
         row.addStretch(1)
         if use_mode:
-            row.addWidget(ui.button("Cancel", kind="Ghost", on_click=self.reject))
-            use = ui.button("Use", "check", "Primary", on_click=self._use)
+            row.addWidget(ui.button(tr("common.cancel"), kind="Ghost", on_click=self.reject))
+            use = ui.button(tr("generator.use"), "check", "Primary", on_click=self._use)
             use.setDefault(True)
             row.addWidget(use)
         else:
-            row.addWidget(ui.button("Close", kind="Ghost", on_click=self.reject))
+            row.addWidget(ui.button(tr("common.close"), kind="Ghost", on_click=self.reject))
         self.card_layout.addSpacing(4)
         self.card_layout.addLayout(row)
 
@@ -308,11 +311,12 @@ class GeneratorDialog(PremiumDialog):
         score = score_for_bits(generated.entropy_bits)
         self.strength.set_score(score, generated.entropy_bits)
         self.strength_label.setText(
-            f"{LABELS[score]} · {generated.entropy_bits:.0f} bits of entropy")
+            tr("generator.entropy", label=tr(LABELS[score]),
+               bits=f"{generated.entropy_bits:.0f}"))
 
     def _copy(self) -> None:
         if self.result.text():
-            self._clipboard.copy(self.result.text(), "Generated password")
+            self._clipboard.copy(self.result.text(), tr("generator.generated"))
             self.copy_button.confirm()
 
     def _use(self) -> None:

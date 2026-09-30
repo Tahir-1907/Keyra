@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QDate, QLocale, QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
@@ -20,30 +20,32 @@ from app.core.activity import (
     ActivityEvent,
     vault_activity,
 )
+from app.i18n import qt as i18n_qt
+from app.i18n import tr
 from app.services import backup
 from app.services.settings import backup_directory
 from app.ui import components as ui
 from app.ui import effects, theme
 from app.ui.pages.base import AppContext, Page, scrolling
 
+# kind -> (icon, color, translation key of the caption)
 EVENT_STYLE = {
-    KIND_CREATED: ("plus", theme.ACCENT_2, "Entry created"),
-    KIND_MODIFIED: ("square-pen", theme.INFO, "Entry modified"),
-    KIND_TRASHED: ("trash-2", theme.DANGER, "Moved to Trash"),
-    KIND_BACKUP: ("database-backup", theme.TEXT_2, "Encrypted backup"),
+    KIND_CREATED: ("plus", theme.ACCENT_2, "history.event.created"),
+    KIND_MODIFIED: ("square-pen", theme.INFO, "history.event.modified"),
+    KIND_TRASHED: ("trash-2", theme.DANGER, "history.event.trashed"),
+    KIND_BACKUP: ("database-backup", theme.TEXT_2, "history.event.backup"),
 }
 
 
 def _day_label(day) -> str:
     today = datetime.now().astimezone().date()
     if day == today:
-        return "Today"
+        return tr("date.today")
     if day == today - timedelta(days=1):
-        return "Yesterday"
-    months = ("January", "February", "March", "April", "May", "June", "July", "August",
-              "September", "October", "November", "December")
-    days = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-    return f"{days[day.weekday()]}, {months[day.month - 1]} {day.day}, {day.year}"
+        return tr("date.yesterday")
+    # Day and month names, order and punctuation of the interface language (QLocale).
+    return i18n_qt.locale().toString(QDate(day.year, day.month, day.day),
+                                     QLocale.FormatType.LongFormat)
 
 
 class _Rail(QWidget):
@@ -76,7 +78,8 @@ class _EventRow(QPushButton):
         super().__init__()
         self.setObjectName("Ghost")
         self.setMinimumHeight(52)
-        icon, color, caption = EVENT_STYLE[event.kind]
+        icon, color, caption_key = EVENT_STYLE[event.kind]
+        caption = tr(caption_key)
         row = QHBoxLayout(self)
         row.setContentsMargins(4, 0, 12, 0)
         row.setSpacing(12)
@@ -100,8 +103,8 @@ class _EventRow(QPushButton):
 
 class HistoryPage(Page):
     key = "history"
-    title = "History"
-    subtitle = "Activity recorded in this vault"
+    title_key = "page.history.title"
+    subtitle_key = "page.history.subtitle"
     icon = "history"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -123,9 +126,8 @@ class HistoryPage(Page):
         events.sort(key=lambda e: e.timestamp, reverse=True)
         if not events:
             self.layout_.addWidget(ui.EmptyState(
-                "history", "No activity",
-                "The creations, modifications, deletions and backups of this vault "
-                "will appear here."))
+                "history", tr("history.empty"),
+                tr("history.empty.text")))
             return
         groups: dict = {}
         for event in events:

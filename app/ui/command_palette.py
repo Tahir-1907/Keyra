@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.entries import normalize_for_search
+from app.i18n import tr
 from app.ui import effects, lucide, theme
 
 _MAX_VISIBLE = 9
@@ -37,10 +38,11 @@ class Command:
     hint: str = ""        # shortcut or category shown on the right
     icon: str | None = None
     keywords: str = ""
-    group: str = "Actions"
+    group: str = ""  # translated group title; empty = "Actions"
     _search: str = field(default="", init=False, repr=False)
 
     def __post_init__(self) -> None:
+        self.group = self.group or tr("action_group.actions")
         self._search = normalize_for_search(" ".join((self.label, self.keywords, self.group)))
 
 
@@ -55,7 +57,7 @@ class CommandPalette(QDialog):
         frame.setObjectName("Palette")
         self.input = QLineEdit()
         self.input.setObjectName("PaletteInput")
-        self.input.setPlaceholderText("Type a command or an entry name…")
+        self.input.setPlaceholderText(tr("palette.placeholder"))
         self.input.addAction(lucide.icon("command", theme.TEXT_3), QLineEdit.LeadingPosition)
         self.input.textChanged.connect(self._refresh)
         self.input.installEventFilter(self)
@@ -64,7 +66,7 @@ class CommandPalette(QDialog):
         self.results.setIconSize(QSize(18, 18))
         self.results.itemActivated.connect(lambda item: self._run(item))
         self.results.itemClicked.connect(lambda item: self._run(item))
-        self.footer = QLabel("↑↓ navigate   ⏎ run   esc close")
+        self.footer = QLabel(tr("palette.footer"))
         self.footer.setObjectName("PaletteFooter")
 
         inner = QVBoxLayout(frame)
@@ -127,7 +129,7 @@ class CommandPalette(QDialog):
                 item.setText(f"{label}\t{command.hint}")
             self.results.addItem(item)
         if self.results.count() == 0:
-            empty = QListWidgetItem("No results")
+            empty = QListWidgetItem(tr("palette.no_results"))
             empty.setFlags(Qt.NoItemFlags)
             self.results.addItem(empty)
         self._select_first()

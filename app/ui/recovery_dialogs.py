@@ -36,6 +36,7 @@ from app.core.exceptions import (
 )
 from app.core.strength import estimate_strength
 from app.core.vault import MIN_MASTER_PASSWORD_LENGTH, Vault
+from app.i18n import tr
 from app.services import pdf_export, vault_upgrade
 from app.ui import components as ui
 from app.ui import dialogs, effects, tasks, theme
@@ -48,14 +49,14 @@ from app.ui.vault_dialogs import _Busy, _labeled
 def describe(created_at: str | None) -> str:
     """Readable state of the key, for the settings."""
     if not created_at:
-        return "No key: a forgotten master password would make the vault unrecoverable."
+        return tr("recovery.state.none")
     from datetime import datetime
 
     try:
         day = datetime.fromisoformat(created_at).astimezone().strftime("%Y-%m-%d")
     except ValueError:
-        return "Active."
-    return f"Active, created {day}. It opens the vault on its own."
+        return tr("recovery.state.active")
+    return tr("recovery.state.active_since", date=day)
 
 
 class RecoveryKeyDialog(PremiumDialog):
@@ -68,10 +69,9 @@ class RecoveryKeyDialog(PremiumDialog):
         confirmation depends on it, never the behavior."""
         super().__init__(
             parent,
-            "Your new recovery key" if renewed else "Your recovery key",
-            ("The old key no longer works. " if renewed else "")
-            + "It lets you regain access to the vault if you forget the master "
-              "password.", icon="key-round", width=560)
+            tr("recovery.show.title_renewed") if renewed else tr("recovery.show.title"),
+            tr("recovery.show.subtitle_renewed") if renewed else tr("recovery.show.subtitle"),
+            icon="key-round", width=560)
         self._key = key
         self._clipboard = clipboard
         self._on_abandoned = on_abandoned
@@ -89,45 +89,39 @@ class RecoveryKeyDialog(PremiumDialog):
         groups = key.split("-")
         self.key_label = ui.label("-".join(groups[:4]) + "\n" + "-".join(groups[4:]))
         self.key_label.setFont(theme.mono_font(20))
-        self.key_label.setAccessibleName("Recovery key")
+        self.key_label.setAccessibleName(tr("common.recovery_key"))
         row.addWidget(self.key_label, 1)
-        self.copy_button = ui.CopyButton("Copy the key", labeled=True)
+        self.copy_button = ui.CopyButton(tr("recovery.copy"), labeled=True)
         self.copy_button.clicked.connect(self._copy)
         row.addWidget(self.copy_button, 0, Qt.AlignVCenter)
         self.body.addWidget(frame)
 
         pdf_row = QHBoxLayout()
         pdf_row.setSpacing(10)
-        self.pdf_button = ui.button("Save as a protected PDF…", "file-text",
+        self.pdf_button = ui.button(tr("recovery.save_pdf"), "file-text",
                                     on_click=self._save_pdf)
         pdf_row.addWidget(self.pdf_button)
         self.pdf_status = ui.label("", "Faint", wrap=True)
         pdf_row.addWidget(self.pdf_status, 1)
         if not pdf_export.protection_available():  # missing dependency: reported
             self.pdf_button.setEnabled(False)
-            self.pdf_status.setText(pdf_export.MISSING_DEPENDENCY)
+            self.pdf_status.setText(tr(pdf_export.MISSING_DEPENDENCY))
         self.body.addLayout(pdf_row)
 
         for icon, color, text in (
-                ("square-pen", theme.ACCENT_2,
-                 "Copy it onto paper, or save it as a password-protected PDF, "
-                 "and keep it somewhere safe, away from the computer (USB drive, locked drawer)."),
-                ("shield-alert", theme.WARNING,
-                 "It opens your vault WITHOUT the master password: protect it just as well. "
-                 "Do not store it in plaintext on this computer or in an email."),
-                ("eye-off", theme.TEXT_2,
-                 "It will never be shown again. If you lose it, create a new one "
-                 "from Settings → This vault.")):
+                ("square-pen", theme.ACCENT_2, tr("recovery.show.tip_store")),
+                ("shield-alert", theme.WARNING, tr("recovery.show.tip_protect")),
+                ("eye-off", theme.TEXT_2, tr("recovery.show.tip_once"))):
             line = QHBoxLayout()
             line.setSpacing(10)
             line.addWidget(ui.icon_label(icon, color, 16), 0, Qt.AlignTop)
             line.addWidget(ui.label(text, "Muted", wrap=True), 1)
             self.body.addLayout(line)
 
-        self.ack = ui.ToggleSwitch("I wrote down my key (or saved its PDF) somewhere safe")
+        self.ack = ui.ToggleSwitch(tr("recovery.ack"))
         self.body.addSpacing(4)
         self.body.addWidget(self.ack)
-        _, self.done_button = self.add_buttons("", "Done", confirm_icon="check")
+        _, self.done_button = self.add_buttons("", tr("common.done"), confirm_icon="check")
         self.done_button.setEnabled(False)
         self.ack.toggled.connect(self.done_button.setEnabled)
         self.done_button.clicked.connect(self._confirm)
@@ -135,17 +129,16 @@ class RecoveryKeyDialog(PremiumDialog):
         self.finished.connect(self._on_finished)
 
     def _copy(self) -> None:
-        self._clipboard.copy(self._key, "Recovery key")
+        self._clipboard.copy(self._key, tr("common.recovery_key"))
         self.copy_button.confirm()
 
     def _save_pdf(self) -> None:
         vault_name = self._vault.info.vault_name if self._vault is not None and \
-            not self._vault.is_locked else "My vault"
+            not self._vault.is_locked else tr("recovery.default_vault_name")
         dialog = RecoveryPdfDialog(self._key, vault_name, self._vault, self)
         if dialog.exec() == RecoveryPdfDialog.Accepted and dialog.saved_path is not None:
             self.saved_pdf = dialog.saved_path
-            self.pdf_status.setText(f"✓ Protected PDF saved: {dialog.saved_path.name}. "
-                                    "Move it off this computer.")
+            self.pdf_status.setText(tr("recovery.pdf.saved", name=dialog.saved_path.name))
             self.pdf_status.setStyleSheet(f"color: {theme.ACCENT_2};")
 
     def _confirm(self) -> None:
@@ -158,19 +151,16 @@ class RecoveryKeyDialog(PremiumDialog):
         super().reject()
 
     def _confirm_abandon(self) -> bool:
-        old_key = " The old key already no longer works." if self._renewed else ""
+        old_key = (" " + tr("recovery.abandon.old_key")) if self._renewed else ""
         if self._kept_if_abandoned:
             return dialogs.confirm(
-                self, "Close without writing down the key?",
-                "This recovery key stays valid: it is already saved in the "
-                "vault and will not be removed." + old_key + " If you did not "
-                "write it down, replace it once the vault is open (Settings → This vault).",
-                "Close anyway", danger=True, icon="key-round")
+                self, tr("recovery.abandon_kept.title"),
+                tr("recovery.abandon_kept.body", old_key=old_key),
+                tr("recovery.abandon_kept.confirm"), danger=True, icon="key-round")
         return dialogs.confirm(
-            self, "Do not keep a recovery key?",
-            "You did not confirm writing it down: it will be removed from the vault." + old_key
-            + " You can create one from Settings → This vault.",
-            "Remove the key", danger=True, icon="key-round")
+            self, tr("recovery.abandon.title"),
+            tr("recovery.abandon.body", old_key=old_key),
+            tr("recovery.remove_key"), danger=True, icon="key-round")
 
     def _on_finished(self, _result: int) -> None:
         self.key_label.clear()
@@ -189,31 +179,29 @@ class RecoveryPdfDialog(PremiumDialog):
 
     def __init__(self, key: str, vault_name: str, vault: Vault | None,
                  parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Recovery key as a PDF",
-                         "The PDF is encrypted (AES-256): this password will be asked to "
-                         "open it.", icon="file-text", width=500)
+        super().__init__(parent, tr("recovery.pdf.title"),
+                         tr("recovery.pdf.subtitle"), icon="file-text", width=500)
         self._key = key
         self._vault_name = vault_name
         self._vault = vault
         self.saved_path: Path | None = None
-        self.password = PasswordField("PDF password")
-        self.confirm = PasswordField("Confirmation")
+        self.password = PasswordField(tr("recovery.pdf.password"))
+        self.confirm = PasswordField(tr("password_change.confirmation"))
         self.confirm.returnPressed.connect(self._submit)
         self.meter = ui.StrengthBar()
         self.meter_label = ui.label("", "Faint")
         self.password.textChanged.connect(self._update_meter)
-        self.body.addWidget(_labeled("PDF password", self.password))
+        self.body.addWidget(_labeled(tr("recovery.pdf.password"), self.password))
         self.body.addWidget(self.meter)
         self.body.addWidget(self.meter_label)
-        self.body.addWidget(_labeled("Confirmation", self.confirm))
+        self.body.addWidget(_labeled(tr("password_change.confirmation"), self.confirm))
         self.body.addWidget(ui.label(
-            "Must be \"strong\" and different from the master password: the key opens your "
-            "vault on its own, and a stolen PDF can be attacked offline. Remember it or write "
-            "it down somewhere other than this computer.", "Faint", wrap=True))
+            tr("recovery.pdf.hint", strong=tr("strength.strong")), "Faint", wrap=True))
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, ok = self.add_buttons("Cancel", "Choose location…", confirm_icon="file-text")
+        _, ok = self.add_buttons(tr("common.cancel"), tr("recovery.pdf.choose_location"),
+                                 confirm_icon="file-text")
         ok.clicked.connect(self._submit)
         self.password.setFocus()
 
@@ -224,7 +212,8 @@ class RecoveryPdfDialog(PremiumDialog):
             return
         result = estimate_strength(text)
         self.meter.set_score(result.score, result.entropy_bits)
-        self.meter_label.setText(f"{result.label} · ~{result.entropy_bits:.0f} bits")
+        self.meter_label.setText(tr("strength.summary", label=result.label,
+                                    bits=f"{result.entropy_bits:.0f}"))
 
     def _fail(self, message: str) -> None:
         self.error.setText(message)
@@ -234,7 +223,7 @@ class RecoveryPdfDialog(PremiumDialog):
     def _submit(self) -> None:
         password = self.password.text()
         if password != self.confirm.text():
-            self._fail("The two passwords do not match.")
+            self._fail(tr("create.error.mismatch"))
             return
         try:
             with _Busy():
@@ -242,8 +231,8 @@ class RecoveryPdfDialog(PremiumDialog):
         except VaultError as exc:
             self._fail(str(exc))
             return
-        default = Path.home() / f"recovery-key-{_file_slug(self._vault_name)}.pdf"
-        path_str, _ = QFileDialog.getSaveFileName(self, "Save the recovery key",
+        default = Path.home() / tr("recovery.pdf.filename", name=_file_slug(self._vault_name))
+        path_str, _ = QFileDialog.getSaveFileName(self, tr("recovery.pdf.save_title"),
                                                   str(default), "PDF (*.pdf)")
         if not path_str:
             return
@@ -258,7 +247,7 @@ class RecoveryPdfDialog(PremiumDialog):
             self._fail(str(exc))
             return
         except OSError as exc:
-            self._fail(f"Write impossible: {exc.strerror}.")
+            self._fail(tr("common.error.write", reason=exc.strerror))
             return
         self.saved_path = path
         self.accept()
@@ -275,9 +264,8 @@ class RecoverVaultDialog(PremiumDialog):
 
     def __init__(self, vault_id: str, vault_name: str, parent: QWidget | None = None,
                  upgrade_backup_dir: Path | None = None) -> None:
-        super().__init__(parent, "Forgotten master password",
-                         f"Vault \"{vault_name}\". Enter the recovery key written down when "
-                         "it was created, then choose a new master password.",
+        super().__init__(parent, tr("recover.title"),
+                         tr("recover.subtitle", name=vault_name),
                          icon="key-round", width=520)
         self._vault_id = vault_id
         self._busy = False
@@ -297,22 +285,21 @@ class RecoverVaultDialog(PremiumDialog):
         self.key.setPlaceholderText("XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX")
         self.key.setMinimumHeight(42)
         self.key.textEdited.connect(self._format_key)
-        self.new = PasswordField(f"{MIN_MASTER_PASSWORD_LENGTH} characters minimum")
-        self.confirm = PasswordField("Confirm the new password")
+        self.new = PasswordField(tr("password_change.new_placeholder",
+                                                min=MIN_MASTER_PASSWORD_LENGTH))
+        self.confirm = PasswordField(tr("password_change.confirm_placeholder"))
         self.confirm.returnPressed.connect(self._submit)
         self.meter = ui.StrengthBar()
         self.meter_label = ui.label("", "Faint")
         self.new.textChanged.connect(self._update_meter)
-        self.body.addWidget(_labeled("Recovery key", self.key))
-        self.body.addWidget(_labeled("New master password", self.new))
+        self.body.addWidget(_labeled(tr("common.recovery_key"), self.key))
+        self.body.addWidget(_labeled(tr("recover.new_password"), self.new))
         self.body.addWidget(self.meter)
         self.body.addWidget(self.meter_label)
-        self.body.addWidget(_labeled("Confirmation", self.confirm))
+        self.body.addWidget(_labeled(tr("password_change.confirmation"), self.confirm))
         self.body.addWidget(ui.label(
-            ("The vault will then be upgraded (encrypted backup first). "
-             if upgrade_backup_dir is not None else "Your data is not rewritten. ")
-            + "A new recovery key will be given to you: this one will no longer "
-              "work.", "Faint", wrap=True))
+            tr("recover.hint_upgrade") if upgrade_backup_dir is not None
+            else tr("recover.hint"), "Faint", wrap=True))
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
@@ -323,15 +310,15 @@ class RecoverVaultDialog(PremiumDialog):
         busy_row.addStretch(1)
         busy_row.addWidget(self.spinner)
         busy_row.addWidget(ui.label(
-            "Recovery and upgrade in progress…" if upgrade_backup_dir is not None
-            else "Checking the key (Argon2id)…", "Muted"))
+            tr("recover.busy_upgrade") if upgrade_backup_dir is not None
+            else tr("recover.busy"), "Muted"))
         busy_row.addStretch(1)
         busy.hide()
         self.busy_row = busy
         self.body.addWidget(busy)
         self.cancel, self.ok = self.add_buttons(
-            "Cancel", "Reset, upgrade and open"
-            if upgrade_backup_dir is not None else "Reset and open",
+            tr("common.cancel"), tr("recover.submit_upgrade")
+            if upgrade_backup_dir is not None else tr("recover.submit"),
             confirm_icon="lock-open")
         self.ok.clicked.connect(self._submit)
         self.key.setFocus()
@@ -350,7 +337,8 @@ class RecoverVaultDialog(PremiumDialog):
             return
         result = estimate_strength(text)
         self.meter.set_score(result.score, result.entropy_bits)
-        self.meter_label.setText(f"{result.label} · ~{result.entropy_bits:.0f} bits")
+        self.meter_label.setText(tr("strength.summary", label=result.label,
+                                    bits=f"{result.entropy_bits:.0f}"))
 
     def _fail(self, message: str) -> None:
         self.error.setText(message)
@@ -379,11 +367,10 @@ class RecoverVaultDialog(PremiumDialog):
             self.key.setFocus()
             return
         if password != self.confirm.text():
-            self._fail("The two passwords do not match.")
+            self._fail(tr("create.error.mismatch"))
             return
         if len(password) >= MIN_MASTER_PASSWORD_LENGTH and estimate_strength(password).score < 2:
-            self._fail("This master password is too easy to guess. "
-                       "A passphrase of 5 to 6 words is recommended.")
+            self._fail(tr("password_change.error.weak"))
             return
         self._set_busy(True)
         if self._upgrade_dir is not None:
@@ -419,11 +406,11 @@ class RecoverVaultDialog(PremiumDialog):
         if isinstance(exc, (RecoveryKeyFormatError, NoRecoveryKeyError)):
             message = str(exc)
         elif isinstance(exc, RecoveryKeyError):
-            message = "Wrong recovery key for this vault."
+            message = tr("vault.error.wrong_recovery_key")
         elif isinstance(exc, VaultError):
             message = str(exc)
         else:
-            message = "Recovery failed."
+            message = tr("recover.error.failed")
         self._fail(message)
 
     def reject(self) -> None:
@@ -443,10 +430,11 @@ class _MasterPasswordPrompt(PremiumDialog):
         super().__init__(parent, title, icon="key-round", width=460,
                          icon_color=theme.DANGER if danger else theme.ACCENT_2)
         self.body.addWidget(ui.label(text, "Muted", wrap=True))
-        self.password = PasswordField("Master password", leading_icon="lock")
+        self.password = PasswordField(tr("common.master_password"), leading_icon="lock")
         self.password.returnPressed.connect(self.accept)
         self.body.addWidget(self.password)
-        _, ok = self.add_buttons("Cancel", confirm_text, "Danger" if danger else "Primary")
+        _, ok = self.add_buttons(tr("common.cancel"), confirm_text,
+                                 "Danger" if danger else "Primary")
         ok.clicked.connect(self.accept)
         self.password.setFocus()
 
@@ -480,21 +468,19 @@ def create_or_replace(parent: QWidget, vault: Vault, clipboard: SecureClipboard,
                       on_changed: Callable[[], None]) -> RecoveryKeyDialog | None:
     replacing = vault.has_recovery_key
     password = _ask_master_password(
-        parent, "Replace the recovery key" if replacing else
-        "Create a recovery key",
-        ("The old key will stop working immediately. " if replacing else "")
-        + "Confirm with your master password.",
-        "Replace the key" if replacing else "Create the key")
+        parent, tr("recovery.replace.title") if replacing else tr("recovery.create.title"),
+        tr("recovery.replace.body") if replacing else tr("recovery.create.body"),
+        tr("recovery.replace.confirm") if replacing else tr("recovery.create.confirm"))
     if password is None:
         return None
     try:
         with _Busy():
             key = vault.create_recovery_key(password)
     except WrongMasterPasswordError:
-        dialogs.alert(parent, "Key not created", "Wrong master password.")
+        dialogs.alert(parent, tr("recovery.not_created"), tr("vault.error.wrong_password"))
         return None
     except VaultError as exc:
-        dialogs.alert(parent, "Key not created", str(exc))
+        dialogs.alert(parent, tr("recovery.not_created"), str(exc))
         return None
     on_changed()
     return show_key(parent, vault, key, clipboard, on_changed, renewed=replacing)
@@ -502,17 +488,16 @@ def create_or_replace(parent: QWidget, vault: Vault, clipboard: SecureClipboard,
 
 def remove(parent: QWidget, vault: Vault, on_changed: Callable[[], None]) -> bool:
     password = _ask_master_password(
-        parent, "Remove the recovery key?",
-        "Without a key, a forgotten master password makes the vault permanently "
-        "unrecoverable. Confirm with your master password.",
-        "Remove the key", danger=True)
+        parent, tr("recovery.remove.title"),
+        tr("recovery.remove.body"),
+        tr("recovery.remove_key"), danger=True)
     if password is None:
         return False
     try:
         with _Busy():
             vault.remove_recovery_key(password)
     except WrongMasterPasswordError:
-        dialogs.alert(parent, "Key kept", "Wrong master password.")
+        dialogs.alert(parent, tr("recovery.kept"), tr("vault.error.wrong_password"))
         return False
     on_changed()
     return True

@@ -28,22 +28,24 @@ from app.core.audit import (
     AuditReport,
     run_audit,
 )
+from app.i18n import tr, tr_n
 from app.ui import components as ui
 from app.ui import effects, theme
 from app.ui.pages.base import AppContext, Page, scrolling
 
+# (kind, translation key of the title, translation key of the text, icon, color)
 ISSUES = (
-    (KIND_WEAK, "Weak passwords", "Easy to guess: replace them.", "shield-alert",
+    (KIND_WEAK, "security.issue.weak", "security.issue.weak.text", "shield-alert",
      theme.DANGER),
-    (KIND_REUSED, "Reuse", "The same password on several entries.", "copy",
+    (KIND_REUSED, "security.issue.reused", "security.issue.reused.text", "copy",
      theme.WARNING),
-    (KIND_OLD, "Old passwords", "Unchanged for more than a year.", "clock", theme.INFO),
-    (KIND_EMPTY, "No password", "Entries whose password is empty.", "key-round",
+    (KIND_OLD, "security.issue.old", "security.issue.old.text", "clock", theme.INFO),
+    (KIND_EMPTY, "security.issue.empty", "security.issue.empty.text", "key-round",
      theme.WARNING),
-    (KIND_EXPIRED_CARD, "Expired cards", "Expiry date passed.", "credit-card",
+    (KIND_EXPIRED_CARD, "security.issue.expired", "security.issue.expired.text", "credit-card",
      theme.INFO),
-    (KIND_UNREADABLE, "Unreadable entries", "Tampered encrypted data.", "triangle-alert",
-     theme.DANGER),
+    (KIND_UNREADABLE, "security.issue.unreadable", "security.issue.unreadable.text",
+     "triangle-alert", theme.DANGER),
 )
 
 
@@ -86,8 +88,8 @@ class _IssueCard(QFrame):
 
 class SecurityPage(Page):
     key = "security"
-    title = "Security"
-    subtitle = "Local analysis of your passwords"
+    title_key = "page.security.title"
+    subtitle_key = "page.security.subtitle"
     icon = "shield-check"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -105,13 +107,12 @@ class SecurityPage(Page):
         rec_row.addWidget(ui.icon_label("key-round", theme.WARNING, 20), 0, Qt.AlignTop)
         rec_texts = QVBoxLayout()
         rec_texts.setSpacing(2)
-        rec_texts.addWidget(ui.label("No recovery key", "H2"))
+        rec_texts.addWidget(ui.label(tr("recover.no_key_title"), "H2"))
         rec_texts.addWidget(ui.label(
-            "If you forget the master password, this vault will be lost for good. "
-            "A recovery key, written down on paper, lets you choose a new one.",
+            tr("security.recovery.text"),
             "Faint", wrap=True))
         rec_row.addLayout(rec_texts, 1)
-        rec_row.addWidget(ui.button("Create a key", "key-round", "Primary",
+        rec_row.addWidget(ui.button(tr("security.recovery.create"), "key-round", "Primary",
                                     on_click=lambda: self.ctx.vault_action("recovery")),
                           0, Qt.AlignVCenter)
         self.recovery_card.hide()
@@ -127,7 +128,7 @@ class SecurityPage(Page):
         score_layout = QVBoxLayout(score_card)
         score_layout.setContentsMargins(24, 22, 24, 22)
         score_layout.setSpacing(10)
-        score_layout.addWidget(ui.label("VAULT STATE", "Overline"), 0, Qt.AlignHCenter)
+        score_layout.addWidget(ui.label(tr("security.vault_state"), "Overline"), 0, Qt.AlignHCenter)
         self.ring = ui.ScoreRing(188)
         score_layout.addWidget(self.ring, 0, Qt.AlignHCenter)
         self.level = ui.label("", "H2")
@@ -136,7 +137,7 @@ class SecurityPage(Page):
         self.method = ui.label("", "Faint", wrap=True)
         self.method.setAlignment(Qt.AlignCenter)
         score_layout.addWidget(self.method)
-        score_layout.addWidget(ui.button("Run the analysis again", "refresh-cw",
+        score_layout.addWidget(ui.button(tr("security.rerun"), "refresh-cw",
                                          on_click=self.run), 0, Qt.AlignHCenter)
         top.addWidget(score_card)
 
@@ -145,7 +146,7 @@ class SecurityPage(Page):
         grid.setSpacing(12)
         self.issue_cards: dict[str, _IssueCard] = {}
         for i, (kind, title, text, icon, color) in enumerate(ISSUES):
-            card = _IssueCard(kind, title, text, icon, color)
+            card = _IssueCard(kind, tr(title), tr(text), icon, color)
             card.clicked.connect(self._select_kind)
             grid.addWidget(card, i // 2, i % 2)
             self.issue_cards[kind] = card
@@ -157,7 +158,7 @@ class SecurityPage(Page):
         detail_layout = QVBoxLayout(self.detail_card)
         detail_layout.setContentsMargins(18, 16, 18, 14)
         detail_layout.setSpacing(4)
-        self.detail_title = ui.section("Affected entries", "Click an issue above.")
+        self.detail_title = ui.section(tr("security.affected"), tr("security.affected.hint"))
         detail_layout.addWidget(self.detail_title)
         self.detail_rows = QVBoxLayout()
         self.detail_rows.setSpacing(2)
@@ -165,12 +166,7 @@ class SecurityPage(Page):
         layout.addWidget(self.detail_card)
 
         methodology = ui.label(
-            "Checks performed locally, without any connection: estimated strength of each "
-            "password (patterns, dictionaries, entropy), reuse across entries, age "
-            "(more than a year), missing password, expired cards, integrity of the encrypted "
-            "data. In the Trash, only entries whose encrypted information "
-            "(name, address, username…) is unreadable are reported. No online "
-            "breach check.",
+            tr("security.method_note"),
             "Faint", wrap=True)
         layout.addWidget(methodology)
         layout.addStretch(1)
@@ -188,7 +184,7 @@ class SecurityPage(Page):
 
     def on_show(self, **kwargs) -> None:
         self.refresh_recovery()
-        self.level.setText("Analysis in progress…")
+        self.level.setText(tr("security.analyzing"))
         QTimer.singleShot(0, self.run)
 
     def run(self) -> None:
@@ -200,13 +196,14 @@ class SecurityPage(Page):
         healthy = report.checked_entries - flagged
         self.ring.set_score(report.score)
         if report.checked_entries == 0:
-            self.level.setText("Empty vault")
-            self.method.setText("Add entries to get an analysis.")
+            self.level.setText(tr("security.empty"))
+            self.method.setText(tr("security.empty.text"))
         else:
-            self.level.setText("Strong protection" if report.score >= 80 else
-                               "Medium protection" if report.score >= 50 else "Weak protection")
-            self.method.setText(f"Share of entries with no issue found: {healthy} of "
-                                f"{report.checked_entries}.")
+            self.level.setText(tr("security.level.strong") if report.score >= 80 else
+                               tr("security.level.medium") if report.score >= 50
+                               else tr("security.level.weak"))
+            self.method.setText(tr("security.method", healthy=healthy,
+                                   total=report.checked_entries))
         for kind, card in self.issue_cards.items():
             card.set_count(len(report.by_kind(kind)), kind == self._selected_kind)
         if self._selected_kind and report.by_kind(self._selected_kind):
@@ -216,8 +213,8 @@ class SecurityPage(Page):
             if first:
                 self._select_kind(first)
             else:
-                self._show_rows([], "No issue found",
-                                "All your entries pass the checks.")
+                self._show_rows([], tr("security.no_issue"),
+                                tr("security.no_issue.text"))
 
     def _select_kind(self, kind: str) -> None:
         if self._report is None:
@@ -226,9 +223,8 @@ class SecurityPage(Page):
         for key, card in self.issue_cards.items():
             card.set_count(len(self._report.by_kind(key)), key == kind)
         findings = self._report.by_kind(kind)
-        self._show_rows(findings, KIND_LABELS[kind],
-                        f"{len(findings)} entr{'ies' if len(findings) > 1 else 'y'} · click "
-                        "to open")
+        self._show_rows(findings, tr(KIND_LABELS[kind]),
+                        tr_n("security.rows_hint", len(findings)))
 
     def _show_rows(self, findings, title: str, subtitle: str) -> None:
         self.detail_card.layout().replaceWidget(

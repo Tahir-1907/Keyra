@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (
 from app.core.categories import CategoryService
 from app.core.entries import ENTRY_TYPES, EntryService
 from app.core.exceptions import VaultError, WrongMasterPasswordError
-from app.core.vault import Vault, VaultInfo
+from app.core.vault import MIN_MASTER_PASSWORD_LENGTH, Vault, VaultInfo
+from app.i18n import tr, tr_n
 from app.services import backup, import_export, pdf_export
 from app.ui import components as ui
 from app.ui import dialogs, theme
@@ -61,13 +62,13 @@ class PasswordPrompt(PremiumDialog):
                  icon: str = "key-round") -> None:
         super().__init__(parent, title, icon=icon, width=460)
         self.body.addWidget(ui.label(message, "Muted", wrap=True))
-        self.password = PasswordField("Password", leading_icon="lock")
+        self.password = PasswordField(tr("field.password"), leading_icon="lock")
         self.password.returnPressed.connect(self.accept)
         self.body.addWidget(self.password)
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, ok = self.add_buttons("Cancel", "OK")
+        _, ok = self.add_buttons(tr("common.cancel"), tr("common.ok"))
         ok.clicked.connect(self.accept)
 
     def ask(self, error: str = "") -> str | None:
@@ -90,17 +91,17 @@ class PasswordPrompt(PremiumDialog):
 class ImportPreviewDialog(PremiumDialog):
     def __init__(self, preview: import_export.ImportPreview, parent: QWidget | None = None) -> None:
         count = len(preview.items)
-        super().__init__(parent, "Import entries",
-                         f"{count} entry(ies) found — format: {preview.format_label}."
-                         + (f" {preview.skipped_rows} empty row(s) ignored."
-                            if preview.skipped_rows else "")
-                         + (f" {preview.dropped_tags} invalid or duplicate tag(s) "
-                            "will be ignored." if preview.dropped_tags else ""),
-                         icon="file-down", width=760)
-        self.body.addWidget(ui.label("Passwords are not shown in this preview.",
+        summary = tr_n("import.preview.found", count, format=preview.format_label)
+        if preview.skipped_rows:
+            summary += " " + tr_n("import.preview.empty_rows", preview.skipped_rows)
+        if preview.dropped_tags:
+            summary += " " + tr_n("import.preview.dropped_tags", preview.dropped_tags)
+        super().__init__(parent, tr("import.title"), summary, icon="file-down", width=760)
+        self.body.addWidget(ui.label(tr("import.preview.no_passwords"),
                                      "Faint"))
         table = QTableWidget(min(count, _PREVIEW_ROWS), 5)
-        table.setHorizontalHeaderLabels(["Name", "Username", "URL", "Category", "Type"])
+        table.setHorizontalHeaderLabels([tr("field.name"), tr("field.username"), tr("field.url"),
+                                         tr("field.category"), tr("field.type")])
         table.verticalHeader().hide()
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -120,16 +121,17 @@ class ImportPreviewDialog(PremiumDialog):
         table.setMinimumHeight(280)
         self.body.addWidget(table)
         if count > _PREVIEW_ROWS:
-            self.body.addWidget(ui.label(f"… and {count - _PREVIEW_ROWS} more.", "Faint"))
+            self.body.addWidget(ui.label(tr("import.preview.more", count=count - _PREVIEW_ROWS),
+                                         "Faint"))
         self.create_categories = ui.ToggleSwitch(
-            "Create the missing categories (folders / groups of the file)")
+            tr("import.preview.create_categories"))
         self.create_categories.setChecked(True)
         self.skip_duplicates = ui.ToggleSwitch(
-            "Skip duplicates (same name, username, URL and password)")
+            tr("import.preview.skip_duplicates"))
         self.skip_duplicates.setChecked(True)
         self.body.addWidget(self.create_categories)
         self.body.addWidget(self.skip_duplicates)
-        _, confirm = self.add_buttons("Cancel", f"Import {count} entry(ies)",
+        _, confirm = self.add_buttons(tr("common.cancel"), tr_n("import.submit", count),
                                       confirm_icon="file-down")
         confirm.setEnabled(count > 0)
         confirm.clicked.connect(self.accept)
@@ -138,16 +140,16 @@ class ImportPreviewDialog(PremiumDialog):
 def run_import(parent: QWidget, entries: EntryService, categories: CategoryService) -> bool:
     """Complete flow; returns True if entries were imported."""
     path_str, _ = QFileDialog.getOpenFileName(
-        parent, "Import entries", str(Path.home()),
-        "Supported files (*.csv *.mcfexport);;CSV (*.csv);;"
-        "Keyra encrypted export (*.mcfexport);;All files (*)")
+        parent, tr("import.title"), str(Path.home()),
+        f"{tr('import.filter.supported')} (*.csv *.mcfexport);;CSV (*.csv);;"
+        f"{tr('import.filter.encrypted')} (*.mcfexport);;{tr('filter.all_files')} (*)")
     if not path_str:
         return False
     path = Path(path_str)
     try:
         if import_export.is_encrypted_export(path):
-            prompt = PasswordPrompt("Encrypted export",
-                                    f"Export password of the file \"{path.name}\".", parent)
+            prompt = PasswordPrompt(tr("import.encrypted_title"),
+                                    tr("import.export_password_of", name=path.name), parent)
             error = ""
             while True:
                 password = prompt.ask(error)
@@ -163,7 +165,7 @@ def run_import(parent: QWidget, entries: EntryService, categories: CategoryServi
             with _BusyCursor():
                 preview = import_export.parse_csv(path)
     except VaultError as exc:
-        dialogs.alert(parent, "Import impossible", str(exc))
+        dialogs.alert(parent, tr("import.impossible"), str(exc))
         return False
 
     dialog = ImportPreviewDialog(preview, parent)
@@ -176,30 +178,31 @@ def run_import(parent: QWidget, entries: EntryService, categories: CategoryServi
                 create_categories=dialog.create_categories.isChecked(),
                 skip_duplicates=dialog.skip_duplicates.isChecked())
     except VaultError as exc:
-        dialogs.alert(parent, "Import impossible", f"{exc}\n\nNo entry was imported.")
+        dialogs.alert(parent, tr("import.impossible"),
+                      f"{exc}\n\n{tr('import.nothing_imported')}")
         return False
 
-    lines = [f"{result.imported} entry(ies) imported."]
+    lines = [tr_n("import.result.imported", result.imported)]
     if result.duplicates:
-        lines.append(f"{result.duplicates} duplicate(s) skipped.")
+        lines.append(tr_n("import.result.duplicates", result.duplicates))
     if result.invalid:
-        lines.append(f"{result.invalid} invalid entry(ies) ignored.")
+        lines.append(tr_n("import.result.invalid", result.invalid))
     if preview.dropped_tags:
-        lines.append(f"{preview.dropped_tags} invalid or duplicate tag(s) ignored.")
+        lines.append(tr_n("import.result.dropped_tags", preview.dropped_tags))
     if result.categories_created:
-        lines.append("Categories created: " + ", ".join(result.categories_created) + ".")
+        lines.append(tr("import.result.categories",
+                        names=", ".join(result.categories_created)))
     if preview.format_key != "moncoffre_encrypted":
-        if dialogs.confirm(parent, "Import complete — delete the CSV file?",
-                           " ".join(lines) + "\n\nThis file contains your passwords IN "
-                           "PLAINTEXT. Deleting it now is recommended.",
-                           "Delete the file", danger=True, icon="file-down"):
+        if dialogs.confirm(parent, tr("import.delete_csv.title"),
+                           " ".join(lines) + "\n\n" + tr("import.delete_csv.body"),
+                           tr("import.delete_file"), danger=True, icon="file-down"):
             try:
                 path.unlink()
             except OSError as exc:
-                dialogs.alert(parent, "Deletion impossible",
-                              f"The file could not be deleted: {exc.strerror}.")
+                dialogs.alert(parent, tr("delete_vault.impossible"),
+                              tr("import.delete_failed", reason=exc.strerror))
     else:
-        dialogs.alert(parent, "Import complete", " ".join(lines), kind="info")
+        dialogs.alert(parent, tr("import.complete"), " ".join(lines), kind="info")
     return result.imported > 0
 
 
@@ -211,8 +214,8 @@ class ExportDialog(PremiumDialog):
 
     def __init__(self, entries: EntryService, vault: Vault, parent: QWidget | None = None,
                  initial: str = "encrypted") -> None:
-        super().__init__(parent, "Export entries",
-                         "The Trash and the history are not exported.",
+        super().__init__(parent, tr("export.title"),
+                         tr("export.subtitle"),
                          icon="file-up", width=540)
         self._entries = entries
         self._vault = vault
@@ -220,53 +223,51 @@ class ExportDialog(PremiumDialog):
         self.exported_count = 0
         self.exported_protected = False
 
-        self.encrypted = QRadioButton("Encrypted export (.mcfexport) — recommended")
-        self.plain_csv = QRadioButton("Unencrypted CSV — to move to other software")
-        self.pdf = QRadioButton("PDF — to print a paper copy")
+        self.encrypted = QRadioButton(tr("export.format.encrypted"))
+        self.plain_csv = QRadioButton(tr("export.format.csv"))
+        self.pdf = QRadioButton(tr("export.format.pdf"))
         group = QButtonGroup(self)
         for button in (self.encrypted, self.plain_csv, self.pdf):
             group.addButton(button)
             self.body.addWidget(button)
         {"csv": self.plain_csv, "pdf": self.pdf}.get(initial, self.encrypted).setChecked(True)
 
-        self.master = PasswordField("Vault master password", leading_icon="lock")
-        self.body.addWidget(ui.label("Master password (required)", "FieldLabel"))
+        self.master = PasswordField(tr("export.master_placeholder"), leading_icon="lock")
+        self.body.addWidget(ui.label(tr("export.master_label"), "FieldLabel"))
         self.body.addWidget(self.master)
-        self.protect_pdf = ui.ToggleSwitch("Protect the PDF with a password (recommended)")
+        self.protect_pdf = ui.ToggleSwitch(tr("export.protect_pdf"))
         if pdf_export.protection_available():
             self.protect_pdf.setChecked(True)
         else:  # missing dependency: reported, never bypassed
             self.protect_pdf.setEnabled(False)
-            self.protect_pdf.setToolTip(pdf_export.MISSING_DEPENDENCY)
-        self.protection_missing = ui.label(pdf_export.MISSING_DEPENDENCY, "Faint", wrap=True)
+            self.protect_pdf.setToolTip(tr(pdf_export.MISSING_DEPENDENCY))
+        self.protection_missing = ui.label(tr(pdf_export.MISSING_DEPENDENCY), "Faint", wrap=True)
         self.body.addWidget(self.protect_pdf)
         self.body.addWidget(self.protection_missing)
         self._export_fields = QWidget()
         fields = QVBoxLayout(self._export_fields)
         fields.setContentsMargins(0, 0, 0, 0)
         fields.setSpacing(8)
-        self.export_password = PasswordField("8 characters minimum")
-        self.export_confirm = PasswordField("Confirmation")
-        self.export_password_label = ui.label("Export password", "FieldLabel")
+        self.export_password = PasswordField(tr("password_change.new_placeholder",
+                                                     min=MIN_MASTER_PASSWORD_LENGTH))
+        self.export_confirm = PasswordField(tr("password_change.confirmation"))
+        self.export_password_label = ui.label(tr("export.password"), "FieldLabel")
         fields.addWidget(self.export_password_label)
         fields.addWidget(self.export_password)
         fields.addWidget(self.export_confirm)
-        self.pdf_note = ui.label(
-            "Different from the master password. The PDF is encrypted with AES-256: this "
-            "password will be asked when it is opened. The printed copy stays readable.",
-            "Faint", wrap=True)
+        self.pdf_note = ui.label(tr("export.pdf_note"), "Faint", wrap=True)
         fields.addWidget(self.pdf_note)
         self.body.addWidget(self._export_fields)
 
         self.warning = ui.label("", wrap=True)
         self.warning.setStyleSheet(f"color: {theme.DANGER};")
-        self.acknowledge = ui.ToggleSwitch("I understand that this file will not be protected")
+        self.acknowledge = ui.ToggleSwitch(tr("export.acknowledge"))
         self.body.addWidget(self.warning)
         self.body.addWidget(self.acknowledge)
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, self.go = self.add_buttons("Cancel", "Choose location…",
+        _, self.go = self.add_buttons(tr("common.cancel"), tr("recovery.pdf.choose_location"),
                                       confirm_icon="file-up")
         self.go.clicked.connect(self._export)
         for button in (self.encrypted, self.plain_csv, self.pdf):
@@ -285,18 +286,13 @@ class ExportDialog(PremiumDialog):
         self.protection_missing.setVisible(pdf and not pdf_export.protection_available())
         self.pdf_note.setVisible(self._pdf_protected)
         self.export_password_label.setText(
-            "PDF password" if pdf else "Export password")
+            tr("recovery.pdf.password") if pdf else tr("export.password"))
         # Encrypted = .mcfexport export, or protected PDF: no warning and no confirmation.
         encrypted = self.encrypted.isChecked() or self._pdf_protected
         if pdf:
-            self.warning.setText(
-                "The PDF will contain ALL your passwords IN PLAINTEXT, without any protection. "
-                "Print it, keep the paper copy locked away, then delete the file.")
+            self.warning.setText(tr("export.warning.pdf"))
         else:
-            self.warning.setText(
-                "The CSV file will contain ALL your passwords IN PLAINTEXT: any person or "
-                "program with access to it will be able to read them. Delete it as soon as the "
-                "move is complete.")
+            self.warning.setText(tr("export.warning.csv"))
         self._export_fields.setVisible(encrypted)
         self.warning.setVisible(not encrypted)
         self.acknowledge.setVisible(not encrypted)
@@ -312,19 +308,19 @@ class ExportDialog(PremiumDialog):
         pdf = self.pdf.isChecked()
         if (encrypted or self._pdf_protected) and \
                 self.export_password.text() != self.export_confirm.text():
-            self._fail("The two " + ("PDF" if pdf else "export")
-                       + " passwords do not match.")
+            self._fail(tr("export.error.pdf_mismatch") if pdf
+                       else tr("export.error.mismatch"))
             return
         if pdf:
-            suffix, name, file_filter = (pdf_export.PDF_SUFFIX, "keyra-passwords",
+            suffix, name, file_filter = (pdf_export.PDF_SUFFIX, tr("export.filename.pdf"),
                                          "PDF (*.pdf)")
         elif encrypted:
-            suffix, name, file_filter = (import_export.EXPORT_SUFFIX, "keyra-export",
-                                         "Encrypted export (*.mcfexport)")
+            suffix, name, file_filter = (import_export.EXPORT_SUFFIX, tr("export.filename"),
+                                         f"{tr('export.filter.encrypted')} (*.mcfexport)")
         else:
-            suffix, name, file_filter = ".csv", "keyra-export", "CSV (*.csv)"
+            suffix, name, file_filter = ".csv", tr("export.filename"), "CSV (*.csv)"
         default = Path.home() / f"{name}-{datetime.now().astimezone():%Y%m%d}{suffix}"
-        path_str, _ = QFileDialog.getSaveFileName(self, "Save the export", str(default),
+        path_str, _ = QFileDialog.getSaveFileName(self, tr("export.save_title"), str(default),
                                                   file_filter)
         if not path_str:
             return
@@ -348,7 +344,7 @@ class ExportDialog(PremiumDialog):
             self._fail(str(exc))
             return
         except OSError as exc:
-            self._fail(f"Write impossible: {exc.strerror}.")
+            self._fail(tr("common.error.write", reason=exc.strerror))
             return
         self.exported_path = path
         self.exported_count = count
@@ -379,13 +375,12 @@ def restore_file(parent: QWidget, path: Path) -> VaultInfo | None:
     try:
         info = backup.read_backup_info(path)
     except VaultError as exc:
-        dialogs.alert(parent, "Unreadable backup", str(exc))
+        dialogs.alert(parent, tr("restore.unreadable"), str(exc))
         return None
     prompt = PasswordPrompt(
-        "Restore a backup",
-        f"Backup of the vault \"{info.vault_name}\" from {_when(info.created_at)} "
-        f"({backup.kind_label(info.kind)}). It will be restored as a NEW vault: the current "
-        "vault is not modified. Master password in effect when the backup was made:",
+        tr("lock.restore_backup"),
+        tr("restore.prompt", name=info.vault_name, date=_when(info.created_at),
+           kind=backup.kind_label(info.kind)),
         parent, icon="rotate-ccw")
     error = ""
     while True:
@@ -396,17 +391,17 @@ def restore_file(parent: QWidget, path: Path) -> VaultInfo | None:
             with _BusyCursor():
                 return backup.restore_backup(path, password)
         except WrongMasterPasswordError:
-            error = "Wrong master password for this backup."
+            error = tr("restore.wrong_password")
         except VaultError as exc:
-            dialogs.alert(parent, "Restore impossible", str(exc))
+            dialogs.alert(parent, tr("restore.impossible"), str(exc))
             return None
 
 
 def run_restore(parent: QWidget, start_dir: Path | None = None) -> VaultInfo | None:
     """Choice of a .mcfbak file, then restore as a new vault."""
     path_str, _ = QFileDialog.getOpenFileName(
-        parent, "Restore a backup", str(start_dir or default_backup_dir()),
-        "Keyra backups (*.mcfbak);;All files (*)")
+        parent, tr("lock.restore_backup"), str(start_dir or default_backup_dir()),
+        f"{tr('restore.filter')} (*.mcfbak);;{tr('filter.all_files')} (*)")
     if not path_str:
         return None
     return restore_file(parent, Path(path_str))

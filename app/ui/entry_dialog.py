@@ -21,6 +21,7 @@ from app.core.categories import Category
 from app.core.entries import DEFAULT_ENTRY_TYPE, ENTRY_TYPES, Entry, EntryService
 from app.core.exceptions import EntryError
 from app.core.strength import estimate_strength
+from app.i18n import tr
 from app.services.settings import Settings
 from app.ui import components as ui
 from app.ui.dialogs import PremiumDialog
@@ -47,8 +48,8 @@ class EntryDialog(PremiumDialog):
                  settings: Settings | None = None, default_category_id: int | None = None,
                  parent: QWidget | None = None) -> None:
         editing = entry is not None
-        super().__init__(parent, "Edit entry" if editing else "New entry",
-                         "Sensitive fields are encrypted (AES-256-GCM).",
+        super().__init__(parent, tr("action.edit_entry") if editing else tr("action.new_entry"),
+                         tr("entry_dialog.subtitle"),
                          icon="square-pen" if editing else "plus", width=560)
         self._service = service
         self._clipboard = clipboard
@@ -67,31 +68,31 @@ class EntryDialog(PremiumDialog):
             self.type_combo.addItem(spec.label, spec.key)
         self.type_combo.setEnabled(not editing)  # the type is fixed after creation
         self.category = QComboBox()
-        self.category.addItem("None", None)
+        self.category.addItem(tr("entry_dialog.no_category"), None)
         for cat in categories:
             self.category.addItem(cat.name, cat.id)
-        grid.addWidget(_field("Type", self.type_combo), 0, 0)
-        grid.addWidget(_field("Category", self.category), 0, 1)
+        grid.addWidget(_field(tr("field.type"), self.type_combo), 0, 0)
+        grid.addWidget(_field(tr("field.category"), self.category), 0, 1)
 
         self.name = QLineEdit()
-        self.name.setPlaceholderText("E.g. GitHub, Bank, Home Wi-Fi…")
-        grid.addWidget(_field("Name *", self.name), 1, 0, 1, 2)
-        self.favorite = ui.ToggleSwitch("Favorite")
+        self.name.setPlaceholderText(tr("entry_dialog.name_placeholder"))
+        grid.addWidget(_field(tr("entry_dialog.name_required"), self.name), 1, 0, 1, 2)
+        self.favorite = ui.ToggleSwitch(tr("entry_dialog.favorite"))
         grid.addWidget(self.favorite, 2, 0, 1, 2)
 
         self.url = QLineEdit()
         self.url.setPlaceholderText("https://…")
         self.username = QLineEdit()
         self.email = QLineEdit()
-        self._url_row = _field("URL", self.url)
-        self._username_row = _field("Username", self.username)
-        self._email_row = _field("Email", self.email)
+        self._url_row = _field(tr("field.url"), self.url)
+        self._username_row = _field(tr("field.username"), self.username)
+        self._email_row = _field(tr("field.email"), self.email)
         grid.addWidget(self._url_row, 3, 0, 1, 2)
         grid.addWidget(self._username_row, 4, 0)
         grid.addWidget(self._email_row, 4, 1)
 
         self.password = PasswordField()
-        generate = ui.icon_button("wand-sparkles", "Generate a password", "",
+        generate = ui.icon_button("wand-sparkles", tr("dashboard.generate"), "",
                                   self._open_generator)
         line = QHBoxLayout()
         line.setSpacing(6)
@@ -106,7 +107,7 @@ class EntryDialog(PremiumDialog):
         self.strength_label = ui.label("", "Faint")
         password_layout.addWidget(self.strength)
         password_layout.addWidget(self.strength_label)
-        self._password_row = _field("Password", password_host)
+        self._password_row = _field(tr("field.password"), password_host)
         self.password.textChanged.connect(self._update_strength)
         grid.addWidget(self._password_row, 5, 0, 1, 2)
 
@@ -124,13 +125,13 @@ class EntryDialog(PremiumDialog):
             row += (len(spec.extra_fields) + 1) // 2
 
         self.notes = QPlainTextEdit()
-        self.notes.setPlaceholderText("Notes (encrypted)")
+        self.notes.setPlaceholderText(tr("entry_dialog.notes_placeholder"))
         self.notes.setFixedHeight(90)
-        grid.addWidget(_field("Notes", self.notes), row, 0, 1, 2)
+        grid.addWidget(_field(tr("field.notes"), self.notes), row, 0, 1, 2)
 
         self.tags = TagEditor()
         self.tags.set_suggestions(service.all_tags())
-        grid.addWidget(_field("Tags", self.tags), row + 1, 0, 1, 2)
+        grid.addWidget(_field(tr("field.tags"), self.tags), row + 1, 0, 1, 2)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -140,7 +141,7 @@ class EntryDialog(PremiumDialog):
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, save = self.add_buttons("Cancel", "Save", confirm_icon="check")
+        _, save = self.add_buttons(tr("common.cancel"), tr("common.save"), confirm_icon="check")
         save.clicked.connect(self._save)
 
         self.type_combo.currentIndexChanged.connect(self._apply_type_visibility)
@@ -174,7 +175,8 @@ class EntryDialog(PremiumDialog):
         result = estimate_strength(text)
         self.strength.set_score(result.score, result.entropy_bits)
         advice = f" — {result.warnings[0]}" if result.warnings else ""
-        self.strength_label.setText(f"{result.label} · ~{result.entropy_bits:.0f} bits{advice}")
+        self.strength_label.setText(tr("strength.summary", label=result.label,
+                                       bits=f"{result.entropy_bits:.0f}") + advice)
 
     def _open_generator(self) -> None:
         dialog = GeneratorDialog(self._clipboard, use_mode=True, parent=self,

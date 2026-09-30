@@ -7,19 +7,20 @@ from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout
 
 from app.core.entries import EntryFilter
 from app.core.exceptions import EntryError
+from app.i18n import tr, tr_n
 from app.ui import components as ui
 from app.ui import dialogs, theme
 from app.ui.detail_panel import DetailPanel
 from app.ui.entry_list import EntryListView
 from app.ui.pages.base import AppContext, Page
 
-_IRREVERSIBLE = "I understand that this action cannot be undone"
+_IRREVERSIBLE = "trash.irreversible"  # translation key
 
 
 class TrashPage(Page):
     key = "trash"
-    title = "Trash"
-    subtitle = "Deleted entries, restorable"
+    title_key = "page.trash.title"
+    subtitle_key = "page.trash.subtitle"
     icon = "trash-2"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -36,15 +37,14 @@ class TrashPage(Page):
         texts.addWidget(self.summary)
         texts.addWidget(self.retention)
         banner_row.addLayout(texts, 1)
-        self.empty_button = ui.button("Empty Trash", "trash-2", "Danger",
+        self.empty_button = ui.button(tr("trash.empty_button"), "trash-2", "Danger",
                                       on_click=self.empty_trash)
         banner_row.addWidget(self.empty_button, 0, Qt.AlignVCenter)
 
         self.list = EntryListView(trash_mode=True)
         self.list.entry_selected.connect(self._on_selected)
-        self.empty = ui.EmptyState("trash-2", "The Trash is empty",
-                                   "Deleted entries stay here before being permanently "
-                                   "erased.")
+        self.empty = ui.EmptyState("trash-2", tr("trash.empty"),
+                                   tr("trash.empty.text"))
         self.stack = QStackedWidget()
         self.stack.addWidget(self.list)
         self.stack.addWidget(self.empty)
@@ -74,11 +74,10 @@ class TrashPage(Page):
         rows = self.ctx.entries.list_entries(EntryFilter(in_trash=True))
         self.list.set_entries(rows)
         count = len(rows)
-        self.summary.setText(f"{count} item{'s' if count > 1 else ''}")
+        self.summary.setText(tr_n("trash.count", count))
         days = self.ctx.settings().trash_retention_days
         self.retention.setText(
-            f"Permanently deleted after {days} days." if days else
-            "Kept until the Trash is emptied manually.")
+            tr_n("trash.retention", days) if days else tr("trash.retention.never"))
         self.empty_button.setEnabled(count > 0)
         self.stack.setCurrentWidget(self.list if rows else self.empty)
         self.detail.clear()
@@ -99,45 +98,43 @@ class TrashPage(Page):
         try:
             self.ctx.entries.restore_entry(entry_id)
         except EntryError as exc:
-            dialogs.alert(self, "Restore impossible", str(exc))
+            dialogs.alert(self, tr("restore.impossible"), str(exc))
             return
         self.list.animate_removal(entry_id, self._after_change)
-        self.ctx.notify("Entry restored", "It is back in the vault.",
+        self.ctx.notify(tr("trash.restored"), tr("trash.restored.text"),
                         icon="archive-restore")
 
     def purge(self, entry_id: int) -> None:
         summary = self.list.selected_summary()
-        name = summary.service_name if summary else "this entry"
-        if not dialogs.confirm(self, f"Permanently delete {name}?",
-                               "The entry and its whole history (old passwords "
-                               "included) will be erased. It can no longer be restored, "
-                               "except from a backup.",
-                               "Delete permanently", danger=True, icon="trash-2",
-                               acknowledge=_IRREVERSIBLE):
+        name = summary.service_name if summary else tr("vault.this_entry")
+        if not dialogs.confirm(self, tr("trash.purge.title", name=name),
+                               tr("trash.purge.text"),
+                               tr("delete_vault.submit"), danger=True, icon="trash-2",
+                               acknowledge=tr(_IRREVERSIBLE)):
             return
 
         def remove() -> None:
             try:
                 self.ctx.entries.delete_permanently(entry_id)
             except EntryError as exc:
-                dialogs.alert(self, "Deletion impossible", str(exc))
+                dialogs.alert(self, tr("delete_vault.impossible"), str(exc))
                 return
             self._after_change()
-            self.ctx.notify("Permanently deleted", name, icon="trash-2")
+            self.ctx.notify(tr("trash.purged"), name, icon="trash-2")
 
         self.list.animate_removal(entry_id, remove)
 
     def empty_trash(self) -> None:
         count = self.ctx.entries.trash_count()
         if not count or not dialogs.confirm(
-                self, "Empty the Trash?",
-                f"The {count} entry(ies) in the Trash and their history will be permanently "
-                "erased.", "Empty Trash", danger=True, icon="trash-2",
-                acknowledge=_IRREVERSIBLE):
+                self, tr("trash.empty_confirm.title"),
+                tr_n("trash.empty_confirm.text", count), tr("trash.empty_button"), danger=True,
+                icon="trash-2", acknowledge=tr(_IRREVERSIBLE)):
             return
         removed = self.ctx.entries.empty_trash()
         self._after_change()
-        self.ctx.notify("Trash emptied", f"{removed} entry(ies) erased.", icon="trash-2")
+        self.ctx.notify(tr("trash.emptied"), tr_n("trash.erased", removed),
+                        icon="trash-2")
 
     def _after_change(self) -> None:
         self.refresh()

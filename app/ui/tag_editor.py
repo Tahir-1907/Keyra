@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from app.core.exceptions import EntryValidationError
 from app.core.metadata import normalize_tags
+from app.i18n import tr
 from app.ui import components as ui
 from app.ui import lucide, theme
 
@@ -136,7 +137,7 @@ class TagEditor(QWidget):
         self._chips = QWidget()
         self._flow = FlowLayout(self._chips)
         self.input = _TagInput()
-        self.input.setPlaceholderText("Add a tag (Enter or comma)")
+        self.input.setPlaceholderText(tr("tags.placeholder"))
         self.input.commit.connect(self._commit_input)
         self.input.textChanged.connect(self._on_text_changed)
         self._model = QStringListModel(self)
@@ -210,7 +211,7 @@ class TagEditor(QWidget):
             item = self._flow.takeAt(0)
             item.widget().deleteLater()
         for tag in self._tags:
-            chip = tag_chip(tag, f"Remove \"{tag}\"", removable=True)
+            chip = tag_chip(tag, tr("tags.remove", tag=tag), removable=True)
             chip.clicked.connect(lambda _checked=False, t=tag: self.remove_tag(t))
             self._flow.addWidget(chip)
         self._chips.setVisible(bool(self._tags))

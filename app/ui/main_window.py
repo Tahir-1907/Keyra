@@ -12,6 +12,7 @@ from __future__ import annotations
 from PySide6.QtCore import QByteArray, QEvent, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
+from app import i18n
 from app.core.categories import CategoryService
 from app.core.entries import EntryService
 from app.core.exceptions import (
@@ -24,8 +25,16 @@ from app.core.exceptions import (
 )
 from app.core.session import SessionManager
 from app.core.vault import Vault, generate_vault_id, list_vaults, vault_has_recovery_key
+from app.i18n import qt as i18n_qt
+from app.i18n import tr
 from app.services import backup, vault_upgrade
-from app.services.settings import Settings, backup_directory, load_settings, save_settings
+from app.services.settings import (
+    Settings,
+    backup_directory,
+    load_settings,
+    save_settings,
+    settings_path,
+)
 from app.ui import dialogs, effects, recovery_dialogs, tasks, theme
 from app.ui.app_menus import AppMenus
 from app.ui.command_palette import Command, CommandPalette
@@ -77,6 +86,11 @@ class MainWindow(QMainWindow):
         self._session: SessionManager | None = None
         self._shell: AppShell | None = None
         self._settings: Settings = load_settings()
+        # Interface language before any widget is built (app/i18n): the setting, or
+        # the system language for "system". First start: the file records "system".
+        i18n_qt.apply(i18n.resolve_setting(self._settings.language))
+        if not settings_path().exists():
+            self._save_settings()
         self._last_vault_id: str | None = self._settings.last_vault_id or None
         self._lock_message = ""
         self._changes_at_open = 0
@@ -99,7 +113,7 @@ class MainWindow(QMainWindow):
         self._clipboard = SecureClipboard(parent=self)
         self._clipboard.copied_item.connect(self._on_copied)
         self._clipboard.cleared.connect(
-            lambda: self._toasts.show("Clipboard cleared", kind="info", icon="shield-check",
+            lambda: self._toasts.show(tr("clipboard.cleared"), kind="info", icon="shield-check",
                                       duration=2.5))
         self._activity_filter = _ActivityFilter(self._on_activity, self)
         self._idle_timer = QTimer(self)
@@ -110,6 +124,16 @@ class MainWindow(QMainWindow):
 
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
+        self._build_locked_screens()
+
+        self._menus = AppMenus(self, self._menu_handlers())
+        self._menus.actions["animations"].setChecked(self._settings.animations)
+        self._apply_settings()
+        self._set_vault_open(False)
+        self._show_locked_state()
+
+    def _build_locked_screens(self) -> None:
+        """Creation and unlock screens (built again after a language change)."""
         self._create_screen = CreateVaultScreen()
         self._create_screen.create_requested.connect(self._create_vault)
         self._create_screen.restore_requested.connect(self._restore_from_locked_state)
@@ -119,14 +143,8 @@ class MainWindow(QMainWindow):
         self._unlock_screen.recovery_requested.connect(self._recover_vault)
         self._unlock_screen.restore_requested.connect(self._restore_from_locked_state)
         self._unlock_screen.new_vault_requested.connect(lambda: self._show_create_screen(False))
-        self._stack.addWidget(self._create_screen)
-        self._stack.addWidget(self._unlock_screen)
-
-        self._menus = AppMenus(self, self._menu_handlers())
-        self._menus.actions["animations"].setChecked(self._settings.animations)
-        self._apply_settings()
-        self._set_vault_open(False)
-        self._show_locked_state()
+        self._stack.insertWidget(0, self._create_screen)
+        self._stack.insertWidget(1, self._unlock_screen)
 
     # --- States ---------------------------------------------------------------------------
 
@@ -159,11 +177,7 @@ class MainWindow(QMainWindow):
             EntryService(vault).purge_trash(self._settings.trash_retention_days)
         # Reference for the automatic backup: changes made *during* the session.
         self._changes_at_open = vault.connection.total_changes
-        shell = AppShell(self._session, self._clipboard, lambda: self._settings, self._notify,
-                         self._on_vault_action, self.update_settings)
-        shell.lock_requested.connect(lambda: self.lock())
-        self._shell = shell
-        self._stack.addWidget(shell)
+        shell = self._make_shell()
         # Lock screen → application: slide to the left + fade.
         effects.switch_page(self._stack, shell, 1, effects.theme.DURATION_SLOW)
         self.setWindowTitle(f"{vault.info.vault_name} — {APP_DISPLAY_NAME}")
@@ -171,6 +185,14 @@ class MainWindow(QMainWindow):
         QApplication.instance().installEventFilter(self._activity_filter)
         self._idle_timer.start()
         self._update_lock_countdown()
+
+    def _make_shell(self) -> AppShell:
+        shell = AppShell(self._session, self._clipboard, lambda: self._settings, self._notify,
+                         self._on_vault_action, self.update_settings)
+        shell.lock_requested.connect(lambda: self.lock())
+        self._shell = shell
+        self._stack.addWidget(shell)
+        return shell
 
     # --- Creation / unlocking (Argon2id in the background) -------------------------------------
 
@@ -192,7 +214,8 @@ class MainWindow(QMainWindow):
         vault, recovery_key = result
         self._busy = False
         self._open_session(vault)
-        self._notify("Vault created", f"\"{vault.info.vault_name}\" is ready.", icon="shield-check")
+        self._notify(tr("create.done_title"), tr("create.done_body", name=vault.info.vault_name),
+                     icon="shield-check")
         if recovery_key:
             self._show_recovery_key(vault, recovery_key)
 
@@ -212,16 +235,14 @@ class MainWindow(QMainWindow):
         name = next((v.vault_name for v in list_vaults() if v.vault_id == vault_id), vault_id)
         if not vault_has_recovery_key(vault_id):
             dialogs.alert(
-                self, "No recovery key",
-                f"The vault \"{name}\" has no recovery key: without the master "
-                "password, nobody can open it. If you remember an OLD password, a "
-                "backup made back then opens with it (\"Restore a "
-                "backup\").", kind="warning")
+                self, tr("recover.no_key_title"),
+                tr("recover.no_key_body", name=name, restore=tr("lock.restore_backup")),
+                kind="warning")
             return
         try:
             check = vault_upgrade.inspect(vault_id)
         except VaultError as exc:
-            dialogs.alert(self, "Recovery impossible", str(exc))
+            dialogs.alert(self, tr("recover.error_title"), str(exc))
             return
         upgrade_dir = None
         if check.needs_upgrade:
@@ -255,8 +276,8 @@ class MainWindow(QMainWindow):
         self._open_session(vault)
         if upgraded is not None:
             self._report_upgrade(upgraded)
-        self._notify("New master password saved",
-                     "Write down the new recovery key.", icon="key-round", duration=6)
+        self._notify(tr("recover.saved_title"),
+                     tr("recover.saved_body"), icon="key-round", duration=6)
         self._show_recovery_key(vault, new_key, renewed=True)
 
     def _show_orphan_recovery_key(self, key: str, message: str) -> None:
@@ -266,10 +287,8 @@ class MainWindow(QMainWindow):
         dialog = recovery_dialogs.RecoveryKeyDialog(key, self._clipboard, lambda: None, self,
                                                     renewed=True, kept_if_abandoned=True)
         dialog.exec()
-        dialogs.alert(self, "Upgrade not performed", message, kind="warning")
-        self._unlock_screen.show_error(
-            "Unlock with the new master password to retry the "
-            "upgrade.")
+        dialogs.alert(self, tr("upgrade.not_performed_title"), message, kind="warning")
+        self._unlock_screen.show_error(tr("upgrade.retry_with_new_password"))
 
     def _on_create_failed(self, exc: Exception) -> None:
         self._busy = False
@@ -278,7 +297,7 @@ class MainWindow(QMainWindow):
             self._create_screen.show_error(str(exc))
         else:
             self._logger.error("Vault creation failed: %s", type(exc).__name__)
-            self._create_screen.show_error("Vault creation failed.")
+            self._create_screen.show_error(tr("create.error.failed"))
 
     def _unlock_vault(self, vault_id: str, password: str) -> None:
         if self._busy:
@@ -306,14 +325,14 @@ class MainWindow(QMainWindow):
             return
         if isinstance(exc, WrongMasterPasswordError):
             self._logger.warning("Failed unlock attempt: vault=%s", vault_id)
-            message = "Wrong master password."
+            message = tr("vault.error.wrong_password")
         elif isinstance(exc, (VaultCorruptedError, UnsupportedVaultVersionError,
                               VaultNotFoundError, VaultMigrationRequiredError)):
             self._logger.error("Unlock failed: vault=%s (%s)", vault_id, type(exc).__name__)
             message = str(exc)
         else:
             self._logger.error("Unlock failed: vault=%s (%s)", vault_id, type(exc).__name__)
-            message = "Unlocking failed."
+            message = tr("unlock.error.failed")
         self._unlock_screen.set_busy(False)
         self._unlock_screen.show_error(message)
 
@@ -323,10 +342,7 @@ class MainWindow(QMainWindow):
         self._logger.error("Upgrade impossible: vault=%s (%d structure problems)", vault_id,
                            len(check.problems))
         self._unlock_screen.show_error(
-            "This vault cannot be upgraded: its file contains items that the "
-            "application did not create (details: " + "; ".join(check.problems[:3])
-            + "). It has not been modified. A version 1.6, if still installed, "
-            "can still open it.")
+            tr("upgrade.refused", details="; ".join(check.problems[:3])))
 
     def _offer_upgrade(self, vault_id: str, password: str) -> None:
         """Explicit confirmation, upgrade in the background, verification, session."""
@@ -359,22 +375,20 @@ class MainWindow(QMainWindow):
             self._unlock_screen.show_error(str(error))
         else:
             self._unlock_screen.show_error(
-                "Upgrade not performed: the vault has not been modified.")
+                tr("upgrade.not_performed"))
 
     def _report_upgrade(self, result) -> None:
         self._logger.info("Vault upgraded to v4 and opened: %s", result.vault.vault_id)
-        self._notify("Vault upgraded",
-                     f"Preliminary backup kept: {result.report.backup_path.name}",
+        self._notify(tr("upgrade.done_title"),
+                     tr("upgrade.done_body", name=result.report.backup_path.name),
                      icon="shield-check", duration=6)
         for warning in result.warnings:
-            self._notify("Upgrade", warning, kind="warning", duration=8)
+            self._notify(tr("upgrade.toast_title"), warning, kind="warning", duration=8)
         if result.legacy_plaintext_copies:
             names = ", ".join(p.name for p in result.legacy_plaintext_copies)
             dialogs.alert(
-                self, "Old unencrypted copies",
-                f"These files, left next to the vault by older versions, are "
-                f"NOT encrypted: {names}. They were neither used nor deleted. Delete "
-                "them yourself now that the vault has been upgraded.", kind="warning")
+                self, tr("upgrade.legacy_copies_title"),
+                tr("upgrade.legacy_copies_body", names=names), kind="warning")
 
     # --- Inactivity, locking -----------------------------------------------------------------
 
@@ -395,19 +409,20 @@ class MainWindow(QMainWindow):
             # unlocked; self.lock() locks right after.
             self._logger.info("Auto-lock triggered after %.0fs idle", self._session.idle_seconds())
             seconds = self._session.auto_lock_seconds or 0
-            delay = f"{seconds // 60} min" if seconds >= 60 else f"{seconds} s"
-            self.lock(f"Locked automatically after {delay} of inactivity.")
+            delay = (tr("unit.minutes_short", count=seconds // 60) if seconds >= 60
+                     else tr("unit.seconds_short", count=seconds))
+            self.lock(tr("lock.auto_locked", delay=delay))
 
     def _update_lock_countdown(self) -> None:
         session, shell = self._session, self._shell
         if session is None or shell is None:
             return
         if session.auto_lock_seconds is None:
-            shell.set_countdown("Auto-lock disabled")
+            shell.set_countdown(tr("shell.auto_lock_disabled"))
             return
         remaining = max(0, int(session.auto_lock_seconds - session.idle_seconds()))
-        shell.set_countdown(f"Locking in {remaining // 60:02d}:{remaining % 60:02d}",
-                            warn=remaining <= 30)
+        clock = f"{remaining // 60:02d}:{remaining % 60:02d}"
+        shell.set_countdown(tr("shell.locking_in", time=clock), warn=remaining <= 30)
 
     def lock(self, message: str = "") -> None:
         """Locks the vault. Nothing that precedes the lock (closing modals, clipboard,
@@ -466,13 +481,13 @@ class MainWindow(QMainWindow):
             # Logged (type only: no secret) and reported on the lock screen.
             self._logger.error("Automatic backup failed: %s", type(exc).__name__)
             self._lock_message = (self._lock_message + " " if self._lock_message else "") + \
-                "The automatic backup failed."
+                tr("lock.auto_backup_failed")
 
     def _restore_from_locked_state(self) -> None:
         restored = run_restore(self, backup_directory(self._settings))
         if restored is not None:
             self._last_vault_id = restored.vault_id
-            self._lock_message = f"Vault restored: \"{restored.vault_name}\"."
+            self._lock_message = tr("restore.done_lock_message", name=restored.vault_name)
             self._show_locked_state()
 
     def _on_system_lock(self, message: str) -> None:
@@ -503,9 +518,43 @@ class MainWindow(QMainWindow):
         """Called by the Settings view (automatic saving)."""
         settings.window_geometry = self._settings.window_geometry
         settings.last_vault_id = self._settings.last_vault_id
+        language_changed = settings.language != self._settings.language
         self._settings = settings
         self._save_settings()
         self._apply_settings()
+        if language_changed:
+            locale = i18n.resolve_setting(settings.language)
+            if locale != i18n.current():
+                i18n_qt.apply(locale)
+                # After the signal that called us: the Settings view is rebuilt.
+                QTimer.singleShot(0, self._retranslate)
+
+    def _retranslate(self) -> None:
+        """Rebuilds the views in the new language (no widget is translated in place).
+
+        The session stays open: same vault, same key; only the widgets are replaced.
+        Nothing is written to the vault (the category cache is only re-read).
+        """
+        self._menus.retranslate()
+        for screen in (self._create_screen, self._unlock_screen):
+            self._stack.removeWidget(screen)
+            screen.deleteLater()
+        self._build_locked_screens()
+        old = self._shell
+        if old is None or self._session is None:
+            self._show_locked_state()
+            return
+        self._session.vault.metadata.invalidate_categories()  # built-in names: new language
+        shell = self._make_shell()
+        shell.navigate("settings")
+        self._stack.setCurrentWidget(shell)
+        old.wipe()
+        self._stack.removeWidget(old)
+        old.deleteLater()
+        self.setWindowTitle(f"{self._session.vault.info.vault_name} — {APP_DISPLAY_NAME}")
+        self._set_vault_open(True)
+        self._update_lock_countdown()
+        self._notify(tr("settings.language_changed"), icon="globe")
 
     def _toggle_animations(self, enabled: bool) -> None:
         self._settings.animations = enabled
@@ -548,11 +597,11 @@ class MainWindow(QMainWindow):
         detail = ""
         try:  # immediate backup protected by the NEW password
             path = backup.create_backup(vault, directory=backup_directory(self._settings))
-            detail = f"New backup: {path.name}"
+            detail = tr("password_change.new_backup", name=path.name)
         except (VaultError, OSError) as exc:
             self._logger.error("Backup after password change failed: %s", type(exc).__name__)
-            detail = "The backup after the change failed."
-        self._notify("Master password changed", detail, icon="key-round", duration=6)
+            detail = tr("password_change.backup_failed")
+        self._notify(tr("password_change.done"), detail, icon="key-round", duration=6)
 
     def _delete_current_vault(self) -> None:
         vault = self._session.vault
@@ -563,17 +612,17 @@ class MainWindow(QMainWindow):
         password = dialog.entered_password
         dialog.entered_password = ""
         if not vault.verify_master_password(password):
-            dialogs.alert(self, "Deletion cancelled", "Wrong master password.")
+            dialogs.alert(self, tr("delete_vault.cancelled"), tr("vault.error.wrong_password"))
             return
         self.lock()  # closes the vault (and creates a last backup if it changed)
         try:
             delete_closed_vault(vault_id, password)
         except VaultError as exc:
-            dialogs.alert(self, "Deletion impossible", str(exc))
+            dialogs.alert(self, tr("delete_vault.impossible"), str(exc))
             return
         if self._last_vault_id == vault_id:
             self._last_vault_id = None
-        self._lock_message = f"The vault \"{name}\" has been deleted."
+        self._lock_message = tr("delete_vault.done", name=name)
         self._show_locked_state()
 
     # --- Actions, palette, notifications ----------------------------------------------------------
@@ -639,10 +688,12 @@ class MainWindow(QMainWindow):
 
     def _on_copied(self, label: str, sensitive: bool, seconds: int) -> None:
         if sensitive:
-            self._toasts.show(f"{label} copied", f"Cleared from the clipboard in {seconds} s",
+            self._toasts.show(tr("clipboard.copied", label=label),
+                              tr("clipboard.cleared_in", seconds=seconds),
                               kind="success", icon="copy", countdown=seconds)
         else:
-            self._toasts.show(f"{label} copied", kind="success", icon="copy", duration=2.5)
+            self._toasts.show(tr("clipboard.copied", label=label), kind="success", icon="copy",
+                              duration=2.5)
 
     def command_palette_commands(self) -> list[Command]:
         commands = []
@@ -661,12 +712,12 @@ class MainWindow(QMainWindow):
                     summary.service_name,
                     lambda i=summary.id: shell.navigate("vault", entry_id=i),
                     summary.username or summary.category_name, "key-round", keywords,
-                    group="Entries"))
+                    group=tr("palette.group.entries")))
                 commands.append(Command(
-                    f"Copy password — {summary.service_name}",
+                    tr("palette.copy_password", name=summary.service_name),
                     lambda i=summary.id: (shell.navigate("vault", entry_id=i),
                                           shell.vault_page.copy_selected_password()),
-                    "", "copy", keywords, group="Copy"))
+                    "", "copy", keywords, group=tr("palette.group.copy")))
         return commands
 
     def open_command_palette(self) -> None:

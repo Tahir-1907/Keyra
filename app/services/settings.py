@@ -6,8 +6,13 @@ options, last vault used, window geometry). Any missing, unknown or invalid
 value is replaced by its default: a damaged file can neither prevent startup
 nor silently disable a protection (e.g. a delay outside the list).
 
-The choice dictionaries map a display label to the stored value: only the
-values are written to the file.
+The choice dictionaries map the translation key of a label (app/i18n) to the
+stored value: only the values are written to the file.
+
+Compatibility between versions sharing this file: keys unknown to this version
+(written by a newer one) are kept as they are when the file is saved. An older
+version (e.g. 1.7.0-rc1) does not know "language" and drops it when it saves its
+own settings: the next start then simply follows the system language again.
 """
 
 from __future__ import annotations
@@ -24,19 +29,21 @@ from app.core.generator import (
     MIN_PASSWORD_LENGTH,
 )
 from app.core.session import AUTO_LOCK_CHOICES_SECONDS
+from app.i18n import LOCALES, SYSTEM
 from app.utils.files import write_private_atomic
 from app.utils.logging import get_logger
 from app.utils.paths import config_dir, default_backup_dir
 
 SETTINGS_FILENAME = "settings.json"
 
-AUTO_LOCK_CHOICES = AUTO_LOCK_CHOICES_SECONDS  # label -> seconds (None = never)
+AUTO_LOCK_CHOICES = AUTO_LOCK_CHOICES_SECONDS  # label key -> seconds (None = never)
 CLIPBOARD_CHOICES: dict[str, int] = {
-    "10 seconds": 10, "20 seconds": 20, "30 seconds": 30,
-    "1 minute": 60, "2 minutes": 120, "5 minutes": 300,
+    "choice.seconds_10": 10, "choice.seconds_20": 20, "choice.seconds_30": 30,
+    "choice.minutes_1": 60, "choice.minutes_2": 120, "choice.minutes_5": 300,
 }
 TRASH_RETENTION_CHOICES: dict[str, int | None] = {
-    "7 days": 7, "30 days": 30, "90 days": 90, "1 year": 365, "Never (empty manually)": None,
+    "choice.days_7": 7, "choice.days_30": 30, "choice.days_90": 90, "choice.year_1": 365,
+    "choice.never_empty_manually": None,
 }
 PASSPHRASE_SEPARATORS = ("-", " ", ".", "_", "")
 MIN_AUTO_BACKUPS, MAX_AUTO_BACKUPS = 1, 100
@@ -66,6 +73,7 @@ class Settings:
     passphrase_capitalize: bool = False
     passphrase_add_number: bool = False
     # Interface
+    language: str = SYSTEM  # SYSTEM (follow the system language) or a locale, e.g. "fr_FR"
     animations: bool = True
     last_vault_id: str = ""
     window_geometry: str = ""  # QMainWindow.saveGeometry() in base64
@@ -86,6 +94,7 @@ class Settings:
             "passphrase_words": lambda v: isinstance(v, int) and not isinstance(v, bool)
             and MIN_PASSPHRASE_WORDS <= v <= MAX_PASSPHRASE_WORDS,
             "passphrase_separator": lambda v: v in PASSPHRASE_SEPARATORS,
+            "language": lambda v: isinstance(v, str) and (v == SYSTEM or v in LOCALES),
             "last_vault_id": lambda v: isinstance(v, str) and len(v) < 128 and "/" not in v,
             "window_geometry": lambda v: isinstance(v, str) and len(v) < 10_000,
         }
@@ -129,9 +138,23 @@ def load_settings() -> Settings:
     return settings.validated()
 
 
+def _unknown_keys(path: Path) -> dict:
+    """Keys of the current file that this version does not know (newer versions)."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    known = {f.name for f in fields(Settings)}
+    return {k: v for k, v in raw.items() if isinstance(k, str) and k not in known}
+
+
 def save_settings(settings: Settings) -> None:
     path = settings_path()
-    data = json.dumps(asdict(settings.validated()), ensure_ascii=False, indent=2)
+    content = _unknown_keys(path)
+    content.update(asdict(settings.validated()))
+    data = json.dumps(content, ensure_ascii=False, indent=2)
     write_private_atomic(path, data.encode("utf-8"), temp_prefix=".settings-",
                          temp_suffix=".json")
 

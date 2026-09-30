@@ -57,6 +57,7 @@ from app.core.metadata_store import MetadataStore
 from app.database import database
 from app.database.models import RecoveryRecord, VaultMeta
 from app.database.repositories import RecoveryRepository, VaultMetaRepository
+from app.i18n import tr
 from app.utils.logging import get_logger
 from app.utils.paths import vault_path, vaults_dir
 
@@ -82,9 +83,7 @@ def _utc_now_iso() -> str:
 def _validate_master_password_policy(password: str) -> None:
     if len(password) < MIN_MASTER_PASSWORD_LENGTH:
         raise InvalidMasterPasswordPolicyError(
-            f"The master password must contain at least "
-            f"{MIN_MASTER_PASSWORD_LENGTH} characters."
-        )
+            tr("vault.error.password_too_short", min=MIN_MASTER_PASSWORD_LENGTH))
 
 
 @dataclass(slots=True)
@@ -100,16 +99,13 @@ class VaultInfo:
 
 def check_supported_versions(meta: VaultMeta) -> None:
     if meta.format_version > CURRENT_FORMAT_VERSION:
-        raise UnsupportedVaultVersionError(
-            f"This vault uses a newer format "
-            f"(v{meta.format_version}) than the one supported by this application "
-            f"(v{CURRENT_FORMAT_VERSION})."
-        )
+        raise UnsupportedVaultVersionError(tr(
+            "vault.error.newer_format", version=meta.format_version,
+            supported=CURRENT_FORMAT_VERSION))
     if meta.schema_version > database.SCHEMA_VERSION:
-        raise UnsupportedVaultVersionError(
-            f"This vault was created by a newer version of the application "
-            f"(schema v{meta.schema_version}, supported: v{database.SCHEMA_VERSION})."
-        )
+        raise UnsupportedVaultVersionError(tr(
+            "vault.error.newer_schema", version=meta.schema_version,
+            supported=database.SCHEMA_VERSION))
 
 
 def unwrap_data_key(master_password: str, meta: VaultMeta) -> bytes:
@@ -123,12 +119,12 @@ def unwrap_data_key(master_password: str, meta: VaultMeta) -> bytes:
     try:
         _version, nonce, ciphertext = crypto.unpack_blob(meta.wrapped_key_blob)
     except ValueError as exc:
-        raise VaultCorruptedError("Invalid wrapped vault key.") from exc
+        raise VaultCorruptedError(tr("vault.error.wrapped_key_invalid")) from exc
 
     try:
         dek = crypto.aes_gcm_decrypt(kek, nonce, ciphertext, _WRAPPED_KEY_AAD)
     except crypto.AuthenticationFailed as exc:
-        raise WrongMasterPasswordError("Wrong master password.") from exc
+        raise WrongMasterPasswordError(tr("vault.error.wrong_password")) from exc
     _check_verifier(dek, meta)
     return dek
 
@@ -140,11 +136,11 @@ def _check_verifier(dek: bytes, meta: VaultMeta) -> None:
         plaintext = crypto.aes_gcm_decrypt(dek, v_nonce, v_ciphertext, _VERIFIER_AAD)
     except (ValueError, crypto.AuthenticationFailed) as exc:
         raise VaultCorruptedError(
-            "The vault integrity check failed after unlocking."
+            tr("vault.error.integrity_failed")
         ) from exc
 
     if plaintext != _VERIFIER_PLAINTEXT:
-        raise VaultCorruptedError("Invalid vault verifier.")
+        raise VaultCorruptedError(tr("vault.error.verifier_invalid"))
 
 
 def _wrap_for_password(dek: bytes, password: str) -> dict:
@@ -176,11 +172,11 @@ def _unwrap_with_recovery(secret: str, record: RecoveryRecord, meta: VaultMeta) 
     try:
         _version, nonce, ciphertext = crypto.unpack_blob(record.wrapped_key_blob)
     except ValueError as exc:
-        raise VaultCorruptedError("Invalid recovery envelope.") from exc
+        raise VaultCorruptedError(tr("vault.error.recovery_envelope_invalid")) from exc
     try:
         dek = crypto.aes_gcm_decrypt(kek, nonce, ciphertext, _RECOVERY_KEY_AAD)
     except crypto.AuthenticationFailed as exc:
-        raise RecoveryKeyError("Wrong recovery key for this vault.") from exc
+        raise RecoveryKeyError(tr("vault.error.wrong_recovery_key")) from exc
     _check_verifier(dek, meta)
     return dek
 
@@ -190,9 +186,7 @@ def _require_current_schema(meta: VaultMeta) -> None:
     is modified here. No plaintext .bak copy is ever created anymore."""
     if meta.schema_version < database.SCHEMA_VERSION:
         raise VaultMigrationRequiredError(
-            f"This vault uses an older format (v{meta.schema_version}): it must be "
-            "upgraded to the version 1.7 format before it can be opened. "
-            "It has not been modified.")
+            tr("vault.error.older_format", version=meta.schema_version))
 
 
 def _read_recovery(conn: sqlite3.Connection) -> RecoveryRecord | None:
@@ -200,26 +194,26 @@ def _read_recovery(conn: sqlite3.Connection) -> RecoveryRecord | None:
     try:
         return RecoveryRepository(conn).get()
     except (sqlite3.DatabaseError, ValueError, KeyError, TypeError) as exc:
-        raise VaultCorruptedError("The vault recovery envelope is corrupted.") from exc
+        raise VaultCorruptedError(tr("vault.error.recovery_envelope_corrupted")) from exc
 
 
 def _open_existing(vault_id: str) -> tuple[sqlite3.Connection, Path, VaultMeta]:
     """Connects to the file of an existing vault and reads its metadata."""
     db_path = vault_path(vault_id) / _DB_FILENAME
     if not db_path.exists():
-        raise VaultNotFoundError(f"The vault \"{vault_id}\" cannot be found.")
+        raise VaultNotFoundError(tr("vault.error.not_found", id=vault_id))
     try:
         conn = database.connect(db_path)
     except sqlite3.DatabaseError as exc:
-        raise VaultCorruptedError("Cannot open the vault file.") from exc
+        raise VaultCorruptedError(tr("vault.error.cannot_open")) from exc
     try:
         meta = VaultMetaRepository(conn).get()
     except (sqlite3.DatabaseError, ValueError, KeyError, TypeError) as exc:
         conn.close()
-        raise VaultCorruptedError("The vault file is corrupted.") from exc
+        raise VaultCorruptedError(tr("vault.error.file_corrupted")) from exc
     if meta is None:
         conn.close()
-        raise VaultCorruptedError("Vault metadata missing or corrupted.")
+        raise VaultCorruptedError(tr("vault.error.meta_missing_or_corrupted"))
     try:
         # A schema newer than every known one cannot be checked here:
         # check_supported_versions will reject it explicitly (unsupported version).
@@ -230,7 +224,7 @@ def _open_existing(vault_id: str) -> tuple[sqlite3.Connection, Path, VaultMeta]:
     if problems:
         conn.close()
         get_logger().error("Vault structure invalid: %s (%s)", vault_id, "; ".join(problems))
-        raise VaultCorruptedError("The structure of the vault file is damaged.")
+        raise VaultCorruptedError(tr("vault.error.structure_damaged"))
     return conn, db_path, meta
 
 
@@ -260,7 +254,7 @@ class Vault:
     def info(self) -> VaultInfo:
         meta = self._meta_repo.get()
         if meta is None:
-            raise VaultCorruptedError("Vault metadata not found.")
+            raise VaultCorruptedError(tr("vault.error.meta_not_found"))
         return VaultInfo(
             vault_id=self.vault_id,
             vault_name=meta.vault_name,
@@ -280,7 +274,7 @@ class Vault:
         directory = vault_path(vault_id)
         db_path = directory / _DB_FILENAME
         if db_path.exists():
-            raise VaultAlreadyExistsError(f"The vault \"{vault_id}\" already exists.")
+            raise VaultAlreadyExistsError(tr("vault.error.exists", id=vault_id))
 
         conn = database.connect(db_path)
         database.initialize_schema(conn)
@@ -347,7 +341,7 @@ class Vault:
         try:
             check_supported_versions(meta)
             if meta.schema_version >= database.V4_SCHEMA_VERSION:
-                raise VaultError("This vault is already in the v4 format.")
+                raise VaultError(tr("vault.error.already_v4"))
             dek = unwrap_data_key(master_password, meta)
         except Exception:
             conn.close()
@@ -368,7 +362,7 @@ class Vault:
             meta = self._meta_repo.get()
             if (meta is None or meta.schema_version < database.V4_SCHEMA_VERSION
                     or meta.vault_uuid is None):
-                raise VaultError("Encrypted metadata unavailable: vault not migrated (v4).")
+                raise VaultError(tr("vault.error.not_migrated"))
             self._metadata = MetadataStore(self._conn, dek, meta.vault_uuid)
         return self._metadata
 
@@ -391,7 +385,7 @@ class Vault:
 
     def _require_unlocked_key(self) -> bytes:
         if self._dek is None:
-            raise VaultLockedError("The vault is locked.")
+            raise VaultLockedError(tr("vault.error.locked"))
         return bytes(self._dek)
 
     @property
@@ -423,7 +417,7 @@ class Vault:
         """
         meta = self._meta_repo.get()
         if meta is None:
-            raise VaultCorruptedError("Vault metadata missing.")
+            raise VaultCorruptedError(tr("vault.error.meta_missing"))
         try:
             unwrap_data_key(password, meta)
         except WrongMasterPasswordError:
@@ -446,13 +440,13 @@ class Vault:
 
         meta = self._meta_repo.get()
         if meta is None:
-            raise VaultCorruptedError("Vault metadata missing.")
+            raise VaultCorruptedError(tr("vault.error.meta_missing"))
 
         # The old password is re-checked independently of the in-memory unlocked
         # state, so that a session left open does not allow the password to be
         # changed without knowing it.
         if not self.verify_master_password(current_password):
-            raise WrongMasterPasswordError("The current master password is wrong.")
+            raise WrongMasterPasswordError(tr("vault.error.wrong_current_password"))
 
         self._meta_repo.update_wrapped_key(**_wrap_for_password(dek, new_password),
                                            updated_at=_utc_now_iso())
@@ -478,7 +472,7 @@ class Vault:
         """
         dek = self._require_unlocked_key()
         if not self.verify_master_password(master_password):
-            raise WrongMasterPasswordError("Wrong master password.")
+            raise WrongMasterPasswordError(tr("vault.error.wrong_password"))
         return self._install_recovery_key(dek)
 
     def _install_recovery_key(self, dek: bytes) -> str:
@@ -490,7 +484,7 @@ class Vault:
     def remove_recovery_key(self, master_password: str) -> None:
         self._require_unlocked_key()
         if not self.verify_master_password(master_password):
-            raise WrongMasterPasswordError("Wrong master password.")
+            raise WrongMasterPasswordError(tr("vault.error.wrong_password"))
         RecoveryRepository(self._conn).delete()
         self._logger.info("Recovery key removed for vault: %s", self.vault_id)
 
@@ -525,10 +519,10 @@ class Vault:
             if not allow_legacy:
                 _require_current_schema(meta)
             elif meta.schema_version >= database.SCHEMA_VERSION:
-                raise VaultError("This vault is already in the current format.")
+                raise VaultError(tr("vault.error.already_current"))
             record = _read_recovery(conn)
             if record is None:
-                raise NoRecoveryKeyError("This vault has no recovery key.")
+                raise NoRecoveryKeyError(tr("vault.error.no_recovery_key"))
             dek = _unwrap_with_recovery(secret, record, meta)
             new_key, new_record = _new_recovery(dek)
             password_envelope = _wrap_for_password(dek, new_master_password)
@@ -618,11 +612,9 @@ def vault_has_recovery_key(vault_id: str) -> bool:
 def validate_vault_name(name: str) -> str:
     clean = " ".join(name.split())
     if not clean:
-        raise VaultError("A vault name is required.")
+        raise VaultError(tr("vault.error.name_required"))
     if len(clean) > MAX_VAULT_NAME_LENGTH:
-        raise VaultError(
-            f"The vault name must not exceed {MAX_VAULT_NAME_LENGTH} characters."
-        )
+        raise VaultError(tr("vault.error.name_too_long", max=MAX_VAULT_NAME_LENGTH))
     return clean
 
 
@@ -633,11 +625,11 @@ def delete_vault(vault_id: str, master_password: str) -> None:
     touched.
     """
     if not re.fullmatch(r"[A-Za-z0-9._-]+", vault_id) or vault_id in (".", ".."):
-        raise VaultNotFoundError("Invalid vault identifier.")
+        raise VaultNotFoundError(tr("vault.error.invalid_id"))
     directory = vaults_dir() / vault_id
     db_path = directory / _DB_FILENAME
     if not db_path.is_file():
-        raise VaultNotFoundError(f"The vault \"{vault_id}\" cannot be found.")
+        raise VaultNotFoundError(tr("vault.error.not_found", id=vault_id))
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -649,9 +641,7 @@ def delete_vault(vault_id: str, master_password: str) -> None:
     if meta is None:
         # Unreadable vault: the password cannot be checked, so deletion is refused
         # (deleting the folder manually remains possible, knowingly).
-        raise VaultCorruptedError(
-            "This vault is unreadable: its deletion cannot be verified."
-        )
+        raise VaultCorruptedError(tr("vault.error.delete_unverifiable"))
     unwrap_data_key(master_password, meta)  # WrongMasterPasswordError if wrong
     shutil.rmtree(directory)
     get_logger().info("Vault deleted: %s", vault_id)

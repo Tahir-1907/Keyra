@@ -21,6 +21,7 @@ import hashlib
 import secrets
 
 from app.core.exceptions import RecoveryKeyFormatError
+from app.i18n import tr
 
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 DATA_LENGTH = 30
@@ -53,12 +54,12 @@ def normalize(text: str) -> str:
     """
     compact = "".join(ch for ch in text.upper() if ch not in " -\t\n\r").translate(_ALIASES)
     if len(compact) != DATA_LENGTH + CHECK_LENGTH:
-        raise RecoveryKeyFormatError(
-            f"A recovery key has {DATA_LENGTH + CHECK_LENGTH} characters "
-            f"({len(compact)} entered).")
+        raise RecoveryKeyFormatError(tr("recovery.error.length",
+                                        expected=DATA_LENGTH + CHECK_LENGTH,
+                                        entered=len(compact)))
     if any(ch not in ALPHABET for ch in compact):
-        raise RecoveryKeyFormatError("The key contains an invalid character.")
+        raise RecoveryKeyFormatError(tr("recovery.error.character"))
     data, check = compact[:DATA_LENGTH], compact[DATA_LENGTH:]
     if not secrets.compare_digest(_check(data), check):
-        raise RecoveryKeyFormatError("Probable typo: check the key you entered.")
+        raise RecoveryKeyFormatError(tr("recovery.error.check"))
     return data

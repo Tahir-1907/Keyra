@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from app.core.categories import CategoryService
 from app.core.entries import EntryService, tag_search_query
 from app.core.session import SessionManager
+from app.i18n import tr
 from app.services.settings import Settings
 from app.ui import components as ui
 from app.ui import effects, lucide, theme
@@ -167,17 +168,17 @@ class AppShell(QWidget):
         self.vault_button = QPushButton()
         self.vault_button.setObjectName("Nav")
         self.vault_button.setCursor(Qt.PointingHandCursor)
-        self.vault_button.setToolTip("Open vault — switch vault")
+        self.vault_button.setToolTip(tr("shell.vault_button.tooltip"))
         self.vault_button.setIcon(lucide.icon("lock-keyhole", theme.TEXT_2, 16))
         self.vault_button.setStyleSheet(
             f"QPushButton#Nav {{ background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; }}")
         vault_menu = QMenu(self.vault_button)
-        vault_menu.addAction(lucide.icon("log-out"), "Switch vault",
+        vault_menu.addAction(lucide.icon("log-out"), tr("action.switch_vault"),
                              lambda: self.ctx.vault_action("switch"))
-        vault_menu.addAction(lucide.icon("plus"), "New vault…",
+        vault_menu.addAction(lucide.icon("plus"), tr("action.new_vault"),
                              lambda: self.ctx.vault_action("new"))
         vault_menu.addSeparator()
-        vault_menu.addAction(lucide.icon("settings"), "Vault settings",
+        vault_menu.addAction(lucide.icon("settings"), tr("shell.vault_settings"),
                              lambda: self.navigate("settings"))
         self.vault_button.setMenu(vault_menu)
         side.addWidget(self.vault_button)
@@ -198,7 +199,8 @@ class AppShell(QWidget):
             page = cls(self.ctx)
             self.pages[cls.key] = page
             self.stack.addWidget(page)
-            button = NavButton(cls.icon, cls.title, f"{cls.title}  ·  {shortcuts[cls.key]}")
+            title = tr(cls.title_key)
+            button = NavButton(cls.icon, title, f"{title}  ·  {shortcuts[cls.key]}")
             button.clicked.connect(lambda _c=False, k=cls.key: self.navigate(k))
             group.addButton(button)
             self.nav[cls.key] = button
@@ -219,13 +221,13 @@ class AppShell(QWidget):
         state.setSpacing(8)
         self.state_icon = ui.icon_label("lock-open", theme.ACCENT_2, 16)
         state.addWidget(self.state_icon)
-        self.state_text = ui.label("Vault unlocked")
+        self.state_text = ui.label(tr("shell.vault_unlocked"))
         state.addWidget(self.state_text, 1)
         status_layout.addLayout(state)
         self.countdown = ui.label("", "Faint")
         status_layout.addWidget(self.countdown)
-        lock = self.side_lock = ui.button("Lock", "lock",
-                                          tooltip="Lock the vault  ·  Ctrl+L",
+        lock = self.side_lock = ui.button(tr("action.lock"), "lock",
+                                          tooltip=tr("shell.lock.tooltip"),
                                           on_click=self.lock_requested.emit)
         status_layout.addWidget(lock)
         side.addWidget(status)
@@ -249,8 +251,8 @@ class AppShell(QWidget):
         head.addLayout(titles, 1)
         self.search = QLineEdit()
         self.search.setObjectName("Search")
-        self.search.setPlaceholderText("Search entries…")
-        self.search.setToolTip("Search  ·  Ctrl+F")
+        self.search.setPlaceholderText(tr("shell.search.placeholder"))
+        self.search.setToolTip(tr("shell.search.tooltip"))
         self.search.setClearButtonEnabled(True)
         self.search.setMinimumWidth(theme.SEARCH_MIN_WIDTH)
         self.search.setMaximumWidth(theme.SEARCH_MAX_WIDTH)
@@ -260,14 +262,15 @@ class AppShell(QWidget):
         self.search.returnPressed.connect(lambda: self.vault_page.apply_search_now())
         self.vault_page.detail.tag_clicked.connect(self.search_tag)
         head.addWidget(self.search)
-        self.generate_button = ui.button("Generate", "wand-sparkles", "Ghost",
-                                         "Password generator  ·  Ctrl+G",
+        self.generate_button = ui.button(tr("shell.generate"), "wand-sparkles", "Ghost",
+                                         tr("shell.generate.tooltip"),
                                          self.open_generator)
         head.addWidget(self.generate_button)
-        new = ui.button("New", "plus", "Primary", "New entry  ·  Ctrl+N",
+        new = ui.button(tr("shell.new"), "plus", "Primary", tr("shell.new.tooltip"),
                         lambda: self.navigate("new_entry"))
         head.addWidget(new)
-        head.addWidget(ui.icon_button("lock", "Lock", "Ctrl+L", self.lock_requested.emit))
+        head.addWidget(ui.icon_button("lock", tr("action.lock"), "Ctrl+L",
+                                      self.lock_requested.emit))
 
         content = QVBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
@@ -350,8 +353,8 @@ class AppShell(QWidget):
         self._status_layout.setContentsMargins(*((0, 0, 0, 0) if compact else (12, 10, 12, 10)))
         for button in self.nav.values():
             button.set_compact(compact)
-        self.side_lock.setText("" if compact else "Lock")
-        self.generate_button.setText("" if compact else "Generate")
+        self.side_lock.setText("" if compact else tr("action.lock"))
+        self.generate_button.setText("" if compact else tr("shell.generate"))
         self.subtitle.setVisible(not compact)
         self.update_vault_name()
         if self._current:
@@ -407,7 +410,7 @@ class AppShell(QWidget):
         if not self.ctx.vault.is_locked:
             name = self.ctx.vault.info.vault_name
             self.vault_button.setText("" if self._compact else "  " + name)
-            self.vault_button.setToolTip(f"Open vault: {name} — switch vault")
+            self.vault_button.setToolTip(tr("shell.vault_button.tooltip_named", name=name))
 
     def set_countdown(self, text: str, warn: bool = False) -> None:
         self.countdown.setText(text)

@@ -57,6 +57,7 @@ from app.core.metadata import EntryMetadata, normalize_tags, tag_key
 from app.core.snapshots import SnapshotContent, build_snapshot, parse_snapshot
 from app.core.vault import Vault, _utc_now_iso
 from app.database.repositories import EntryRepository, HistoryRepository
+from app.i18n import tr
 from app.utils.logging import get_logger
 
 MAX_SERVICE_NAME_LENGTH = 200
@@ -72,68 +73,80 @@ class FieldSpec:
     """Type-specific field of an entry (stored encrypted in extra_fields_enc)."""
 
     key: str
-    label: str
+    label_key: str  # translation key of the label (app/i18n)
     secret: bool = False  # hidden by default in the interface
+
+    @property
+    def label(self) -> str:
+        return tr(self.label_key)
 
 
 @dataclass(frozen=True, slots=True)
 class EntryTypeSpec:
     key: str
-    label: str
+    label_key: str  # translation keys (app/i18n): labels follow the interface language
     uses_url: bool = True
     uses_username: bool = True
     uses_email: bool = True
     uses_password: bool = True
-    password_label: str = "Password"  # noqa: S105 - display label
+    password_label_key: str = "field.password"  # noqa: S105 - translation key
     extra_fields: tuple[FieldSpec, ...] = ()
+
+    @property
+    def label(self) -> str:
+        return tr(self.label_key)
+
+    @property
+    def password_label(self) -> str:
+        return tr(self.password_label_key)
 
 
 ENTRY_TYPES: dict[str, EntryTypeSpec] = {
     spec.key: spec
     for spec in (
-        EntryTypeSpec("login", "Login"),
+        EntryTypeSpec("login", "entry_type.login"),
         EntryTypeSpec(
-            "secure_note", "Secure note",
+            "secure_note", "entry_type.secure_note",
             uses_url=False, uses_username=False, uses_email=False, uses_password=False,
         ),
         EntryTypeSpec(
-            "card", "Payment card",
+            "card", "entry_type.card",
             uses_url=False, uses_username=False, uses_email=False, uses_password=False,
             extra_fields=(
-                FieldSpec("cardholder", "Cardholder"),
-                FieldSpec("card_number", "Card number", secret=True),
-                FieldSpec("expiry", "Expiry (MM/YY)"),
-                FieldSpec("cvv", "Security code (CVV)", secret=True),
-                FieldSpec("pin", "PIN", secret=True),
+                FieldSpec("cardholder", "field.cardholder"),
+                FieldSpec("card_number", "field.card_number", secret=True),
+                FieldSpec("expiry", "field.expiry"),
+                FieldSpec("cvv", "field.cvv", secret=True),
+                FieldSpec("pin", "field.pin", secret=True),
             ),
         ),
         EntryTypeSpec(
-            "identity", "Identity",
+            "identity", "entry_type.identity",
             uses_url=False, uses_username=False, uses_password=False,
             extra_fields=(
-                FieldSpec("full_name", "Full name"),
-                FieldSpec("birth_date", "Date of birth"),
-                FieldSpec("phone", "Phone"),
-                FieldSpec("address", "Address"),
-                FieldSpec("id_number", "ID document number", secret=True),
+                FieldSpec("full_name", "field.full_name"),
+                FieldSpec("birth_date", "field.birth_date"),
+                FieldSpec("phone", "field.phone"),
+                FieldSpec("address", "field.address"),
+                FieldSpec("id_number", "field.id_number", secret=True),
             ),
         ),
         EntryTypeSpec(
-            "wifi", "Wi-Fi network",
+            "wifi", "entry_type.wifi",
             uses_url=False, uses_username=False, uses_email=False,
-            password_label="Wi-Fi key",  # noqa: S106 - display label
+            password_label_key="field.wifi_key",  # noqa: S106 - translation key
             extra_fields=(
-                FieldSpec("ssid", "SSID"),
-                FieldSpec("security", "Security (WPA2, WPA3...)"),
+                FieldSpec("ssid", "field.ssid"),
+                FieldSpec("security", "field.wifi_security"),
             ),
         ),
         EntryTypeSpec(
-            "server", "Server",
+            "server", "entry_type.server",
             uses_email=False,
             extra_fields=(
-                FieldSpec("hostname", "Host / IP address"),
-                FieldSpec("port", "Port"),
-                FieldSpec("protocol", "Protocol (SSH, RDP...)"),
+                FieldSpec("hostname", "field.hostname"),
+                FieldSpec("port", "field.port"),
+                FieldSpec("protocol", "field.protocol"),
             ),
         ),
     )
@@ -304,14 +317,14 @@ def changed_field_labels(old: Entry, new: Entry) -> tuple[str, ...]:
     spec = ENTRY_TYPES.get(new.entry_type) or ENTRY_TYPES[DEFAULT_ENTRY_TYPE]
     labels = []
     for label, a, b in (
-        ("Name", old.service_name, new.service_name),
-        ("URL", old.url, new.url),
-        ("Username", old.username, new.username),
-        ("Email", old.email, new.email),
+        (tr("field.name"), old.service_name, new.service_name),
+        (tr("field.url"), old.url, new.url),
+        (tr("field.username"), old.username, new.username),
+        (tr("field.email"), old.email, new.email),
         (spec.password_label, old.password, new.password),
-        ("Notes", old.notes, new.notes),
-        ("Category", old.category_id, new.category_id),
-        ("Tags", tuple(old.tags), tuple(new.tags)),
+        (tr("field.notes"), old.notes, new.notes),
+        (tr("field.category"), old.category_id, new.category_id),
+        (tr("field.tags"), tuple(old.tags), tuple(new.tags)),
     ):
         if a != b:
             labels.append(label)
@@ -389,19 +402,19 @@ class EntryService:
         key = self._vault._require_unlocked_key()
         meta = self._store.entry(entry_id)  # EntryNotFoundError / EntryDecryptionError
         if meta.deleted_at is not None and not include_deleted:
-            raise EntryNotFoundError(f"Entry {entry_id} not found.")
+            raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
         blobs = self._entries.get_secret_blobs(entry_id)
         if blobs is None:
-            raise EntryNotFoundError(f"Entry {entry_id} not found.")
+            raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
         email, password, notes, extra_json = (
             self._decrypt(key, entry_id, column, blob)
             for column, blob in zip(_SECRET_COLUMNS, blobs, strict=True))
         try:
             extra = json.loads(extra_json) if extra_json else {}
         except json.JSONDecodeError as exc:
-            raise EntryDecryptionError("Unreadable additional fields.") from exc
+            raise EntryDecryptionError(tr("entries.error.extra_unreadable")) from exc
         if not isinstance(extra, dict):
-            raise EntryDecryptionError("Invalid additional fields.")
+            raise EntryDecryptionError(tr("entries.error.extra_invalid"))
         return Entry(
             id=entry_id, entry_type=meta.entry_type, service_name=meta.name, url=meta.url,
             username=meta.username, email=email, password=password, notes=notes,
@@ -440,7 +453,7 @@ class EntryService:
         """Saves a modification; the previous version goes into the history."""
         key = self._vault._require_unlocked_key()
         if entry.id is None:
-            raise EntryValidationError("Cannot modify an entry without an identifier.")
+            raise EntryValidationError(tr("entries.error.no_identifier"))
         previous = self.get_entry(entry.id)  # active entry only
         self._validate(entry)
         new = self._normalized(entry)
@@ -473,7 +486,7 @@ class EntryService:
     def duplicate_entry(self, entry_id: int) -> int:
         """Copy of an entry ("Name (copy)"), without its history or favorite status."""
         source = self.get_entry(entry_id)
-        suffix = " (copy)"
+        suffix = tr("entries.copy_suffix")
         source.service_name = source.service_name[:MAX_SERVICE_NAME_LENGTH - len(suffix)] + suffix
         source.id = None
         source.is_favorite = False
@@ -495,7 +508,7 @@ class EntryService:
         except EntryNotFoundError:
             meta = None
         if meta is None or meta.deleted_at is None:
-            raise EntryNotFoundError(f"Entry {entry_id} is not in the Trash.")
+            raise EntryNotFoundError(tr("entries.error.not_in_trash", id=entry_id))
         # A category deleted in the meantime has already been removed from the metadata.
         with self._conn:
             self._store.write_entry(entry_id, dataclasses.replace(meta, deleted_at=None))
@@ -508,7 +521,7 @@ class EntryService:
             found = self._entries.delete_permanently(entry_id)  # history: ON DELETE CASCADE
             self._store.invalidate_entry(entry_id)
         if not found:
-            raise EntryNotFoundError(f"Entry {entry_id} not found.")
+            raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
         self._logger.info("Entry permanently deleted: id=%d", entry_id)
 
     def trash_count(self) -> int:
@@ -575,7 +588,7 @@ class EntryService:
         key = self._vault._require_unlocked_key()
         record = self._history.get(history_id)
         if record is None:
-            raise EntryNotFoundError("Version not found.")
+            raise EntryNotFoundError(tr("entries.error.version_not_found"))
         current = self.get_entry(record.entry_id)
         snapshot = self._decrypt_snapshot(key, record.entry_id, record.id,
                                           record.snapshot_enc, current)
@@ -600,31 +613,31 @@ class EntryService:
         self._vault._require_unlocked_key()
         meta = self._store.entry(entry_id)
         if meta.deleted_at is not None:
-            raise EntryNotFoundError(f"Entry {entry_id} not found.")
+            raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
         return meta
 
     def _validate(self, entry: Entry) -> None:
         spec = ENTRY_TYPES.get(entry.entry_type)
         if spec is None:
-            raise EntryValidationError(f"Unknown entry type: {entry.entry_type!r}.")
+            raise EntryValidationError(
+                tr("entries.error.unknown_type", type=repr(entry.entry_type)))
         name = entry.service_name.strip()
         if not name:
-            raise EntryValidationError("An entry name is required.")
+            raise EntryValidationError(tr("entries.error.name_required"))
         if len(name) > MAX_SERVICE_NAME_LENGTH:
             raise EntryValidationError(
-                f"The entry name must not exceed {MAX_SERVICE_NAME_LENGTH} characters."
-            )
-        for label, value in (("The URL", entry.url), ("The username", entry.username)):
+                tr("entries.error.name_too_long", max=MAX_SERVICE_NAME_LENGTH))
+        for message, value in (("entries.error.url_too_long", entry.url),
+                               ("entries.error.username_too_long", entry.username)):
             if len(value) > MAX_SHORT_FIELD_LENGTH:
-                raise EntryValidationError(f"{label} is too long.")
+                raise EntryValidationError(tr(message))
         if entry.category_id is not None and entry.category_id not in self._store.categories():
-            raise EntryValidationError("The selected category no longer exists.")
+            raise EntryValidationError(tr("entries.error.category_gone"))
         allowed = {f.key for f in spec.extra_fields}
         unknown = set(entry.extra) - allowed
         if unknown:
             raise EntryValidationError(
-                f"Fields not supported by this entry type: {', '.join(sorted(unknown))}."
-            )
+                tr("entries.error.unsupported_fields", fields=", ".join(sorted(unknown))))
         normalize_tags(entry.tags)  # EntryValidationError if invalid
 
     @staticmethod
@@ -673,11 +686,11 @@ class EntryService:
         blobs = [crypto.encrypt_field(key, values[column], _aad(entry_id, column))
                  for column in _SECRET_COLUMNS]
         if not self._entries.set_secret_blobs(entry_id, *blobs):
-            raise EntryNotFoundError(f"Entry {entry_id} not found.")
+            raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
 
     def _save_history(self, previous: Entry, key: bytes, replaced_at: str) -> None:
         if previous.id is None:
-            raise EntryValidationError("Version without an entry identifier.")
+            raise EntryValidationError(tr("entries.error.version_no_identifier"))
         payload = build_snapshot(SnapshotContent(
             version=2, entry_type=previous.entry_type, service_name=previous.service_name,
             url=previous.url, username=previous.username, email=previous.email,
@@ -705,8 +718,7 @@ class EntryService:
                 key, blob, _history_aad(entry_id, history_id))))
         except (ValueError, crypto.AuthenticationFailed) as exc:
             raise EntryDecryptionError(
-                f"A history version of entry {entry_id} is corrupted."
-            ) from exc
+                tr("entries.error.version_corrupted", id=entry_id)) from exc
         return Entry(
             id=entry_id, entry_type=content.entry_type, service_name=content.service_name,
             url=content.url, username=content.username, email=content.email,
@@ -727,6 +739,4 @@ class EntryService:
             return crypto.decrypt_field(key, blob, _aad(entry_id, column))
         except (ValueError, crypto.AuthenticationFailed) as exc:
             raise EntryDecryptionError(
-                f"The encrypted field \"{column}\" of entry {entry_id} is "
-                "corrupted or has been tampered with."
-            ) from exc
+                tr("entries.error.field_corrupted", field=column, id=entry_id)) from exc

@@ -31,6 +31,7 @@ from datetime import date, datetime
 from app.core.entries import ENTRY_TYPES, EntryService
 from app.core.exceptions import EntryDecryptionError
 from app.core.strength import estimate_strength
+from app.i18n import tr, tr_n
 from app.utils.logging import get_logger
 
 WEAK_SCORE_MAX = 1
@@ -44,13 +45,14 @@ KIND_OLD = "old"
 KIND_EXPIRED_CARD = "expired_card"
 KIND_UNREADABLE = "unreadable"
 
+# Translation keys of the section titles (app/i18n): use tr(KIND_LABELS[kind]).
 KIND_LABELS = {
-    KIND_UNREADABLE: "Unreadable entries (tampered)",
-    KIND_REUSED: "Reused passwords",
-    KIND_WEAK: "Weak passwords",
-    KIND_EMPTY: "Entries without a password",
-    KIND_OLD: "Passwords older than one year",
-    KIND_EXPIRED_CARD: "Expired cards",
+    KIND_UNREADABLE: "audit.kind.unreadable",
+    KIND_REUSED: "audit.kind.reused",
+    KIND_WEAK: "audit.kind.weak",
+    KIND_EMPTY: "audit.kind.empty",
+    KIND_OLD: "audit.kind.old",
+    KIND_EXPIRED_CARD: "audit.kind.expired_card",
 }
 
 
@@ -110,7 +112,7 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
         except EntryDecryptionError:
             report.findings.append(
                 AuditFinding(KIND_UNREADABLE, summary.id, summary.service_name,
-                             "An encrypted field is corrupted or has been tampered with.")
+                             tr("audit.detail.field_corrupted"))
             )
             entries_with_issue.add(summary.id)
             continue
@@ -120,7 +122,8 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
             if not entry.password:
                 report.findings.append(
                     AuditFinding(KIND_EMPTY, summary.id, summary.service_name,
-                                 f"No {spec.password_label.lower()} set.")
+                                 tr("audit.detail.no_wifi_key" if spec.key == "wifi"
+                                    else "audit.detail.no_password"))
                 )
                 entries_with_issue.add(summary.id)
             else:
@@ -129,14 +132,15 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
                 if strength.score <= WEAK_SCORE_MAX:
                     report.findings.append(
                         AuditFinding(KIND_WEAK, summary.id, summary.service_name,
-                                     f"{strength.label} (~{strength.entropy_bits:.0f} bits)")
+                                     tr("audit.detail.weak", label=strength.label,
+                                        bits=f"{strength.entropy_bits:.0f}"))
                     )
                     entries_with_issue.add(summary.id)
                 age = _age_in_days(entry.password_changed_at, today)
                 if age is not None and age > OLD_PASSWORD_DAYS:
                     report.findings.append(
                         AuditFinding(KIND_OLD, summary.id, summary.service_name,
-                                     f"Unchanged for {age // 30} months.")
+                                     tr_n("audit.detail.unchanged_months", age // 30))
                     )
                     entries_with_issue.add(summary.id)
                 digest = hmac.new(reuse_key, entry.password.encode("utf-8"),
@@ -146,7 +150,8 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
         if entry.entry_type == "card" and _card_expired(entry.extra.get("expiry", ""), today):
             report.findings.append(
                 AuditFinding(KIND_EXPIRED_CARD, summary.id, summary.service_name,
-                             f"Expired ({entry.extra.get('expiry', '').strip()}).")
+                             tr("audit.detail.expired",
+                                expiry=entry.extra.get("expiry", "").strip()))
             )
             entries_with_issue.add(summary.id)
 
@@ -154,8 +159,8 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
     for entry_id in service.unreadable_entries():
         report.checked_entries += 1
         report.findings.append(
-            AuditFinding(KIND_UNREADABLE, entry_id, f"Entry #{entry_id}",
-                         "Its encrypted data is corrupted or has been tampered with.")
+            AuditFinding(KIND_UNREADABLE, entry_id, tr("audit.entry_number", id=entry_id),
+                         tr("audit.detail.metadata_corrupted"))
         )
         entries_with_issue.add(entry_id)
 
@@ -165,7 +170,7 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
         for entry_id, name in members:
             others = ", ".join(n for i, n in members if i != entry_id)
             report.findings.append(
-                AuditFinding(KIND_REUSED, entry_id, name, f"Same as: {others}")
+                AuditFinding(KIND_REUSED, entry_id, name, tr("audit.detail.same_as", others=others))
             )
             entries_with_issue.add(entry_id)
 

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from app.core.entries import ENTRY_TYPES, Entry, tag_search_query
 from app.core.strength import estimate_strength
+from app.i18n import tr, tr_n
 from app.ui import components as ui
 from app.ui import effects, theme
 from app.ui.entry_list import domain_of
@@ -102,8 +103,8 @@ class DetailPanel(QFrame):
         self._tag_widgets: list[QWidget] = []
 
         self.placeholder = ui.EmptyState(
-            "key-round", "Select an entry",
-            "Its credentials, strength and history will appear here.")
+            "key-round", tr("detail.placeholder"),
+            tr("detail.placeholder.text"))
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -144,14 +145,12 @@ class DetailPanel(QFrame):
         self._clear_layout(self.content_layout)
         self._clear_layout(self.footer)
         self.scroll.hide()
-        self.placeholder.set_text("Select an entry",
-                                  "Its credentials, strength and history "
-                                  "will appear here.")
+        self.placeholder.set_text(tr("detail.placeholder"), tr("detail.placeholder.text"))
         self.placeholder.show()
 
     def show_error(self, message: str) -> None:
         self.clear()
-        self.placeholder.set_text("Unreadable entry", message)
+        self.placeholder.set_text(tr("detail.unreadable"), message)
 
     def set_favorite_state(self, is_favorite: bool) -> None:
         if self._entry is not None:
@@ -180,11 +179,12 @@ class DetailPanel(QFrame):
         header.addLayout(titles, 1)
         if self._mode == self.MODE_NORMAL:
             self._favorite = ui.icon_button(
-                "star", "Remove from favorites" if entry.is_favorite else "Add to favorites",
+                "star",
+                tr("detail.favorite.remove") if entry.is_favorite else tr("detail.favorite.add"),
                 on_click=lambda: self.favorite_toggled.emit(entry.id, not entry.is_favorite))
             self._favorite.setIcon(self._star_icon(entry.is_favorite))
             header.addWidget(self._favorite, 0, Qt.AlignTop)
-            header.addWidget(ui.icon_button("square-pen", "Edit", "Ctrl+E",
+            header.addWidget(ui.icon_button("square-pen", tr("detail.edit"), "Ctrl+E",
                                             lambda: self.edit_requested.emit(entry.id)),
                              0, Qt.AlignTop)
         layout.addLayout(header)
@@ -192,9 +192,9 @@ class DetailPanel(QFrame):
         badges = QHBoxLayout()
         badges.setSpacing(6)
         badges.addWidget(ui.label(spec.label, "Badge"))
-        badges.addWidget(ui.label(category_name or "Uncategorized", "Badge"))
+        badges.addWidget(ui.label(category_name or tr("pdf.uncategorized"), "Badge"))
         if entry.deleted_at:
-            badges.addWidget(ui.label("In the Trash", "BadgeDanger"))
+            badges.addWidget(ui.label(tr("detail.in_trash"), "BadgeDanger"))
         badges.addStretch(1)
         layout.addLayout(badges)
         if entry.tags:
@@ -202,10 +202,10 @@ class DetailPanel(QFrame):
         layout.addWidget(ui.divider())
 
         if spec.uses_username:
-            self._field("Username", entry.username, copy_label="Username",
+            self._field(tr("field.username"), entry.username, copy_label=tr("field.username"),
                         sensitive=False)
         if spec.uses_email:
-            self._field("Email", entry.email, copy_label="Email")
+            self._field(tr("field.email"), entry.email, copy_label=tr("field.email"))
         if spec.uses_password:
             box = self._field(spec.password_label, entry.password, secret=True,
                               copy_label=spec.password_label)
@@ -216,14 +216,15 @@ class DetailPanel(QFrame):
                         secret=field_spec.secret, copy_label=field_spec.label,
                         sensitive=field_spec.secret)
         if spec.uses_url and entry.url:
-            box = self._field("URL", entry.url, copy_label="URL", sensitive=False)
+            box = self._field(tr("field.url"), entry.url, copy_label=tr("field.url"),
+                              sensitive=False)
             if box is not None:
                 box.add(ui.icon_button(
-                    "external-link", "Open in the browser", size=16,
+                    "external-link", tr("detail.open_browser"), size=16,
                     on_click=lambda: QDesktopServices.openUrl(QUrl(
                         entry.url if "://" in entry.url else f"https://{entry.url}"))))
         if entry.notes:
-            layout.addWidget(ui.label("Notes", "FieldLabel"))
+            layout.addWidget(ui.label(tr("field.notes"), "FieldLabel"))
             notes = QPlainTextEdit(entry.notes)
             notes.setReadOnly(True)
             notes.setMinimumHeight(70)
@@ -232,13 +233,14 @@ class DetailPanel(QFrame):
 
         meta = []
         if entry.created_at:
-            meta.append(f"Created {_format_date(entry.created_at)}")
+            meta.append(tr("detail.meta.created", date=_format_date(entry.created_at)))
         if entry.updated_at:
-            meta.append(f"modified {_format_date(entry.updated_at)}")
+            meta.append(tr("detail.meta.modified", date=_format_date(entry.updated_at)))
         if spec.uses_password and entry.password and entry.password_changed_at:
-            meta.append(f"password changed {_format_date(entry.password_changed_at)}")
+            meta.append(tr("detail.meta.password_changed",
+                           date=_format_date(entry.password_changed_at)))
         if entry.deleted_at:
-            meta.append(f"deleted {_format_date(entry.deleted_at)}")
+            meta.append(tr("detail.meta.deleted", date=_format_date(entry.deleted_at)))
         layout.addWidget(ui.label(" · ".join(meta), "Faint", wrap=True))
         layout.addStretch(1)
 
@@ -266,7 +268,7 @@ class DetailPanel(QFrame):
         flow = FlowLayout(host)
         for tag in tags:
             if self._mode == self.MODE_NORMAL:  # click: search for this tag
-                widget = tag_chip(tag, f"Search {tag_search_query(tag)}")
+                widget = tag_chip(tag, tr("detail.search_tag", query=tag_search_query(tag)))
                 widget.clicked.connect(lambda _checked=False, t=tag: self.tag_clicked.emit(t))
             else:  # Trash, history: plain label
                 widget = ui.label(tag, "Badge")
@@ -282,19 +284,19 @@ class DetailPanel(QFrame):
         box = _FieldBox(value, secret)
         if secret:
             # Secret field: clearly visible "Show" / "Copy" labeled buttons.
-            eye = ui.icon_button("eye", f"Show {title.lower()}", size=16)
-            eye.setText("Show")
+            eye = ui.icon_button("eye", tr("detail.show_field", field=title), size=16)
+            eye.setText(tr("common.show"))
             eye.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
             def toggle(_checked=False, b=box, e=eye) -> None:
                 b.set_revealed(not b.revealed)
                 e.setIcon(ui.lucide.icon("eye-off" if b.revealed else "eye", theme.TEXT_2, 16))
-                e.setText("Hide" if b.revealed else "Show")
+                e.setText(tr("common.hide") if b.revealed else tr("common.show"))
 
             eye.clicked.connect(toggle)
             box.add(eye)
             self._secret_boxes.append(box)
-        copy = ui.CopyButton(f"Copy {copy_label.lower() or title.lower()}", labeled=secret)
+        copy = ui.CopyButton(tr("detail.copy_field", field=copy_label or title), labeled=secret)
 
         def do_copy(_checked=False, b=box, c=copy) -> None:
             self.copy_requested.emit(b.real_value, copy_label or title, sensitive)
@@ -308,9 +310,10 @@ class DetailPanel(QFrame):
     def _strength(self, password: str) -> None:
         result = estimate_strength(password)
         row = QHBoxLayout()
-        row.addWidget(ui.label("Strength", "FieldLabel"))
+        row.addWidget(ui.label(tr("detail.strength"), "FieldLabel"))
         row.addStretch(1)
-        row.addWidget(ui.label(f"{result.label} · ~{result.entropy_bits:.0f} bits", "Faint"))
+        row.addWidget(ui.label(tr("strength.summary", label=result.label,
+                                  bits=f"{result.entropy_bits:.0f}"), "Faint"))
         self.content_layout.addLayout(row)
         bar = ui.StrengthBar()
         self.content_layout.addWidget(bar)
@@ -318,25 +321,24 @@ class DetailPanel(QFrame):
 
     def _build_footer(self, entry: Entry, history_count: int) -> None:
         if self._mode == self.MODE_NORMAL:
-            versions = f"{history_count} previous version{'s' if history_count > 1 else ''}"
-            history = ui.icon_button("history", f"History — {versions}" if history_count
-                                     else "History — no previous version",
+            history = ui.icon_button("history", tr_n("detail.history.count", history_count)
+                                     if history_count else tr("detail.history.none"),
                                      on_click=lambda: self.history_requested.emit(entry.id))
             if history_count:
                 history.setText(str(history_count))
                 history.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             history.setEnabled(history_count > 0)
             self.footer.addWidget(history)
-            self.footer.addWidget(ui.icon_button("copy-plus", "Duplicate", "Ctrl+D",
+            self.footer.addWidget(ui.icon_button("copy-plus", tr("detail.duplicate"), "Ctrl+D",
                                                  lambda: self.duplicate_requested.emit(entry.id)))
             self.footer.addStretch(1)
-            self.footer.addWidget(ui.button("Delete", "trash-2", "Danger", tooltip="Del",
+            self.footer.addWidget(ui.button(tr("common.delete"), "trash-2", "Danger", tooltip="Del",
                                             on_click=lambda: self.delete_requested.emit(entry.id)))
         elif self._mode == self.MODE_TRASH:
-            self.footer.addWidget(ui.button("Restore", "archive-restore", "Primary",
+            self.footer.addWidget(ui.button(tr("backups.restore"), "archive-restore", "Primary",
                                             on_click=lambda: self.restore_requested.emit(entry.id)))
             self.footer.addStretch(1)
-            self.footer.addWidget(ui.button("Delete permanently", "trash-2", "Danger",
+            self.footer.addWidget(ui.button(tr("delete_vault.submit"), "trash-2", "Danger",
                                             on_click=lambda: self.purge_requested.emit(entry.id)))
 
     @staticmethod

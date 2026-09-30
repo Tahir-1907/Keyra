@@ -25,13 +25,14 @@ from collections.abc import Callable
 from app.core.vault import Vault
 from app.utils.logging import get_logger
 
+# Translation key of the label (app/i18n) -> seconds (None = never).
 AUTO_LOCK_CHOICES_SECONDS: dict[str, int | None] = {
-    "1 minute": 60,
-    "5 minutes": 5 * 60,
-    "10 minutes": 10 * 60,
-    "30 minutes": 30 * 60,
-    "1 hour": 60 * 60,
-    "Never": None,
+    "choice.minutes_1": 60,
+    "choice.minutes_5": 5 * 60,
+    "choice.minutes_10": 10 * 60,
+    "choice.minutes_30": 30 * 60,
+    "choice.hour_1": 60 * 60,
+    "choice.never": None,
 }
 
 

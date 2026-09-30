@@ -244,7 +244,10 @@ def stagger(widgets: list[QWidget], dy: int = 8, step: int = theme.STAGGER_STEP)
     for index, widget in enumerate(widgets):
         if not _enabled:
             return
-        QTimer.singleShot(index * step, lambda w=widget: slide_in(w, 0, dy, theme.DURATION_BASE))
+        # Context object: the call is dropped if the widget is destroyed in the meantime
+        # (views rebuilt after a language change, locking).
+        QTimer.singleShot(index * step, widget,
+                          lambda w=widget: slide_in(w, 0, dy, theme.DURATION_BASE))
 
 
 class Stagger(QObject):

@@ -41,6 +41,7 @@ from app.core.exceptions import (
 )
 from app.core.metadata import CategoryMetadata, EntryMetadata, MetadataCipher
 from app.database.repositories import CategoryRepository, EntryRepository
+from app.i18n import tr
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +83,7 @@ class MetadataStore:
     @property
     def cipher(self) -> MetadataCipher:
         if self._cipher is None:
-            raise VaultLockedError("The vault is locked.")
+            raise VaultLockedError(tr("vault.error.locked"))
         return self._cipher
 
     @property
@@ -142,17 +143,15 @@ class MetadataStore:
         if entry_id in entries:
             return entries[entry_id]
         if entry_id in self._unreadable:
-            raise EntryDecryptionError(
-                f"The encrypted metadata of entry {entry_id} is corrupted "
-                "or has been tampered with.")
-        raise EntryNotFoundError(f"Entry {entry_id} not found.")
+            raise EntryDecryptionError(tr("entries.error.metadata_corrupted", id=entry_id))
+        raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
 
     def write_entry(self, entry_id: int, meta: EntryMetadata) -> None:
         """Encrypts and writes (no commit: the caller delimits the transaction)."""
         blob = self.cipher.encrypt_entry(entry_id, meta)
         try:
             if not EntryRepository(self._conn).set_metadata_blob(entry_id, blob):
-                raise EntryNotFoundError(f"Entry {entry_id} not found.")
+                raise EntryNotFoundError(tr("entries.error.not_found", id=entry_id))
         finally:
             self.invalidate_entry(entry_id)  # read back from the database, even after a ROLLBACK
 
@@ -192,7 +191,7 @@ class MetadataStore:
         blob = self.cipher.encrypt_category(category_id, meta)
         try:
             if not CategoryRepository(self._conn).set_v4_name_blob(category_id, blob):
-                raise CategoryDecryptionError(f"Category {category_id} not found.")
+                raise CategoryDecryptionError(tr("categories.error.id_not_found", id=category_id))
         finally:
             self.invalidate_categories()
 

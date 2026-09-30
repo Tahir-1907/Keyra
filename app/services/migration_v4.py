@@ -75,6 +75,7 @@ from app.database.repositories import (
     EntryRepository,
     VaultMetaRepository,
 )
+from app.i18n import tr
 from app.services import backup
 from app.utils.logging import get_logger
 
@@ -180,7 +181,7 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
     conn = vault.connection
     meta = VaultMetaRepository(conn).get()
     if meta is None or not 1 <= meta.schema_version < database.V4_SCHEMA_VERSION:
-        raise MigrationError("This vault cannot be migrated to the v4 format.")
+        raise MigrationError(tr("migration.error.not_migratable"))
     report = MigrationReport(meta.schema_version, Path(), legacy_plaintext_copies(vault))
     if report.legacy_plaintext_copies:
         logger.warning("Legacy plaintext copies next to vault %s: %d (not used, not deleted)",
@@ -194,15 +195,14 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
     except (VaultError, OSError, sqlite3.Error) as exc:
         logger.error("Migration backup failed, vault untouched: %s (%s)", vault.vault_id,
                      type(exc).__name__)
-        raise MigrationError("Preliminary backup impossible: the vault has not been "
-                             "modified.") from exc
+        raise MigrationError(tr("migration.error.backup_failed")) from exc
 
     # 2. Single transaction.
     conn.commit()
     conn.execute("PRAGMA foreign_keys = OFF;")
     try:
         if conn.execute("PRAGMA foreign_keys;").fetchone()[0] != 0:
-            raise MigrationError("Cannot prepare the table rebuild.")
+            raise MigrationError(tr("migration.error.prepare"))
         conn.execute("BEGIN IMMEDIATE;")
         try:
             _migrate(vault, conn, dek, meta.schema_version, step, report)
@@ -217,8 +217,7 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
     except Exception as exc:  # any error cancels the migration (chained cause)
         logger.error("Vault migration to v4 failed, rolled back: %s (%s)",
                      vault.vault_id, type(exc).__name__)
-        raise MigrationError(
-            "The migration to the v4 format failed; the vault has not been modified.") from exc
+        raise MigrationError(tr("migration.error.failed")) from exc
     finally:
         conn.execute("PRAGMA foreign_keys = ON;")
 
@@ -239,7 +238,7 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
 
 
 def _fail(message: str) -> MigrationError:
-    return MigrationError(f"Migration impossible: {message}")
+    return MigrationError(tr("migration.error.impossible", details=message))
 
 
 def _sha(blob: bytes | None) -> str:

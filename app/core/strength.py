@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from app.i18n import tr
+
 DICTIONARY_PATHS = (
     Path("/usr/share/dict/french"),
     Path("/usr/share/dict/american-english"),
@@ -51,7 +53,9 @@ KEYBOARD_ROWS = (
 _LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
                        "7": "t", "@": "a", "$": "s", "!": "i", "8": "b"})
 
-LABELS = ("Very weak", "Weak", "Fair", "Strong", "Very strong")
+# Translation keys of the score labels (app/i18n), from score 0 to 4.
+LABELS = ("strength.very_weak", "strength.weak", "strength.fair", "strength.strong",
+          "strength.very_strong")
 _SCORE_THRESHOLDS = (28, 40, 60, 80)  # bits: <28 => 0, <40 => 1, ...
 
 
@@ -126,7 +130,7 @@ def score_for_bits(bits: float) -> int:
 
 def estimate_strength(password: str) -> StrengthResult:
     if not password:
-        return StrengthResult(0, 0.0, LABELS[0], ("Empty password.",))
+        return StrengthResult(0, 0.0, tr(LABELS[0]), (tr("strength.warning.empty"),))
 
     pool_bits = math.log2(_pool_size(password))
     lower = _strip_accents(password).lower()
@@ -135,8 +139,8 @@ def estimate_strength(password: str) -> StrengthResult:
     warnings: list[str] = []
 
     if unleet in COMMON_PASSWORDS or lower in COMMON_PASSWORDS:
-        return StrengthResult(0, math.log2(len(COMMON_PASSWORDS)), LABELS[0],
-                              ("This password is one of the most used in the world.",))
+        return StrengthResult(0, math.log2(len(COMMON_PASSWORDS)), tr(LABELS[0]),
+                              (tr("strength.warning.common"),))
 
     bits = 0.0
     i = 0
@@ -147,21 +151,21 @@ def estimate_strength(password: str) -> StrengthResult:
         repeat = _run_length(lower, i, lambda a, b: a == b)
         if repeat >= 3:
             candidates.append((repeat, pool_bits + math.log2(repeat),
-                               "Avoid repeated characters (aaa, 111…)."))
+                               tr("strength.warning.repeated")))
 
         for step in (1, -1):
             seq = _run_length(lower, i, lambda a, b, s=step: ord(b) - ord(a) == s)
             if seq >= 3:
                 candidates.append((seq, pool_bits + math.log2(seq) + 1,
-                                   "Avoid sequences (abc, 123, 987…)."))
+                                   tr("strength.warning.sequence")))
 
         kb = _keyboard_run(lower, i)
         if kb >= 4:
             candidates.append((kb, pool_bits + math.log2(kb) + 2,
-                               "Avoid keyboard patterns (qwerty, asdf…)."))
+                               tr("strength.warning.keyboard")))
 
         if password[i : i + 4].isdigit() and password[i : i + 2] in ("19", "20"):
-            candidates.append((4, math.log2(150), "Avoid years (dates of birth…)."))
+            candidates.append((4, math.log2(150), tr("strength.warning.year")))
 
         for length in range(min(16, n - i), 3, -1):
             fragment = unleet[i : i + length]
@@ -175,7 +179,7 @@ def estimate_strength(password: str) -> StrengthResult:
                 if unleet[i : i + length] != lower[i : i + length]:
                     cost += 1  # "leet" substitutions (p4ssw0rd)
                 candidates.append((length, cost,
-                                   "Avoid dictionary words, even modified ones (p4ssw0rd)."))
+                                   tr("strength.warning.dictionary")))
                 break
 
         if candidates:
@@ -191,11 +195,11 @@ def estimate_strength(password: str) -> StrengthResult:
         i += 1
 
     if n < 12:
-        warnings.append("Use at least 12 characters (16 or more recommended).")
+        warnings.append(tr("strength.warning.short"))
 
     score = score_for_bits(bits)
     if score >= 3:
         # Strong enough: the advice is no longer useful (e.g. a generated
         # passphrase is made of dictionary words, by design).
         warnings = []
-    return StrengthResult(score, bits, LABELS[score], tuple(warnings))
+    return StrengthResult(score, bits, tr(LABELS[score]), tuple(warnings))

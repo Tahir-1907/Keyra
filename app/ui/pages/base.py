@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 from app.core.categories import CategoryService
 from app.core.entries import EntryService
 from app.core.session import SessionManager
+from app.i18n import tr
 from app.services.settings import Settings
 from app.ui.secure_clipboard import SecureClipboard
 
@@ -38,9 +39,17 @@ class Page(QWidget):
     """A view: title + subtitle (shown in the header), `refresh()`, `on_show()`."""
 
     key = ""
-    title = ""
-    subtitle = ""
+    title_key = ""     # translation keys (app/i18n) of the header texts
+    subtitle_key = ""
     icon = ""
+
+    @property
+    def title(self) -> str:
+        return tr(self.title_key) if self.title_key else ""
+
+    @property
+    def subtitle(self) -> str:
+        return tr(self.subtitle_key) if self.subtitle_key else ""
 
     def __init__(self, ctx: AppContext) -> None:
         super().__init__()

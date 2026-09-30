@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QVBoxLayout
 
 from app.core.activity import last_activity
 from app.core.audit import KIND_OLD, run_audit
+from app.i18n import tr, tr_n
 from app.services import backup
 from app.services.settings import backup_directory
 from app.ui import components as ui
@@ -52,8 +53,8 @@ class _RecentRow(QPushButton):
 
 class DashboardPage(Page):
     key = "dashboard"
-    title = "Overview"
-    subtitle = "Your vault at a glance"
+    title_key = "page.dashboard.title"
+    subtitle_key = "page.dashboard.subtitle"
     icon = "layout-dashboard"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -75,10 +76,10 @@ class DashboardPage(Page):
 
         # --- Statistics ----------------------------------------------------------------------
         self.cards = {
-            "total": ui.StatCard("Entries", "key-round", theme.TEXT_2),
-            "secure": ui.StatCard("Secure", "shield-check", theme.ACCENT_2),
-            "review": ui.StatCard("To review", "shield-alert", theme.WARNING),
-            "old": ui.StatCard("Old", "clock", theme.INFO),
+            "total": ui.StatCard(tr("dashboard.card.total"), "key-round", theme.TEXT_2),
+            "secure": ui.StatCard(tr("dashboard.card.secure"), "shield-check", theme.ACCENT_2),
+            "review": ui.StatCard(tr("dashboard.card.review"), "shield-alert", theme.WARNING),
+            "old": ui.StatCard(tr("dashboard.card.old"), "clock", theme.INFO),
         }
         self.cards["total"].clicked.connect(lambda: self.ctx.navigate("vault"))
         for key in ("secure", "review", "old"):
@@ -98,8 +99,9 @@ class DashboardPage(Page):
         recent_layout = QVBoxLayout(self.recent_card)
         recent_layout.setContentsMargins(18, 16, 18, 12)
         recent_layout.setSpacing(4)
-        recent_layout.addWidget(ui.section("Recent entries", "Latest changes",
-                                           ui.button("View all", "chevron-right", "Ghost",
+        recent_layout.addWidget(ui.section(tr("dashboard.recent"), tr("dashboard.recent.subtitle"),
+                                           ui.button(tr("dashboard.view_all"), "chevron-right",
+                                                     "Ghost",
                                                      on_click=lambda: self.ctx.navigate("vault"))))
         self.recent_rows = QVBoxLayout()
         self.recent_rows.setSpacing(2)
@@ -114,7 +116,7 @@ class DashboardPage(Page):
         backup_layout.setContentsMargins(18, 16, 18, 16)
         backup_layout.setSpacing(8)
         top = QHBoxLayout()
-        top.addWidget(ui.label("BACKUP", "Overline"))
+        top.addWidget(ui.label(tr("dashboard.backup"), "Overline"))
         top.addStretch(1)
         top.addWidget(ui.icon_label("database-backup", theme.TEXT_2))
         backup_layout.addLayout(top)
@@ -122,7 +124,7 @@ class DashboardPage(Page):
         self.backup_hint = ui.label("", "Faint", wrap=True)
         backup_layout.addWidget(self.backup_value)
         backup_layout.addWidget(self.backup_hint)
-        backup_layout.addWidget(ui.button("Manage backups", "chevron-right",
+        backup_layout.addWidget(ui.button(tr("dashboard.manage_backups"), "chevron-right",
                                           on_click=lambda: self.ctx.navigate("backups")))
         side.addWidget(self.backup_card)
 
@@ -130,10 +132,10 @@ class DashboardPage(Page):
         actions_layout = QVBoxLayout(actions)
         actions_layout.setContentsMargins(18, 16, 18, 16)
         actions_layout.setSpacing(8)
-        actions_layout.addWidget(ui.label("QUICK ACTIONS", "Overline"))
-        for text, icon, target in (("Add an entry", "plus", "new_entry"),
-                                   ("Generate a password", "wand-sparkles", "generator"),
-                                   ("Analyze security", "shield-check", "security")):
+        actions_layout.addWidget(ui.label(tr("dashboard.quick_actions"), "Overline"))
+        for text, icon, target in ((tr("vault.empty.action"), "plus", "new_entry"),
+                                   (tr("dashboard.generate"), "wand-sparkles", "generator"),
+                                   (tr("dashboard.analyze"), "shield-check", "security")):
             button = ui.button(text, icon, on_click=lambda t=target: self.ctx.navigate(t))
             button.setStyleSheet("text-align: left;")
             actions_layout.addWidget(button)
@@ -146,9 +148,14 @@ class DashboardPage(Page):
     def on_show(self, **kwargs) -> None:
         hour = datetime.now().astimezone().hour
         name = _first_name()
-        salutation = "Good evening" if hour >= 18 or hour < 5 else "Hello"
-        self.greeting.setText(f"{salutation}{', ' + name if name else ''}")
-        self.status.setText("Analyzing the vault…")
+        evening = hour >= 18 or hour < 5
+        if name:
+            self.greeting.setText(tr("dashboard.greeting.evening_named" if evening
+                                     else "dashboard.greeting.hello_named", name=name))
+        else:
+            self.greeting.setText(tr("dashboard.greeting.evening" if evening
+                                     else "dashboard.greeting.hello"))
+        self.status.setText(tr("dashboard.analyzing"))
         self.skeleton.show()
         # The audit decrypts the entries: let the view show first.
         QTimer.singleShot(0, self.refresh)
@@ -162,24 +169,23 @@ class DashboardPage(Page):
         review = {f.entry_id for f in report.findings if f.kind != KIND_OLD}
         total = report.checked_entries
         self.skeleton.hide()
-        self.cards["total"].set_value(total, "in this vault")
-        self.cards["secure"].set_value(total - len(flagged), "no issue found")
-        self.cards["review"].set_value(len(review), "weak, reused, missing…")
-        self.cards["old"].set_value(len(old), "password older than one year")
+        self.cards["total"].set_value(total, tr("dashboard.card.total.hint"))
+        self.cards["secure"].set_value(total - len(flagged), tr("dashboard.card.secure.hint"))
+        self.cards["review"].set_value(len(review), tr("dashboard.card.review.hint"))
+        self.cards["old"].set_value(len(old), tr("dashboard.card.old.hint"))
         if total == 0:
-            self.status.setText("Your vault is ready. Add your first entry.")
+            self.status.setText(tr("dashboard.status.empty"))
             self.status.setStyleSheet(f"color: {theme.TEXT_2};")
         elif not review:
-            self.status.setText("Your vault is secure.")
+            self.status.setText(tr("dashboard.status.secure"))
             self.status.setStyleSheet(f"color: {theme.ACCENT_2};")
         else:
             count = len(review)
-            self.status.setText(f"{count} entr{'ies' if count > 1 else 'y'} "
-                                f"need{'' if count > 1 else 's'} your attention.")
+            self.status.setText(tr_n("dashboard.status.attention", count))
             self.status.setStyleSheet(f"color: {theme.WARNING};")
         latest = last_activity(self.ctx.vault)
-        self.activity.setText(f"Last activity: {relative_date(latest)}" if latest
-                              else "No activity yet.")
+        self.activity.setText(tr("dashboard.last_activity", when=relative_date(latest)) if latest
+                              else tr("dashboard.no_activity"))
         self._fill_recent()
         self._fill_backup()
         effects.stagger(list(self.cards.values()))
@@ -191,9 +197,9 @@ class DashboardPage(Page):
                 item.widget().deleteLater()
         rows = sorted(self.ctx.entries.list_entries(), key=lambda s: s.updated_at, reverse=True)[:5]
         if not rows:
-            empty = ui.EmptyState("key-round", "No entries",
-                                  "Your recent entries will appear here.",
-                                  "Add an entry", lambda: self.ctx.navigate("new_entry"))
+            empty = ui.EmptyState("key-round", tr("dashboard.no_entries"),
+                                  tr("dashboard.no_entries.text"),
+                                  tr("vault.empty.action"), lambda: self.ctx.navigate("new_entry"))
             self.recent_rows.addWidget(empty)
             return
         widgets = [_RecentRow(s, lambda i: self.ctx.navigate("vault", entry_id=i)) for s in rows]
@@ -209,12 +215,11 @@ class DashboardPage(Page):
             infos = []
         if infos:
             self.backup_value.setText(relative_date(infos[0].created_at).capitalize())
-            self.backup_hint.setText(f"Encrypted backup ({backup.kind_label(infos[0].kind)}) · "
-                                     f"{len(infos)} available")
+            self.backup_hint.setText(tr_n("dashboard.backup.hint", len(infos),
+                                          kind=backup.kind_label(infos[0].kind)))
         else:
-            self.backup_value.setText("No backup")
-            self.backup_hint.setText("An encrypted backup is created automatically on "
-                                     "locking after a change.")
+            self.backup_value.setText(tr("backups.none"))
+            self.backup_hint.setText(tr("dashboard.backup.none_hint"))
 
     def wipe(self) -> None:
         while self.recent_rows.count():

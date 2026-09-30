@@ -31,6 +31,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QAbstractItemView, QListView, QStyle, QStyledItemDelegate
 
 from app.core.entries import ENTRY_TYPES, EntrySummary
+from app.i18n import tr
 from app.ui import effects, lucide, theme
 from app.ui.components import paint_avatar
 
@@ -56,14 +57,14 @@ def relative_date(iso: str) -> str:
     delta = datetime.now().astimezone() - moment
     seconds = int(delta.total_seconds())
     if seconds < 60:
-        return "just now"
+        return tr("date.just_now")
     if seconds < 3600:
-        return f"{seconds // 60} min ago"
+        return tr("date.minutes_ago", count=seconds // 60)
     if seconds < 86400 and moment.date() == datetime.now().astimezone().date():
-        return f"today at {moment:%H:%M}"
+        return tr("date.today_at", time=f"{moment:%H:%M}")
     if delta.days < 2:
-        return f"yesterday at {moment:%H:%M}"
-    return f"on {moment:%Y-%m-%d}"
+        return tr("date.yesterday_at", time=f"{moment:%H:%M}")
+    return tr("date.on", date=f"{moment:%Y-%m-%d}")
 
 
 class EntryListModel(QAbstractListModel):
@@ -176,7 +177,7 @@ class EntryCardDelegate(QStyledItemDelegate):
             painter.setPen(QColor(theme.TEXT_3))
             painter.drawText(QRectF(right - 150, rect.top() + 13, 150, 20),
                              Qt.AlignRight | Qt.AlignVCenter,
-                             f"deleted {relative_date(summary.deleted_at)}")
+                             tr("trash.deleted_when", when=relative_date(summary.deleted_at)))
         else:
             star = lucide.pixmap("star", theme.WARNING if summary.is_favorite else theme.TEXT_3,
                                  16, 1.8)

@@ -42,6 +42,7 @@ from app.core.exceptions import (
     EntryDecryptionError,
     EntryValidationError,
 )
+from app.i18n import tr
 
 ENTRY_METADATA_INFO = b"mon-coffre-fort:entry-metadata:v1"
 CATEGORY_INFO = b"mon-coffre-fort:category:v1"
@@ -118,22 +119,21 @@ def normalize_tags(raw: Iterable[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     for value in raw:
         if not isinstance(value, str):
-            raise EntryValidationError("A tag must be text.")
+            raise EntryValidationError(tr("tags.error.text"))
         tag = " ".join(unicodedata.normalize("NFC", value).split()).lstrip("#").strip()
         if not tag:
-            raise EntryValidationError("A tag cannot be empty.")
+            raise EntryValidationError(tr("tags.error.empty"))
         if len(tag) > MAX_TAG_LENGTH:
-            raise EntryValidationError(
-                f"A tag must not exceed {MAX_TAG_LENGTH} characters.")
+            raise EntryValidationError(tr("tags.error.too_long", max=MAX_TAG_LENGTH))
         if "," in tag or any(unicodedata.category(c).startswith("C") for c in tag):
-            raise EntryValidationError("A tag cannot contain a comma or a special character.")
+            raise EntryValidationError(tr("tags.error.character"))
         key = tag_key(tag)
         if key in seen:
-            raise EntryValidationError(f"Duplicate tag: \"{tag}\".")
+            raise EntryValidationError(tr("tags.error.duplicate", tag=tag))
         seen.add(key)
         result.append(tag)
     if len(result) > MAX_TAGS:
-        raise EntryValidationError(f"An entry cannot have more than {MAX_TAGS} tags.")
+        raise EntryValidationError(tr("tags.error.too_many", max=MAX_TAGS))
     return tuple(result)
 
 

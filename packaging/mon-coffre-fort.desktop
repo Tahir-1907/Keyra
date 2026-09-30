@@ -3,7 +3,25 @@ Type=Application
 Version=1.5
 Name=Keyra
 GenericName=Password Manager
+GenericName[de]=Passwort-Manager
+GenericName[en_GB]=Password Manager
+GenericName[es]=Gestor de contraseñas
+GenericName[fr]=Gestionnaire de mots de passe
+GenericName[it]=Gestore di password
+GenericName[ja]=パスワードマネージャー
+GenericName[lb]=Passwuertmanager
+GenericName[nl]=Wachtwoordbeheerder
+GenericName[tr]=Parola yöneticisi
 Comment=Local, offline, encrypted password manager
+Comment[de]=Lokaler, verschlüsselter Passwort-Manager ohne Internetverbindung
+Comment[en_GB]=Local, offline, encrypted password manager
+Comment[es]=Gestor de contraseñas local, sin conexión y cifrado
+Comment[fr]=Gestionnaire de mots de passe local, hors ligne et chiffré
+Comment[it]=Gestore di password locale, offline e cifrato
+Comment[ja]=ローカル・オフラインで動作する暗号化パスワードマネージャー
+Comment[lb]=Lokale, verschlësselte Passwuertmanager ouni Internetverbindung
+Comment[nl]=Lokale, offline en versleutelde wachtwoordbeheerder
+Comment[tr]=Yerel, çevrimdışı ve şifreli parola yöneticisi
 Exec=mon-coffre-fort
 # Installed in /usr/share/icons/hicolor/<size>/apps/mon-coffre-fort.png
 # from app/resources/icons/logo-<size>.png

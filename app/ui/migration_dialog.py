@@ -27,6 +27,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QWidget
 
 from app.core.exceptions import VaultError
+from app.i18n import tr, tr_n
 from app.services.vault_upgrade import UpgradeCheck, UpgradeVerificationError, failure_details
 from app.ui import components as ui
 from app.ui import effects, tasks
@@ -36,9 +37,9 @@ from app.ui.dialogs import PremiumDialog
 class MigrationDialog(PremiumDialog):
     def __init__(self, check: UpgradeCheck, vault_name: str, backup_dir: Path,
                  job: Callable[[], object] | None, parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Upgrade the vault",
-                         f"\"{vault_name}\" was created by an earlier version of the "
-                         f"application (format v{check.schema_version}).",
+        super().__init__(parent, tr("migration_dialog.title"),
+                         tr("migration_dialog.subtitle", name=vault_name,
+                            version=check.schema_version),
                          icon="shield-check", width=580)
         self._job = job
         self._busy = False
@@ -47,32 +48,20 @@ class MigrationDialog(PremiumDialog):
         self.attempts = 0
 
         self.body.addWidget(ui.label(
-            "This version also encrypts the names, addresses, usernames, categories, tags "
-            "and dates of your entries (only the date each history version was recorded "
-            "stays readable). To do so, the vault must be upgraded:",
+            tr("migration_dialog.intro"),
             wrap=True))
         for text in (
-            "before any modification, an encrypted backup of the vault, in its current "
-            f"format, is created and verified in \"{backup_dir}\". It is kept and "
-            "opens with your current master password;",
-            "if a problem occurs during the upgrade, everything is cancelled: the vault "
-            "stays as it is;",
-            "the upgrade is final: a version 1.6 will no longer be able to open this "
-            "vault.",
-            "to go back, you will need a version 1.6 of the application: its "
-            "\"Restore a backup\" function opens the backup above as a new "
-            "vault. Depending on how it was installed (Debian package, for "
-            "example), version 1.7 may replace 1.6: keep a way to reinstall it "
-            "if you think you may need it.",
+            tr("migration_dialog.point.backup", folder=str(backup_dir)),
+            tr("migration_dialog.point.rollback"),
+            tr("migration_dialog.point.final"),
+            tr("migration_dialog.point.go_back", restore=tr("lock.restore_backup")),
         ):
             self.body.addWidget(ui.label("•  " + text, "Muted", wrap=True))
         if check.legacy_plaintext_copies:
             names = ", ".join(p.name for p in check.legacy_plaintext_copies)
             self.body.addWidget(ui.label(
-                f"Warning: {len(check.legacy_plaintext_copies)} old UNENCRYPTED "
-                f"copy(ies) are next to the vault ({names}). They are neither "
-                "used nor deleted: delete them yourself once the vault has been "
-                "verified.", "Error", wrap=True))
+                tr_n("migration_dialog.legacy_copies", len(check.legacy_plaintext_copies),
+                     names=names), "Error", wrap=True))
 
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
@@ -83,14 +72,15 @@ class MigrationDialog(PremiumDialog):
         self.spinner = effects.Spinner(16)
         row.addStretch(1)
         row.addWidget(self.spinner)
-        row.addWidget(ui.label("Upgrade in progress — do not close the application…",
+        row.addWidget(ui.label(tr("migration_dialog.busy"),
                                "Muted"))
         row.addStretch(1)
         busy.hide()
         self.busy_row = busy
         self.body.addWidget(busy)
         self.cancel, self.ok = self.add_buttons(
-            "Cancel", "Upgrade" if job is not None else "Continue",
+            tr("common.cancel"),
+            tr("migration_dialog.upgrade") if job is not None else tr("migration_dialog.continue"),
             confirm_icon="shield-check")
         self.ok.clicked.connect(self.start)
 
@@ -150,9 +140,9 @@ class MigrationDialog(PremiumDialog):
         if isinstance(exc, UpgradeVerificationError):
             # Migration already applied: retrying makes no sense.
             self.ok.hide()
-            self.cancel.setText("Close")
+            self.cancel.setText(tr("common.close"))
         else:
-            self.ok.setText("Retry")
+            self.ok.setText(tr("migration_dialog.retry"))
 
     def reject(self) -> None:
         if not self._busy:
@@ -174,10 +164,10 @@ def _failure_text(exc: Exception) -> str:
     """Short, understandable message, then the technical detail useful for diagnosis
     (application message, path and cause of a file failure)."""
     if not isinstance(exc, VaultError):
-        return "The upgrade failed."
+        return tr("migration_dialog.failed")
     if isinstance(exc, UpgradeVerificationError):
         return str(exc)
-    lines = ["The upgrade did not complete.", f"Detail: {exc}"]
+    lines = [tr("migration_dialog.incomplete"), tr("migration_dialog.detail", detail=str(exc))]
     return "\n".join(lines + failure_details(exc))
 
 

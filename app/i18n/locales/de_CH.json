@@ -1,0 +1,23 @@
+{
+  "@parent": "de_DE",
+  "backups.delete_all.body.one": "Die {count} Sicherung dieses Tresors wird von der Festplatte gelöscht. Es bleibt KEINE Sicherheitskopie dieses Tresors übrig (ausser Kopien, die Sie selbst woanders angelegt haben).",
+  "backups.delete_all.body.other": "Die {count} Sicherungen dieses Tresors werden von der Festplatte gelöscht. Es bleibt KEINE Sicherheitskopie dieses Tresors übrig (ausser Kopien, die Sie selbst woanders angelegt haben).",
+  "common.close": "Schliessen",
+  "export.warning.pdf": "Das PDF enthält ALLE Ihre Passwörter im KLARTEXT, ohne jeden Schutz. Drucken Sie es aus, schliessen Sie die Papierkopie weg und löschen Sie dann die Datei.",
+  "generator.capitalize": "Jedes Wort grossschreiben",
+  "generator.exclude_ambiguous": "Mehrdeutige Zeichen ausschliessen",
+  "generator.uppercase": "Grossbuchstaben",
+  "history_dialog.clear.tooltip": "Löscht alle Versionen (einschliesslich alter Passwörter)",
+  "import.error.too_large": "Datei zu gross (höchstens 20 MB).",
+  "migration_dialog.busy": "Aktualisierung läuft — schliessen Sie die Anwendung nicht…",
+  "palette.footer": "↑↓ navigieren   ⏎ ausführen   Esc schliessen",
+  "pdf.recovery.step2": "Geben Sie diesen Schlüssel ein (Gross- oder Kleinbuchstaben, mit oder ohne Bindestriche).",
+  "pdf.warning.body": "Es enthält Ihre Passwörter im KLARTEXT. Schliessen Sie es weg, fern vom Computer; vernichten Sie es (Aktenvernichter), wenn es nicht mehr benötigt wird, und löschen Sie die PDF-Datei nach dem Drucken.",
+  "recover.hint_upgrade": "Der Tresor wird anschliessend aktualisiert (zuerst verschlüsselte Sicherung). Sie erhalten einen neuen Wiederherstellungsschlüssel: Dieser hier funktioniert dann nicht mehr.",
+  "recovery.abandon_kept.confirm": "Trotzdem schliessen",
+  "recovery.abandon_kept.title": "Schliessen, ohne den Schlüssel zu notieren?",
+  "settings.generator.subtitle": "Standardmässig vorgeschlagene Werte.",
+  "shortcuts.escape": "Schliessen / Suche leeren",
+  "trash.purge.text": "Der Eintrag und sein gesamter Verlauf (einschliesslich alter Passwörter) werden gelöscht. Er kann nicht mehr wiederhergestellt werden, ausser aus einer Sicherung.",
+  "upgrade.warning.vacuum": "Die abschliessende Verdichtung der Datei ist fehlgeschlagen (Speicherplatz?): In ihren freien Seiten können alte unverschlüsselte Daten verbleiben. Der Tresor ist nutzbar und überprüft."
+}

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app import __version__
+from app import __version__, i18n
 from app.core.exceptions import VaultError
 from app.core.generator import (
     MAX_PASSPHRASE_WORDS,
@@ -26,6 +26,7 @@ from app.core.generator import (
     MIN_PASSPHRASE_WORDS,
     MIN_PASSWORD_LENGTH,
 )
+from app.i18n import LOCALES, tr
 from app.services.settings import (
     AUTO_LOCK_CHOICES,
     CLIPBOARD_CHOICES,
@@ -39,13 +40,16 @@ from app.ui import dialogs, recovery_dialogs, theme
 from app.ui.pages.base import AppContext, Page, scrolling
 from app.utils.paths import documents_dir
 
-_SEPARATORS = {"-": "Dash  -", " ": "Space", ".": "Dot  .", "_": "Underscore  _", "": "None"}
+# Separator -> translation key of its label.
+_SEPARATORS = {"-": "separator.dash", " ": "separator.space", ".": "separator.dot",
+               "_": "separator.underscore", "": "separator.none"}
 
 
 def _combo(choices: dict, current) -> QComboBox:
+    """Choices: translation key of the label -> stored value."""
     combo = QComboBox()
-    for text, value in choices.items():
-        combo.addItem(text, value)
+    for key, value in choices.items():
+        combo.addItem(tr(key), value)
     combo.setCurrentIndex(max(combo.findData(current), 0))
     combo.setMinimumWidth(220)
     return combo
@@ -95,8 +99,8 @@ class _Section(QWidget):
 
 class SettingsPage(Page):
     key = "settings"
-    title = "Settings"
-    subtitle = "Saved automatically"
+    title_key = "page.settings.title"
+    subtitle_key = "page.settings.subtitle"
     icon = "settings"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -105,34 +109,49 @@ class SettingsPage(Page):
         self._saved_toast = QTimer(self)
         self._saved_toast.setSingleShot(True)
         self._saved_toast.timeout.connect(
-            lambda: self.ctx.notify("Settings saved", icon="check"))
+            lambda: self.ctx.notify(tr("settings.saved"), icon="check"))
         layout = scrolling(self, spacing=16)
         s = ctx.settings()
 
+        # --- Language ---------------------------------------------------------------------
+        language = _Section("globe", tr("settings.language.title"),
+                            tr("settings.language.subtitle"))
+        self.language = QComboBox()
+        # "System default" names the language it currently resolves to.
+        self.language.addItem(tr("settings.language.system",
+                                 language=LOCALES[i18n.detector.detect()]), i18n.SYSTEM)
+        for locale, name in LOCALES.items():  # native names, never translated
+            self.language.addItem(name, locale)
+        self.language.setMinimumWidth(220)
+        language.row(tr("settings.language.label"), self.language,
+                     tr("settings.language.hint"))
+        layout.addWidget(language)
+
         # --- Security ---------------------------------------------------------------------
-        security = _Section("lock-keyhole", "Security", "Locking and clipboard.")
+        security = _Section("lock-keyhole", tr("settings.security.title"),
+                            tr("settings.security.subtitle"))
         self.auto_lock = _combo(AUTO_LOCK_CHOICES, s.auto_lock_seconds)
-        security.row("Lock after inactivity", self.auto_lock,
-                     "\"Never\" is not recommended.")
+        security.row(tr("settings.auto_lock"), self.auto_lock,
+                     tr("settings.auto_lock.hint", never=tr("choice.never")))
         self.lock_on_session = ui.ToggleSwitch()
-        security.row("Lock with the session", self.lock_on_session,
-                     "Screen saver, session lock, sleep.")
+        security.row(tr("settings.lock_on_session"), self.lock_on_session,
+                     tr("settings.lock_on_session.hint"))
         self.clipboard = _combo(CLIPBOARD_CHOICES, s.clipboard_clear_seconds)
-        security.row("Clear the clipboard after", self.clipboard)
+        security.row(tr("settings.clipboard"), self.clipboard)
         layout.addWidget(security)
 
         # --- Trash and backups ---------------------------------------------------------
-        data = _Section("database-backup", "Trash and backups",
-                        "Retention and automatic encrypted backups.")
+        data = _Section("database-backup", tr("settings.data.title"),
+                        tr("settings.data.subtitle"))
         self.retention = _combo(TRASH_RETENTION_CHOICES, s.trash_retention_days)
-        data.row("Empty Trash items older than", self.retention)
+        data.row(tr("settings.trash_retention"), self.retention)
         self.auto_backup = ui.ToggleSwitch()
-        data.row("Automatic backup", self.auto_backup,
-                 "On locking, if the vault was modified.")
+        data.row(tr("settings.auto_backup"), self.auto_backup,
+                 tr("settings.auto_backup.hint"))
         self.backups_kept = QSpinBox()
         self.backups_kept.setRange(MIN_AUTO_BACKUPS, MAX_AUTO_BACKUPS)
         self.backups_kept.setMinimumWidth(90)
-        data.row("Automatic backups kept", self.backups_kept)
+        data.row(tr("settings.backups_kept"), self.backups_kept)
         folder = QWidget()
         folder_row = QHBoxLayout(folder)
         folder_row.setContentsMargins(0, 0, 0, 0)
@@ -142,96 +161,95 @@ class SettingsPage(Page):
         self.backup_dir.setMinimumWidth(180)
         self.backup_dir.setPlaceholderText(str(documents_dir() / "MonCoffre" / "backup"))
         folder_row.addWidget(self.backup_dir)
-        folder_row.addWidget(ui.icon_button("folder-open", "Choose a folder",
+        folder_row.addWidget(ui.icon_button("folder-open", tr("settings.backup_dir.choose"),
                                             on_click=self._choose_dir))
-        folder_row.addWidget(ui.icon_button("rotate-ccw", "Default folder",
+        folder_row.addWidget(ui.icon_button("rotate-ccw", tr("settings.backup_dir.default"),
                                             on_click=lambda: self._set_dir("")))
-        data.row("Backup folder", folder, "A synchronized folder is fine: the "
-                 "backup content is encrypted (only the vault name and some "
-                 "technical information stay readable).")
+        data.row(tr("settings.backup_dir"), folder, tr("settings.backup_dir.hint"))
         layout.addWidget(data)
 
         # --- Generator -----------------------------------------------------------------------
-        gen = _Section("wand-sparkles", "Generator", "Values suggested by default.")
-        self.gen_mode = _combo({"Password": "password", "Passphrase": "passphrase"},
-                               s.generator_mode)
-        gen.row("Suggested type", self.gen_mode)
+        gen = _Section("wand-sparkles", tr("settings.generator.title"),
+                       tr("settings.generator.subtitle"))
+        self.gen_mode = _combo({"generator.mode.password": "password",
+                                "generator.mode.passphrase": "passphrase"}, s.generator_mode)
+        gen.row(tr("settings.generator.mode"), self.gen_mode)
         self.gen_length = QSpinBox()
         self.gen_length.setRange(MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)
         self.gen_length.setMinimumWidth(90)
-        gen.row("Password length", self.gen_length)
+        gen.row(tr("settings.generator.length"), self.gen_length)
         self.gen_toggles = {}
-        for key, text in (("generator_uppercase", "Uppercase"),
-                          ("generator_lowercase", "Lowercase"),
-                          ("generator_digits", "Digits"), ("generator_symbols", "Symbols"),
-                          ("generator_exclude_ambiguous", "Exclude ambiguous characters")):
+        for key, text in (("generator_uppercase", tr("generator.uppercase")),
+                          ("generator_lowercase", tr("generator.lowercase")),
+                          ("generator_digits", tr("generator.digits")),
+                          ("generator_symbols", tr("generator.symbols")),
+                          ("generator_exclude_ambiguous", tr("generator.exclude_ambiguous"))):
             toggle = ui.ToggleSwitch()
             gen.row(text, toggle)
             self.gen_toggles[key] = toggle
         self.pp_words = QSpinBox()
         self.pp_words.setRange(MIN_PASSPHRASE_WORDS, MAX_PASSPHRASE_WORDS)
         self.pp_words.setMinimumWidth(90)
-        gen.row("Words per passphrase", self.pp_words)
+        gen.row(tr("settings.generator.words"), self.pp_words)
         self.pp_separator = _combo({v: k for k, v in _SEPARATORS.items()},
                                    s.passphrase_separator)
-        gen.row("Separator", self.pp_separator)
+        gen.row(tr("generator.separator"), self.pp_separator)
         self.pp_capitalize = ui.ToggleSwitch()
-        gen.row("Capitalize each word", self.pp_capitalize)
+        gen.row(tr("generator.capitalize"), self.pp_capitalize)
         self.pp_number = ui.ToggleSwitch()
-        gen.row("Add a digit", self.pp_number)
+        gen.row(tr("generator.add_number"), self.pp_number)
         layout.addWidget(gen)
 
         # --- Interface ------------------------------------------------------------------------
-        interface = _Section("sparkles", "Interface", "Appearance and comfort.")
+        interface = _Section("sparkles", tr("settings.interface.title"),
+                             tr("settings.interface.subtitle"))
         self.animations = ui.ToggleSwitch()
-        interface.row("Animations", self.animations,
-                      "Transitions, appearances, notifications. Turn off on a slow machine "
-                      "or if motion bothers you.")
+        interface.row(tr("action.animations"), self.animations,
+                      tr("settings.animations.hint"))
         layout.addWidget(interface)
 
         # --- Vault -------------------------------------------------------------------------------
-        vault = _Section("lock-keyhole", "This vault",
-                         "Name, master password and recovery key.")
+        vault = _Section("lock-keyhole", tr("settings.vault.title"),
+                         tr("settings.vault.subtitle"))
         self.vault_name = ui.label("", "Muted")
-        vault.row("Name", self._with_button(self.vault_name, "Rename…", self._rename))
-        vault.row("Master password",
-                  ui.button("Change…", "key-round",
+        vault.row(tr("field.name"), self._with_button(self.vault_name, tr("settings.vault.rename"),
+                                                      self._rename))
+        vault.row(tr("common.master_password"),
+                  ui.button(tr("settings.vault.change"), "key-round",
                             on_click=lambda: self.ctx.vault_action("password")),
-                  "Existing backups keep the old password. "
-                  "The recovery key stays valid.")
+                  tr("settings.vault.change.hint"))
         recovery_buttons = QWidget()
         buttons_row = QHBoxLayout(recovery_buttons)
         buttons_row.setContentsMargins(0, 0, 0, 0)
         buttons_row.setSpacing(8)
-        self.recovery_create = ui.button("Create…", "key-round",
+        self.recovery_create = ui.button(tr("settings.vault.recovery_create"), "key-round",
                                          on_click=lambda: self.ctx.vault_action("recovery"))
-        self.recovery_remove = ui.button("Remove…", "trash-2", "Ghost",
+        self.recovery_remove = ui.button(tr("settings.vault.recovery_remove"), "trash-2", "Ghost",
                                          on_click=lambda: self.ctx.vault_action("recovery_remove"))
         buttons_row.addWidget(self.recovery_create)
         buttons_row.addWidget(self.recovery_remove)
-        self.recovery_state = vault.row("Recovery key", recovery_buttons, " ")
+        self.recovery_state = vault.row(tr("common.recovery_key"), recovery_buttons, " ")
         layout.addWidget(vault)
 
-        danger = _Section("triangle-alert", "Danger zone",
-                          "Irreversible actions on this vault.", danger=True)
-        danger.row("Delete this vault",
-                   ui.button("Delete…", "trash-2", "Danger",
+        danger = _Section("triangle-alert", tr("settings.danger.title"),
+                          tr("settings.danger.subtitle"), danger=True)
+        danger.row(tr("settings.danger.delete"),
+                   ui.button(tr("settings.danger.delete_button"), "trash-2", "Danger",
                              on_click=lambda: self.ctx.vault_action("delete")),
-                   "Vault name and master password required. Backups are "
-                   "kept.")
+                   tr("settings.danger.delete.hint"))
         layout.addWidget(danger)
 
-        about = _Section("info", "Help", f"Keyra {__version__} · 100% offline · "
-                                         "Argon2id + AES-256-GCM")
-        about.row("Keyboard shortcuts", ui.button("Show", "keyboard",
+        about = _Section("info", tr("settings.help.title"),
+                         tr("settings.help.subtitle", version=__version__))
+        about.row(tr("action.shortcuts"), ui.button(tr("common.show"), "keyboard",
                                                   on_click=lambda: self.ctx.navigate("shortcuts")))
-        about.row("About", ui.button("Show", "info",
+        about.row(tr("settings.help.about"), ui.button(tr("common.show"), "info",
                                         on_click=lambda: self.ctx.navigate("about")))
         layout.addWidget(about)
         layout.addStretch(1)
 
-        for widget in (self.auto_lock, self.clipboard, self.retention, self.gen_mode,
-                       self.pp_separator):
+        for widget in (self.language, self.auto_lock, self.clipboard, self.retention,
+                       self.gen_mode, self.pp_separator):
             widget.currentIndexChanged.connect(self._save)
         for widget in (self.backups_kept, self.gen_length, self.pp_words):
             widget.valueChanged.connect(self._save)
@@ -255,7 +273,8 @@ class SettingsPage(Page):
     def refresh(self) -> None:
         s = self.ctx.settings()
         self._loading = True
-        for combo, value in ((self.auto_lock, s.auto_lock_seconds),
+        for combo, value in ((self.language, s.language),
+                             (self.auto_lock, s.auto_lock_seconds),
                              (self.clipboard, s.clipboard_clear_seconds),
                              (self.retention, s.trash_retention_days),
                              (self.gen_mode, s.generator_mode),
@@ -281,12 +300,14 @@ class SettingsPage(Page):
         created = self.ctx.vault.recovery_created_at
         self.recovery_state.setText(recovery_dialogs.describe(created))
         self.recovery_state.setStyleSheet("" if created else f"color: {theme.WARNING};")
-        self.recovery_create.setText("Replace…" if created else "Create…")
+        self.recovery_create.setText(tr("settings.vault.recovery_replace") if created
+                                     else tr("settings.vault.recovery_create"))
         self.recovery_remove.setVisible(created is not None)
 
     def current(self) -> Settings:
         return replace(
             self.ctx.settings(),
+            language=self.language.currentData(),
             auto_lock_seconds=self.auto_lock.currentData(),
             lock_on_session_lock=self.lock_on_session.isChecked(),
             clipboard_clear_seconds=self.clipboard.currentData(),
@@ -310,7 +331,8 @@ class SettingsPage(Page):
         classes = ("generator_uppercase", "generator_lowercase", "generator_digits",
                    "generator_symbols")
         if not any(self.gen_toggles[k].isChecked() for k in classes):
-            self.ctx.notify("At least one character type", "The generator needs one.",
+            self.ctx.notify(tr("settings.generator.need_class"),
+                            tr("settings.generator.need_class.body"),
                             kind="warning")
             self.refresh()
             return
@@ -318,7 +340,7 @@ class SettingsPage(Page):
         self._saved_toast.start(600)  # a single notification for a burst of changes
 
     def _choose_dir(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Backup folder",
+        chosen = QFileDialog.getExistingDirectory(self, tr("settings.backup_dir"),
                                                   self.backup_dir.text() or str(Path.home()))
         if chosen:
             self._set_dir(chosen)
@@ -329,15 +351,17 @@ class SettingsPage(Page):
 
     def _rename(self) -> None:
         current = self.ctx.vault.info.vault_name
-        name = dialogs.prompt_text(self, "Rename the vault", "New name", current,
+        name = dialogs.prompt_text(self, tr("settings.vault.rename_title"),
+                                   tr("settings.vault.new_name"), current,
                                    icon="lock-keyhole")
         if name is None:
             return
         try:
             self.ctx.vault.rename(name)
         except VaultError as exc:
-            dialogs.alert(self, "Rename impossible", str(exc))
+            dialogs.alert(self, tr("settings.vault.rename_impossible"), str(exc))
             return
         self.refresh()
         self.ctx.changed()
-        self.ctx.notify("Vault renamed", self.ctx.vault.info.vault_name, icon="lock-keyhole")
+        self.ctx.notify(tr("settings.vault.renamed"), self.ctx.vault.info.vault_name,
+                        icon="lock-keyhole")

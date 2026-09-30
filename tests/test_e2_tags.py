@@ -441,5 +441,5 @@ class TestImportPreviewShowsDroppedTags(UiTestCase):
         dialog = ImportPreviewDialog(preview)
         self.addCleanup(dialog.deleteLater)
         texts = " ".join(label.text() for label in dialog.findChildren(QLabel))
-        self.assertIn("3 invalid or duplicate tag(s)", texts)
+        self.assertIn("3 invalid or duplicate tags", texts)
 

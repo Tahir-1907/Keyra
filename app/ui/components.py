@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     Property,
     QEasingCurve,
     QElapsedTimer,
+    QEvent,
     QPointF,
     QPropertyAnimation,
     QRectF,
@@ -46,6 +47,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.ui import effects, icons, lucide, theme
 
 # --- Basic building blocks ------------------------------------------------------------------------
@@ -305,6 +307,8 @@ class EmptyState(QWidget):
         # Width AND height enforced (adjusted to the available space): a word-wrapping
         # QLabel does not report its height to parent layouts on its own.
         self._fit_text(self._TEXT_MAX)
+        # The style sheet font arrives later (polish): the height is computed again then.
+        self.text.installEventFilter(self)
         layout.addWidget(self.text, 0, Qt.AlignHCenter)
         self.action = None
         if action_text and on_action:
@@ -323,6 +327,14 @@ class EmptyState(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._fit_text(event.size().width() - 48)
+
+    _REFIT_EVENTS = (QEvent.FontChange, QEvent.StyleChange, QEvent.Polish, QEvent.Show)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.text and event.type() in self._REFIT_EVENTS:
+            # After the event: the font of the style sheet is then applied.
+            QTimer.singleShot(0, self, lambda: self._fit_text(self.text.width() or self._TEXT_MAX))
+        return super().eventFilter(obj, event)
 
     def _fit_text(self, available: int) -> None:
         width = max(self._TEXT_MIN, min(self._TEXT_MAX, available))
@@ -505,9 +517,10 @@ class CopyButton(QToolButton):
     `labeled=True` shows the text "Copy" next to the icon (secret fields).
     """
 
-    def __init__(self, tooltip: str = "Copy", parent: QWidget | None = None,
+    def __init__(self, tooltip: str | None = None, parent: QWidget | None = None,
                  labeled: bool = False) -> None:
         super().__init__(parent)
+        tooltip = tooltip or tr("common.copy")
         self._labeled = labeled
         self.setIconSize(QSize(16, 16))
         self.setToolTip(tooltip)
@@ -523,12 +536,12 @@ class CopyButton(QToolButton):
     def _reset(self) -> None:
         self.setIcon(lucide.icon("copy", theme.TEXT_2, 16))
         if self._labeled:
-            self.setText("Copy")
+            self.setText(tr("common.copy"))
 
     def confirm(self) -> None:
         self.setIcon(lucide.icon("check", theme.ACCENT_2, 16))
         if self._labeled:
-            self.setText("Copied")
+            self.setText(tr("common.copied"))
         self._restore.start(1400)
 
 
