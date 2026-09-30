@@ -1,14 +1,14 @@
-"""Coquille de l'application déverrouillée : barre latérale, en-tête, vues.
+"""Shell of the unlocked application: sidebar, header, views.
 
-* Barre latérale (236 px) : marque, coffre courant (menu), navigation avec
-  compteurs, indicateur d'accent qui GLISSE vers l'élément actif, état du
-  verrouillage (compte à rebours) et bouton Verrouiller.
-* En-tête minimal : titre de la vue, recherche, Générer, Nouveau, verrouiller.
-* Mode compact (fenêtre étroite, p. ex. accrochée sur une moitié d'écran) :
-  barre latérale réduite aux icônes (libellés en infobulle), recherche plus
-  courte, « Générer » en icône seule.
-* Changement de vue directionnel : une vue « suivante » entre par la droite,
-  une vue « précédente » par la gauche (+/-20 px, fondu, 220 ms).
+* Sidebar (236 px): brand, current vault (menu), navigation with counters,
+  accent indicator that SLIDES to the active item, lock state (countdown) and
+  Lock button.
+* Minimal header: view title, search, Generate, New, lock.
+* Compact mode (narrow window, e.g. snapped to half of the screen): sidebar
+  reduced to icons (labels as tooltips), shorter search, "Generate" as an
+  icon only.
+* Directional view change: a "next" view comes in from the right, a
+  "previous" one from the left (+/-20 px, fade, 220 ms).
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ NAV_ORDER = ("dashboard", "vault", "security", "history", "trash", "backups", "s
 
 
 class NavButton(QPushButton):
-    """Élément de navigation : icône, libellé, compteur optionnel."""
+    """Navigation item: icon, label, optional counter."""
 
     def __init__(self, icon: str, text: str, tooltip: str = "") -> None:
         super().__init__()
@@ -106,7 +106,7 @@ class NavButton(QPushButton):
 
 
 class _Indicator(QFrame):
-    """Barre d'accent verticale qui glisse d'un élément de navigation à l'autre."""
+    """Vertical accent bar that slides from one navigation item to another."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -150,7 +150,7 @@ class AppShell(QWidget):
         self.pages: dict[str, Page] = {}
         self._current = ""
 
-        # --- Barre latérale -------------------------------------------------------------------
+        # --- Sidebar -------------------------------------------------------------------
         sidebar = self.sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(theme.SIDEBAR_WIDTH)
@@ -159,25 +159,25 @@ class AppShell(QWidget):
         side.setSpacing(4)
         brand = QHBoxLayout()
         brand.setSpacing(10)
-        brand.addWidget(ui.icon_label("shield-check", theme.ACCENT_2, 22))
-        self.brand_text = ui.label("MON COFFRE-FORT", "Brand")
+        brand.addWidget(ui.brand_label(22))
+        self.brand_text = ui.label("KEYRA", "Brand")
         brand.addWidget(self.brand_text, 1)
         side.addLayout(brand)
         side.addSpacing(14)
         self.vault_button = QPushButton()
         self.vault_button.setObjectName("Nav")
         self.vault_button.setCursor(Qt.PointingHandCursor)
-        self.vault_button.setToolTip("Coffre ouvert — changer de coffre")
+        self.vault_button.setToolTip("Open vault — switch vault")
         self.vault_button.setIcon(lucide.icon("lock-keyhole", theme.TEXT_2, 16))
         self.vault_button.setStyleSheet(
             f"QPushButton#Nav {{ background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; }}")
         vault_menu = QMenu(self.vault_button)
-        vault_menu.addAction(lucide.icon("log-out"), "Changer de coffre",
+        vault_menu.addAction(lucide.icon("log-out"), "Switch vault",
                              lambda: self.ctx.vault_action("switch"))
-        vault_menu.addAction(lucide.icon("plus"), "Nouveau coffre…",
+        vault_menu.addAction(lucide.icon("plus"), "New vault…",
                              lambda: self.ctx.vault_action("new"))
         vault_menu.addSeparator()
-        vault_menu.addAction(lucide.icon("settings"), "Paramètres du coffre",
+        vault_menu.addAction(lucide.icon("settings"), "Vault settings",
                              lambda: self.navigate("settings"))
         self.vault_button.setMenu(vault_menu)
         side.addWidget(self.vault_button)
@@ -219,18 +219,18 @@ class AppShell(QWidget):
         state.setSpacing(8)
         self.state_icon = ui.icon_label("lock-open", theme.ACCENT_2, 16)
         state.addWidget(self.state_icon)
-        self.state_text = ui.label("Coffre déverrouillé")
+        self.state_text = ui.label("Vault unlocked")
         state.addWidget(self.state_text, 1)
         status_layout.addLayout(state)
         self.countdown = ui.label("", "Faint")
         status_layout.addWidget(self.countdown)
-        lock = self.side_lock = ui.button("Verrouiller", "lock",
-                                          tooltip="Verrouiller le coffre  ·  Ctrl+L",
+        lock = self.side_lock = ui.button("Lock", "lock",
+                                          tooltip="Lock the vault  ·  Ctrl+L",
                                           on_click=self.lock_requested.emit)
         status_layout.addWidget(lock)
         side.addWidget(status)
 
-        # --- En-tête --------------------------------------------------------------------------
+        # --- Header --------------------------------------------------------------------------
         header = QFrame()
         header.setObjectName("Header")
         header.setFixedHeight(theme.HEADER_HEIGHT)
@@ -249,25 +249,25 @@ class AppShell(QWidget):
         head.addLayout(titles, 1)
         self.search = QLineEdit()
         self.search.setObjectName("Search")
-        self.search.setPlaceholderText("Rechercher un compte…")
-        self.search.setToolTip("Rechercher  ·  Ctrl+F")
+        self.search.setPlaceholderText("Search entries…")
+        self.search.setToolTip("Search  ·  Ctrl+F")
         self.search.setClearButtonEnabled(True)
         self.search.setMinimumWidth(theme.SEARCH_MIN_WIDTH)
         self.search.setMaximumWidth(theme.SEARCH_MAX_WIDTH)
         self.search.addAction(lucide.icon("search", theme.TEXT_3, 16), QLineEdit.LeadingPosition)
         self.search.textChanged.connect(self._on_search)
-        # Entrée : applique la recherche sans attendre la fin du délai de frappe.
+        # Enter: applies the search without waiting for the typing delay.
         self.search.returnPressed.connect(lambda: self.vault_page.apply_search_now())
         self.vault_page.detail.tag_clicked.connect(self.search_tag)
         head.addWidget(self.search)
-        self.generate_button = ui.button("Générer", "wand-sparkles", "Ghost",
-                                         "Générateur de mots de passe  ·  Ctrl+G",
+        self.generate_button = ui.button("Generate", "wand-sparkles", "Ghost",
+                                         "Password generator  ·  Ctrl+G",
                                          self.open_generator)
         head.addWidget(self.generate_button)
-        new = ui.button("Nouveau", "plus", "Primary", "Nouvelle entrée  ·  Ctrl+N",
+        new = ui.button("New", "plus", "Primary", "New entry  ·  Ctrl+N",
                         lambda: self.navigate("new_entry"))
         head.addWidget(new)
-        head.addWidget(ui.icon_button("lock", "Verrouiller", "Ctrl+L", self.lock_requested.emit))
+        head.addWidget(ui.icon_button("lock", "Lock", "Ctrl+L", self.lock_requested.emit))
 
         content = QVBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
@@ -329,7 +329,7 @@ class AppShell(QWidget):
         super().resizeEvent(event)
         self.set_compact(event.size().width() < theme.COMPACT_BREAKPOINT)
         if self._current and self.indicator.isVisible():
-            self.indicator.setGeometry(self.indicator.geometry())  # recalé au prochain navigate
+            self.indicator.setGeometry(self.indicator.geometry())  # realigned on the next navigate
             self.indicator.move_to(self.nav[self._current])
 
     @property
@@ -337,7 +337,7 @@ class AppShell(QWidget):
         return self._compact
 
     def set_compact(self, compact: bool) -> None:
-        """Bascule la mise en page étroite (icônes seules) ou large."""
+        """Switches between the narrow (icons only) and the wide layout."""
         if compact == self._compact:
             return
         self._compact = compact
@@ -350,8 +350,8 @@ class AppShell(QWidget):
         self._status_layout.setContentsMargins(*((0, 0, 0, 0) if compact else (12, 10, 12, 10)))
         for button in self.nav.values():
             button.set_compact(compact)
-        self.side_lock.setText("" if compact else "Verrouiller")
-        self.generate_button.setText("" if compact else "Générer")
+        self.side_lock.setText("" if compact else "Lock")
+        self.generate_button.setText("" if compact else "Generate")
         self.subtitle.setVisible(not compact)
         self.update_vault_name()
         if self._current:
@@ -365,7 +365,7 @@ class AppShell(QWidget):
     def vault_page(self) -> VaultPage:
         return self.pages["vault"]  # type: ignore[return-value]
 
-    # --- Recherche, générateur ------------------------------------------------------------------
+    # --- Search, generator ------------------------------------------------------------------
 
     def _on_search(self, text: str) -> None:
         if text and self._current != "vault":
@@ -373,7 +373,7 @@ class AppShell(QWidget):
         self.vault_page.set_search(text)
 
     def search_tag(self, tag: str) -> None:
-        """Clic sur un badge : recherche exacte de ce tag, appliquée immédiatement."""
+        """Click on a badge: exact search for this tag, applied immediately."""
         self.search.setText(tag_search_query(tag))
         self.vault_page.apply_search_now()
 
@@ -384,7 +384,7 @@ class AppShell(QWidget):
     def open_generator(self) -> None:
         GeneratorDialog(self.ctx.clipboard, parent=self, settings=self.ctx.settings()).exec()
 
-    # --- État -------------------------------------------------------------------------------------
+    # --- State ------------------------------------------------------------------------------------
 
     def data_changed(self) -> None:
         self.update_badges()
@@ -398,7 +398,7 @@ class AppShell(QWidget):
         self.nav["trash"].set_count(overview.trash)
 
     def recovery_changed(self) -> None:
-        """La clé de récupération a été créée, remplacée ou supprimée."""
+        """The recovery key was created, replaced or removed."""
         if not self.ctx.vault.is_locked:
             self.pages["settings"].refresh_recovery()
             self.pages["security"].refresh_recovery()
@@ -407,7 +407,7 @@ class AppShell(QWidget):
         if not self.ctx.vault.is_locked:
             name = self.ctx.vault.info.vault_name
             self.vault_button.setText("" if self._compact else "  " + name)
-            self.vault_button.setToolTip(f"Coffre ouvert : {name} — changer de coffre")
+            self.vault_button.setToolTip(f"Open vault: {name} — switch vault")
 
     def set_countdown(self, text: str, warn: bool = False) -> None:
         self.countdown.setText(text)

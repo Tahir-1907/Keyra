@@ -1,6 +1,6 @@
-"""Tests d'intégration de l'interface (Qt « offscreen », sans affichage).
+"""Interface integration tests (Qt "offscreen", no display).
 
-Ignorés proprement si PySide6 n'est pas installé.
+Skipped cleanly if PySide6 is not installed.
 """
 
 import os
@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
     QApplication = None
 
 
-@unittest.skipIf(QApplication is None, "PySide6 non installé")
+@unittest.skipIf(QApplication is None, "PySide6 not installed")
 class UiTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -29,7 +29,7 @@ class UiTestCase(unittest.TestCase):
             "XDG_DATA_HOME": os.path.join(self._tmpdir.name, "data"),
             "XDG_CONFIG_HOME": os.path.join(self._tmpdir.name, "config"),
             "XDG_CACHE_HOME": os.path.join(self._tmpdir.name, "cache"),
-            # Les sauvegardes automatiques vont dans ~/Documents : HOME isolé aussi.
+            # Automatic backups go to ~/Documents: HOME is isolated too.
             "HOME": os.path.join(self._tmpdir.name, "home"),
         }
         self._old_env = {k: os.environ.get(k) for k in env}
@@ -37,8 +37,8 @@ class UiTestCase(unittest.TestCase):
         from app.ui import effects, tasks
         from app.ui.main_window import MainWindow
 
-        # Argon2id synchrone et animations coupées : tests déterministes. Les modes
-        # « arrière-plan » et « animé » ont leurs propres tests.
+        # Synchronous Argon2id and animations off: deterministic tests. The
+        # "background" and "animated" modes have their own tests.
         tasks.BACKGROUND_TASKS = False
         self.window = MainWindow()
         effects.set_animations_enabled(False)
@@ -103,12 +103,12 @@ class TestLockScreens(UiTestCase):
         screen.password.setText(self.master)
         screen.confirm.setText(self.master + "x")
         screen._submit()
-        self.assertIn("ne correspondent pas", screen.error.text())
+        self.assertIn("do not match", screen.error.text())
         screen.password.setText("court")
         screen.confirm.setText("court")
         screen._submit()
-        self.assertIn("au moins", screen.error.text())
-        self.assertEqual(screen.password.text(), "")  # champ vidé après tentative
+        self.assertIn("at least", screen.error.text())
+        self.assertEqual(screen.password.text(), "")  # field cleared after the attempt
         self.assertIsNone(self.window._shell)
 
     def test_weak_master_password_requires_confirmation(self):
@@ -131,7 +131,7 @@ class TestLockScreens(UiTestCase):
         unlock = self.window._unlock_screen
         unlock.password.setText("mauvais-" + secrets.token_hex(4))
         unlock._submit()
-        self.assertIn("incorrect", unlock.error.text())
+        self.assertIn("Wrong", unlock.error.text())
         shell = self._unlock()
         self.assertEqual(shell.ctx.entries.get_entry(entry_id).password, secret)
         self.assertEqual(shell.current_key, "dashboard")
@@ -153,7 +153,7 @@ class TestLockScreens(UiTestCase):
         unlock._submit()
         self.assertTrue(self._wait_until(lambda: not self.window._busy))
         self.assertIsNone(self.window._session)
-        self.assertIn("incorrect", unlock.error.text())
+        self.assertIn("Wrong", unlock.error.text())
 
 
 class TestNavigation(UiTestCase):
@@ -168,7 +168,7 @@ class TestNavigation(UiTestCase):
             self.assertIs(shell.stack.currentWidget(), shell.pages[key])
             self.assertTrue(shell.nav[key].isChecked())
             self.assertEqual(shell.title.text(), shell.pages[key].title)
-        # La vue suivante entre par la droite (+1), la précédente par la gauche (-1).
+        # The next view comes in from the right (+1), the previous one from the left (-1).
         with unittest.mock.patch.object(effects, "switch_page") as switch:
             shell.navigate("security")
             shell.navigate("vault")
@@ -181,13 +181,13 @@ class TestNavigation(UiTestCase):
         shell.navigate("dashboard")
         shell.search.setText("societe")
         self.assertEqual(shell.current_key, "vault")
-        # Recherche appliquée après le délai de frappe (debounce, E2).
+        # Search applied after the typing delay (debounce, E2).
         self.assertTrue(self._wait_until(lambda: not shell.vault_page.has_pending_search()))
         self.assertEqual(shell.vault_page.list.model().rowCount(), 1)
         shell.search.setText("introuvable")
         self.assertTrue(self._wait_until(lambda: not shell.vault_page.has_pending_search()))
         self.assertIs(shell.vault_page.list_stack.currentWidget(), shell.vault_page.empty)
-        self.assertEqual(shell.vault_page.empty.title.text(), "Aucun résultat")
+        self.assertEqual(shell.vault_page.empty.title.text(), "No results")
 
     def test_no_ambiguous_shortcuts(self):
         from PySide6.QtGui import QAction
@@ -221,7 +221,7 @@ class TestNavigation(UiTestCase):
         entry_id = self._add(shell, service_name="Société Générale", username="alice")
         palette = CommandPalette(self.window, self.window.command_palette_commands())
         self.assertIn("Société Générale", [c.label for c in palette.matching("societe")])
-        self.assertIn("Générateur de mots de passe", [c.label for c in palette.matching("gener")])
+        self.assertIn("Password generator", [c.label for c in palette.matching("gener")])
         palette.input.setText("societe generale")
         palette._run(palette.results.currentItem())
         self.app.processEvents()
@@ -236,7 +236,7 @@ class TestVaultView(UiTestCase):
         shell.navigate("vault")
         page = shell.vault_page
         self.assertIs(page.list_stack.currentWidget(), page.empty)
-        self.assertEqual(page.empty.title.text(), "Votre coffre est vide")
+        self.assertEqual(page.empty.title.text(), "Your vault is empty")
 
     def test_selection_opens_detail_and_favorites(self):
         shell = self._create_vault()
@@ -247,7 +247,7 @@ class TestVaultView(UiTestCase):
         page.list.select_entry(a)
         self.assertEqual(page.detail.current_entry_id(), a)
         page.list.clearSelection()
-        self.assertIsNone(page.detail.current_entry_id())  # jamais de détail sans sélection
+        self.assertIsNone(page.detail.current_entry_id())  # never any details without a selection
         page.set_favorite(a, True)
         page._set_favorites(True)
         self.assertEqual([s.id for s in page.list.model().rows()], [a])
@@ -262,7 +262,7 @@ class TestVaultView(UiTestCase):
         self.assertEqual(shell.ctx.entries.trash_count(), 0)
         with self._confirm(True) as confirm:
             page.delete_entry(a)
-        self.assertIn("corbeille", confirm.call_args.args[2])
+        self.assertIn("Trash", confirm.call_args.args[2])
         self.assertEqual(shell.ctx.entries.trash_count(), 1)
         self.assertEqual(shell.nav["trash"].badge.text(), "1")
 
@@ -280,7 +280,7 @@ class TestVaultView(UiTestCase):
         trash.list.select_entry(b)
         with self._confirm(True) as confirm:
             trash.purge(b)
-        self.assertIsNotNone(confirm.call_args.kwargs.get("acknowledge"))  # confirmation renforcée
+        self.assertIsNotNone(confirm.call_args.kwargs.get("acknowledge"))  # reinforced confirmation
         self.assertEqual(shell.ctx.entries.trash_count(), 0)
         self.assertIs(trash.stack.currentWidget(), trash.empty)
 
@@ -294,7 +294,7 @@ class TestVaultView(UiTestCase):
         shell.vault_page.list.select_entry(a)
         shell.vault_page.copy_selected_password()
         self.assertEqual(QGuiApplication.clipboard().text(), secret)
-        self.assertIn("Mot de passe copié", self.window._toasts.active_titles())
+        self.assertIn("Password copied", self.window._toasts.active_titles())
         self.window.lock()
         self.assertEqual(QGuiApplication.clipboard().text(), "")
         self.assertEqual(self.window._toasts.active_titles(), [])
@@ -308,16 +308,16 @@ class TestVaultView(UiTestCase):
         shell.navigate("vault")
         shell.vault_page.list.select_entry(a)
         show, copy = shell.vault_page.detail.secret_buttons()
-        self.assertEqual((show.text(), copy.text()), ("Afficher", "Copier"))
+        self.assertEqual((show.text(), copy.text()), ("Show", "Copy"))
         box = shell.vault_page.detail._secret_boxes[0]
-        self.assertNotIn(secret, box.value.text())      # masqué par défaut
+        self.assertNotIn(secret, box.value.text())      # hidden by default
         show.click()
-        # « Afficher » montre le mot de passe (points de coupure invisibles mis à part).
+        # "Show" reveals the password (invisible break points aside).
         self.assertEqual(box.value.text().replace("\u200b", ""), secret)
-        self.assertEqual(show.text(), "Masquer")
+        self.assertEqual(show.text(), "Hide")
         copy.click()
         self.assertEqual(QGuiApplication.clipboard().text(), secret)
-        self.assertEqual(copy.text(), "Copié")
+        self.assertEqual(copy.text(), "Copied")
         show.click()
         self.assertNotIn(secret, box.value.text())
 
@@ -339,18 +339,18 @@ class TestVaultView(UiTestCase):
         show, copy = detail.secret_buttons()
         show.click()
         self.app.processEvents()
-        # Le contenu ne dépasse jamais la zone visible : les boutons restent accessibles.
+        # The content never exceeds the visible area: the buttons stay reachable.
         self.assertLessEqual(detail.content.width(), detail.scroll.viewport().width())
         for button in (show, copy):
             right = button.mapTo(detail, button.rect().topRight()).x()
             self.assertLessEqual(right, detail.width())
-        copy.click()  # l'affichage coupe la ligne, la copie reste exacte
+        copy.click()  # the display wraps the line, the copy stays exact
         self.assertEqual(QGuiApplication.clipboard().text(), long_password)
 
     def test_empty_state_texts_are_never_clipped(self):
         from app.ui import components as ui
 
-        shell = self._create_vault()  # coffre vide : états vides partout
+        shell = self._create_vault()  # empty vault: empty states everywhere
         self.window.show()
         checked = 0
         for width in (1320, 800):
@@ -364,12 +364,12 @@ class TestVaultView(UiTestCase):
                         continue
                     text = empty.text
                     self.assertGreaterEqual(text.height(), text.heightForWidth(text.width()),
-                                            f"{key} à {width} px : {text.text()!r}")
+                                            f"{key} at {width} px: {text.text()!r}")
                     checked += 1
         self.assertGreater(checked, 4)
 
     def test_window_fits_half_screen_and_compacts(self):
-        """Accrochage GNOME (Super+←/→) : chaque vue tient dans une moitié d'écran."""
+        """GNOME snapping (Super+←/→): every view fits in half of the screen."""
         from PySide6.QtWidgets import QScrollArea
 
         from app.ui import theme
@@ -378,7 +378,7 @@ class TestVaultView(UiTestCase):
         self._add(shell, service_name="Compte au nom particulièrement long pour le test",
                   url="https://un-domaine-vraiment-tres-long.exemple.fr/chemin/connexion",
                   password="Q7$kV9#pL2!xR8&mN4@zT6%wB1^cY3*hJ5")
-        self.assertLessEqual(self.window.minimumSize().width(), 800)  # moitié de 1 600 px
+        self.assertLessEqual(self.window.minimumSize().width(), 800)  # half of 1,600 px
         self.window.show()
         for width in (800, 960):
             self.window.resize(width, 700)
@@ -394,7 +394,7 @@ class TestVaultView(UiTestCase):
                 for area in page.findChildren(QScrollArea):
                     if area.isVisibleTo(page) and area.widget() is not None:
                         self.assertLessEqual(area.widget().minimumSizeHint().width(),
-                                             area.viewport().width(), f"{key} à {width} px")
+                                             area.viewport().width(), f"{key} at {width} px")
         self.window.resize(theme.COMPACT_BREAKPOINT + 100, 800)
         self.app.processEvents()
         self.assertFalse(shell.is_compact)
@@ -446,7 +446,7 @@ class TestInsightViews(UiTestCase):
         page.run()
         report = run_audit(shell.ctx.entries)
         self.assertEqual(page.ring._score, report.score)
-        self.assertIn("1 sur 2", page.method.text())
+        self.assertIn("1 of 2", page.method.text())
         self.assertEqual(page.issue_cards["weak"].count.text(), "1")
 
     def test_history_timeline_shows_recorded_events_only(self):
@@ -462,8 +462,8 @@ class TestInsightViews(UiTestCase):
         self.assertEqual(kinds, ["created", "modified", "trashed"])
         shell.navigate("history")
         texts = [w.text() for w in shell.pages["history"].findChildren(type(shell.title))]
-        self.assertIn("AUJOURD'HUI", texts)
-        self.assertIn("Déplacé vers la corbeille", texts)
+        self.assertIn("TODAY", texts)
+        self.assertIn("Moved to Trash", texts)
 
     def test_backups_page_create_and_list(self):
         from app.services import backup
@@ -472,7 +472,7 @@ class TestInsightViews(UiTestCase):
         shell = self._create_vault()
         shell.navigate("backups")
         page = shell.pages["backups"]
-        self.assertEqual(page.last.text(), "Aucune sauvegarde")
+        self.assertEqual(page.last.text(), "No backup")
         page.create_backup()
         self.assertNotEqual(page.last.text(), "Aucune sauvegarde")
         infos = backup.list_backups(backup_directory(shell.ctx.settings()))
@@ -513,11 +513,11 @@ class TestSecurityBehaviours(UiTestCase):
             self.window._check_idle()
 
         QTimer.singleShot(200, trigger_idle_check)
-        shell.navigate("new_entry")  # boucle modale : le verrouillage doit la fermer
+        shell.navigate("new_entry")  # modal loop: locking must close it
         self.assertIsInstance(seen["dialog"], QDialog)
         self.assertFalse(seen["dialog"].isVisible())
         self.assertIsNone(self.window._session)
-        self.assertIn("inactivité", self.window._unlock_screen.info.text())
+        self.assertIn("inactivity", self.window._unlock_screen.info.text())
 
     def test_activity_postpones_auto_lock(self):
         self._create_vault()
@@ -552,7 +552,7 @@ class TestSecurityBehaviours(UiTestCase):
         self.assertTrue(str(backups[0].path).startswith(self._tmpdir.name))
 
     def _drop_malformed_backup(self) -> None:
-        """Fichier .mcfbak à en-tête malformé (version non numérique) dans le dossier."""
+        """A .mcfbak file with a malformed header (non-numeric version) in the folder."""
         import json
         import struct
 
@@ -570,8 +570,8 @@ class TestSecurityBehaviours(UiTestCase):
         self.assertIsNone(self.window._shell)
 
     def test_auto_lock_with_malformed_backup_file(self):
-        # Régression (audit phase 3, I-1) : la rotation relisait cet en-tête et levait
-        # ValueError AVANT le verrouillage — coffre ouvert, minuteur arrêté.
+        # Regression (phase 3 audit, I-1): the rotation read this header back and raised
+        # ValueError BEFORE locking — vault left open, timer stopped.
         from app.services import backup
 
         shell = self._create_vault()
@@ -602,11 +602,11 @@ class TestSecurityBehaviours(UiTestCase):
                 self.assertLogs("mon_coffre", level="ERROR") as logs:
             self.window.lock()
         self._assert_fully_locked(vault)
-        self.assertIn("sauvegarde automatique a échoué", self.window._unlock_screen.info.text())
+        self.assertIn("automatic backup failed", self.window._unlock_screen.info.text())
         self.assertIn("RuntimeError", "\n".join(logs.output))
 
     def test_lock_when_a_ui_step_fails(self):
-        # Une étape d'interface qui échoue remonte son erreur, mais après le verrouillage.
+        # A failing interface step raises its error, but after the lock.
         self._create_vault()
         vault = self.window._session.vault
         with unittest.mock.patch.object(self.window._toasts, "clear",
@@ -638,7 +638,7 @@ class TestSettingsAndVaults(UiTestCase):
         self.assertEqual(self.window._session.auto_lock_seconds, 60)
         self.assertEqual(self.window._clipboard.clear_after_seconds, 10)
         self.assertEqual(load_settings().auto_lock_seconds, 60)
-        # Impossible de désactiver toutes les classes de caractères du générateur.
+        # Disabling every character class of the generator is impossible.
         for key in ("generator_uppercase", "generator_lowercase", "generator_digits",
                     "generator_symbols"):
             page.gen_toggles[key].setChecked(False)
@@ -672,7 +672,7 @@ class TestSettingsAndVaults(UiTestCase):
         shell = self._create_vault()
         dialog = EntryDialog(shell.ctx.entries, [], self.window._clipboard)
         dialog.password.setText(value)
-        self.assertTrue(dialog.strength_label.text().startswith("Très fort"))
+        self.assertTrue(dialog.strength_label.text().startswith("Very strong"))
         dialog.close_now()
 
     def test_generator_shows_longest_values_entirely(self):
@@ -699,7 +699,7 @@ class TestSettingsAndVaults(UiTestCase):
 
         self.assertEqual(len(shown.text()), MAX_PASSWORD_LENGTH)
         self.assertTrue(fits())
-        generator._copy()  # la valeur copiée est exacte (sans points de coupure)
+        generator._copy()  # the copied value is exact (no break points)
         self.assertEqual(QGuiApplication.clipboard().text(), shown.text())
         self.assertNotIn("\u200b", shown.text())
         generator.passphrase_chip.click()
@@ -795,7 +795,7 @@ class TestBackupsPageUi(UiTestCase):
         from app.ui.transfer_dialogs import ExportDialog
 
         if not pdf_export.protection_available():
-            self.skipTest("python3-pikepdf absent")
+            self.skipTest("python3-pikepdf missing")
         shell = self._create_vault()
         self._add(shell, service_name="GitHub", password="secret-pdf")
         page = shell.pages["backups"]
@@ -807,7 +807,7 @@ class TestBackupsPageUi(UiTestCase):
             seen["pdf"] = dialog.pdf.isChecked()
             seen["protected_by_default"] = dialog.protect_pdf.isChecked()
             if protected:
-                seen["enabled"] = dialog.go.isEnabled()  # pas d'avertissement à accepter
+                seen["enabled"] = dialog.go.isEnabled()  # no warning to accept
                 dialog.master.setText(self.master)
                 dialog.export_password.setText(self.master)
                 dialog.export_confirm.setText(self.master)
@@ -831,9 +831,9 @@ class TestBackupsPageUi(UiTestCase):
                 page.export_pdf()
             self.assertTrue(target.read_bytes().startswith(b"%PDF-"))
         self.assertTrue(seen["pdf"] and seen["protected_by_default"] and seen["enabled"])
-        self.assertIn("différent du mot de passe maître", seen["error"])
+        self.assertIn("different from the master password", seen["error"])
         self.assertTrue(seen["locked"])
-        self.assertIn("sans aucune protection", seen["warning"])
+        self.assertIn("without any protection", seen["warning"])
         import pikepdf
         with self.assertRaises(pikepdf.PasswordError):
             pikepdf.open(Path(self._tmpdir.name) / "copie-True.pdf")
@@ -852,12 +852,12 @@ class TestBackupsPageUi(UiTestCase):
         self.assertFalse(dialog.protect_pdf.isChecked())
         self.assertTrue(dialog.protection_missing.isVisibleTo(dialog))
         self.assertIn("python3-pikepdf", dialog.protection_missing.text())
-        self.assertFalse(dialog.go.isEnabled())  # PDF en clair : avertissement à accepter
+        self.assertFalse(dialog.go.isEnabled())  # plaintext PDF: warning to accept
         dialog.close_now()
 
 
 class TestRecoveryKeyUi(UiTestCase):
-    """Clé de récupération : affichage unique, abandon, mot de passe oublié, gestion."""
+    """Recovery key: single display, abandon, forgotten password, management."""
 
     def _key_dialog(self):
         from app.ui.recovery_dialogs import RecoveryKeyDialog
@@ -871,7 +871,7 @@ class TestRecoveryKeyUi(UiTestCase):
         dialog = self._key_dialog()
         key = dialog._key
         self.assertRegex(key, r"^([0-9A-Z]{4}-){7}[0-9A-Z]{4}$")
-        self.assertFalse(dialog.done_button.isEnabled())  # confirmation exigée
+        self.assertFalse(dialog.done_button.isEnabled())  # confirmation required
         dialog.ack.setChecked(True)
         dialog.done_button.click()
         self.app.processEvents()
@@ -893,7 +893,7 @@ class TestRecoveryKeyUi(UiTestCase):
 
         def fill() -> None:
             dialog = next(d for d in dialogs_open() if isinstance(d, RecoverVaultDialog))
-            dialog.key.setText("0000-" + key[5:])  # erreur de saisie : refusée sans dérivation
+            dialog.key.setText("0000-" + key[5:])  # typing error: refused without derivation
             dialog.new.setText(new_master)
             dialog.confirm.setText(new_master)
             dialog._submit()
@@ -929,7 +929,7 @@ class TestRecoveryKeyUi(UiTestCase):
         from app.ui.recovery_dialogs import RecoveryPdfDialog
 
         if not pdf_export.protection_available():
-            self.skipTest("python3-pikepdf absent")
+            self.skipTest("python3-pikepdf missing")
         import pikepdf
 
         self._create_vault(recovery=True)
@@ -952,7 +952,7 @@ class TestRecoveryKeyUi(UiTestCase):
         with unittest.mock.patch(save, return_value=(str(target.with_suffix("")), "")):
             QTimer.singleShot(0, drive)
             dialog.pdf_button.click()
-        self.assertIn("caractères", seen["weak"])
+        self.assertIn("characters", seen["weak"])
         self.assertEqual(dialog.saved_pdf, target)
         self.assertIn("ma-cle.pdf", dialog.pdf_status.text())
         with self.assertRaises(pikepdf.PasswordError):
@@ -968,7 +968,7 @@ class TestRecoveryKeyUi(UiTestCase):
         vault_id = shell.ctx.vault.vault_id
         self.assertTrue(shell.ctx.vault.has_recovery_key)
         self._key_dialog()
-        self.window.lock()  # verrouillage pendant l'affichage : la clé non notée disparaît
+        self.window.lock()  # lock while displayed: the key not written down disappears
         self.assertFalse(vault_has_recovery_key(vault_id))
         self.assertEqual([d for d in dialogs_open()], [])
 
@@ -991,19 +991,19 @@ class TestRecoveryKeyUi(UiTestCase):
         self.window.lock()
         with unittest.mock.patch("app.ui.dialogs.alert") as alert:
             self.window._unlock_screen.forgot.click()
-        self.assertIn("n'a pas de clé", alert.call_args.args[2])
+        self.assertIn("has no recovery key", alert.call_args.args[2])
 
     def test_settings_create_replace_and_remove(self):
         shell = self._create_vault()
         settings = shell.pages["settings"]
         shell.navigate("settings")
-        self.assertIn("Aucune clé", settings.recovery_state.text())
+        self.assertIn("No key", settings.recovery_state.text())
         self.assertFalse(settings.recovery_remove.isVisibleTo(settings))
         ask = "app.ui.recovery_dialogs._ask_master_password"
         with unittest.mock.patch(ask, return_value="mauvais-mot-de-passe"), \
                 unittest.mock.patch("app.ui.dialogs.alert") as alert:
             settings.recovery_create.click()
-        self.assertIn("incorrect", alert.call_args.args[2])
+        self.assertIn("Wrong", alert.call_args.args[2])
         self.assertFalse(shell.ctx.vault.has_recovery_key)
         with unittest.mock.patch(ask, return_value=self.master):
             settings.recovery_create.click()
@@ -1013,7 +1013,7 @@ class TestRecoveryKeyUi(UiTestCase):
         dialog.done_button.click()
         self.app.processEvents()
         self.assertIn("Active", settings.recovery_state.text())
-        self.assertEqual(settings.recovery_create.text(), "Remplacer…")
+        self.assertEqual(settings.recovery_create.text(), "Replace…")
         with unittest.mock.patch(ask, return_value=self.master):
             settings.recovery_create.click()
         replaced = self._key_dialog()
@@ -1024,7 +1024,7 @@ class TestRecoveryKeyUi(UiTestCase):
         with unittest.mock.patch(ask, return_value=self.master):
             settings.recovery_remove.click()
         self.assertFalse(shell.ctx.vault.has_recovery_key)
-        self.assertIn("Aucune clé", settings.recovery_state.text())
+        self.assertIn("No key", settings.recovery_state.text())
 
 
 def dialogs_open():
@@ -1034,7 +1034,7 @@ def dialogs_open():
 
 
 class TestAnimatedMode(UiTestCase):
-    """Animations activées : l'état réel n'est jamais retardé (règle de conception)."""
+    """Animations on: the real state is never delayed (design rule)."""
 
     def test_state_is_immediate_even_with_animations(self):
         from app.ui import effects
@@ -1049,7 +1049,7 @@ class TestAnimatedMode(UiTestCase):
         with self._confirm(True):
             shell.navigate("vault")
             shell.vault_page.delete_entry(a)
-            # La carte sort en animation, puis la suppression réelle a lieu.
+            # The card animates out, then the actual deletion happens.
             self.assertTrue(self._wait_until(lambda: shell.ctx.entries.trash_count() == 1, 3000))
         self.window.lock()
         self.assertIs(self.window._stack.currentWidget(), self.window._unlock_screen)
@@ -1064,9 +1064,9 @@ class TestAnimatedMode(UiTestCase):
         effects.set_animations_enabled(True)
         generator = GeneratorDialog(self.window._clipboard, settings=self.window._settings)
         generator.show()
-        QTest.qWait(500)  # fin de l'ouverture animée de la modale
+        QTest.qWait(500)  # end of the modal's animated opening
         home = generator.result.pos()
-        for value in range(20, 129, 4):  # chaque valeur relance l'animation d'entrée
+        for value in range(20, 129, 4):  # each value restarts the entrance animation
             generator.length_slider.setValue(value)
             QTest.qWait(10)
         self.assertTrue(self._wait_until(

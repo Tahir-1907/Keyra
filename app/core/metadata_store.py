@@ -1,26 +1,28 @@
-"""Cache en mémoire des métadonnées déchiffrées d'un coffre v4.
+"""In-memory cache of the decrypted metadata of a v4 vault.
 
-Rattaché au `Vault` (tous les services d'une session le partagent) :
+Attached to the `Vault` (shared by every service of a session):
 
-* créé à la première lecture, coffre DÉVERROUILLÉ et au schéma v4 uniquement ;
-* chargement paresseux : rien n'est déchiffré avant le premier accès, puis
-  chaque blob n'est déchiffré qu'une fois ;
-* toute écriture passant par ce cache INVALIDE l'élément concerné, relu depuis
-  la base au prochain accès (jamais de mise à jour « à l'avance ») ;
-* ce qui est lu PENDANT une transaction ouverte est provisoire : dès que la
-  transaction se termine (COMMIT ou ROLLBACK), le premier accès relit tout depuis
-  la base. Le cache ne garde donc jamais une valeur annulée par un ROLLBACK ;
-* `clear()` (appelé par `Vault.lock()`) vide tout, oublie la clé de
-  métadonnées et rend l'objet inutilisable ;
-* jamais persistant : aucune écriture sur disque en dehors des blobs chiffrés.
+* created on first read, only for an UNLOCKED vault at schema v4;
+* lazy loading: nothing is decrypted before the first access, and then each
+  blob is decrypted only once;
+* every write going through this cache INVALIDATES the affected element,
+  which is read back from the database on the next access (never an
+  "in advance" update);
+* what is read WHILE a transaction is open is provisional: as soon as the
+  transaction ends (COMMIT or ROLLBACK), the first access reads everything
+  again from the database. The cache therefore never keeps a value cancelled
+  by a ROLLBACK;
+* `clear()` (called by `Vault.lock()`) empties everything, forgets the
+  metadata key and makes the object unusable;
+* never persistent: nothing is written to disk apart from the encrypted blobs.
 
-Limite (commune à tout le programme, voir README) : Python ne garantit pas
-l'effacement des chaînes en mémoire ; vider le cache supprime les références,
-le ramasse-miettes libère ensuite la mémoire.
+Limitation (shared by the whole program, see README): Python does not
+guarantee that strings are erased from memory; clearing the cache drops the
+references, and the garbage collector then frees the memory.
 
-Une modification faite dans la base SANS passer par ce cache (autre processus,
-SQL direct) n'est vue qu'après `invalidate()` : l'application est mono-instance
-et toutes ses écritures de métadonnées passent par ici.
+A change made to the database WITHOUT going through this cache (another
+process, direct SQL) is only seen after `invalidate()`: the application is
+single-instance and all of its metadata writes go through here.
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ from app.database.repositories import CategoryRepository, EntryRepository
 
 @dataclass(frozen=True, slots=True)
 class CategoryInfo:
-    """Catégorie déchiffrée : intégrée (`builtin_key`) ou personnelle (nom chiffré)."""
+    """Decrypted category: built-in (`builtin_key`) or custom (encrypted name)."""
 
     id: int
     name: str
@@ -59,7 +61,7 @@ class CategoryInfo:
 
 
 class MetadataStore:
-    """Métadonnées déchiffrées d'UN coffre v4 déverrouillé (voir le module)."""
+    """Decrypted metadata of ONE unlocked v4 vault (see the module)."""
 
     def __init__(self, conn: sqlite3.Connection, dek: bytes, vault_uuid: bytes) -> None:
         self._conn = conn
@@ -67,20 +69,20 @@ class MetadataStore:
         self._entries: dict[int, EntryMetadata] | None = None
         self._unreadable: set[int] = set()
         self._stale: set[int] = set()
-        self._entries_provisional = False  # chargées pendant une transaction ouverte
+        self._entries_provisional = False  # loaded while a transaction was open
         self._categories: dict[int, CategoryInfo] | None = None
         self._categories_provisional = False
-        self.generation = 0  # incrémenté à chaque invalidation (vues à rafraîchir)
+        self.generation = 0  # incremented on every invalidation (views to refresh)
 
     def __repr__(self) -> str:
         return f"MetadataStore(loaded={self._entries is not None}, generation={self.generation})"
 
-    # --- État ----------------------------------------------------------------------
+    # --- State ----------------------------------------------------------------------
 
     @property
     def cipher(self) -> MetadataCipher:
         if self._cipher is None:
-            raise VaultLockedError("Le coffre est verrouillé.")
+            raise VaultLockedError("The vault is locked.")
         return self._cipher
 
     @property
@@ -88,7 +90,7 @@ class MetadataStore:
         return self._entries is not None
 
     def clear(self) -> None:
-        """Verrouillage : tout est oublié, l'objet ne sert plus."""
+        """Lock: everything is forgotten, the object is no longer used."""
         if self._entries is not None:
             self._entries.clear()
         if self._categories is not None:
@@ -98,10 +100,10 @@ class MetadataStore:
         self._stale.clear()
         self._cipher = None
 
-    # --- Entrées -------------------------------------------------------------------
+    # --- Entries -------------------------------------------------------------------
 
     def entries(self) -> Mapping[int, EntryMetadata]:
-        """Toutes les entrées LISIBLES (actives et corbeille), en lecture seule."""
+        """All READABLE entries (active and in the Trash), read-only."""
         cipher = self.cipher
         in_transaction = self._conn.in_transaction
         if self._entries is None or (self._entries_provisional and not in_transaction):
@@ -116,11 +118,11 @@ class MetadataStore:
                 self._unreadable.discard(entry_id)
                 try:
                     blob = repo.get_metadata_blob(entry_id)
-                except KeyError:  # entrée supprimée
+                except KeyError:  # deleted entry
                     continue
                 self._load_one(cipher, entry_id, blob)
             self._stale.clear()
-            if in_transaction:  # valeurs non validées : tout relire après la transaction
+            if in_transaction:  # uncommitted values: read everything again after the transaction
                 self._entries_provisional = True
         return MappingProxyType(self._entries)
 
@@ -128,10 +130,10 @@ class MetadataStore:
         try:
             self._entries[entry_id] = cipher.decrypt_entry(entry_id, blob)
         except EntryDecryptionError:
-            self._unreadable.add(entry_id)  # signalé à part, sans bloquer les autres
+            self._unreadable.add(entry_id)  # reported separately, without blocking the others
 
     def unreadable(self) -> frozenset[int]:
-        """Entrées dont les métadonnées sont altérées ou illisibles."""
+        """Entries whose metadata is tampered with or unreadable."""
         self.entries()
         return frozenset(self._unreadable)
 
@@ -141,26 +143,26 @@ class MetadataStore:
             return entries[entry_id]
         if entry_id in self._unreadable:
             raise EntryDecryptionError(
-                f"Les métadonnées chiffrées de l'entrée {entry_id} sont corrompues "
-                "ou ont été altérées.")
-        raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+                f"The encrypted metadata of entry {entry_id} is corrupted "
+                "or has been tampered with.")
+        raise EntryNotFoundError(f"Entry {entry_id} not found.")
 
     def write_entry(self, entry_id: int, meta: EntryMetadata) -> None:
-        """Chiffre et écrit (sans commit : l'appelant délimite la transaction)."""
+        """Encrypts and writes (no commit: the caller delimits the transaction)."""
         blob = self.cipher.encrypt_entry(entry_id, meta)
         try:
             if not EntryRepository(self._conn).set_metadata_blob(entry_id, blob):
-                raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+                raise EntryNotFoundError(f"Entry {entry_id} not found.")
         finally:
-            self.invalidate_entry(entry_id)  # relu depuis la base, même après un ROLLBACK
+            self.invalidate_entry(entry_id)  # read back from the database, even after a ROLLBACK
 
     def invalidate_entry(self, entry_id: int) -> None:
-        """À appeler après toute écriture ou suppression d'une entrée."""
+        """To be called after any write or deletion of an entry."""
         if self._entries is not None:
             self._stale.add(entry_id)
         self.generation += 1
 
-    # --- Catégories ----------------------------------------------------------------
+    # --- Categories ----------------------------------------------------------------
 
     def categories(self) -> Mapping[int, CategoryInfo]:
         cipher = self.cipher
@@ -186,11 +188,11 @@ class MetadataStore:
         return category.name if category else ""
 
     def write_category(self, category_id: int, meta: CategoryMetadata) -> None:
-        """Chiffre et écrit le nom d'une catégorie personnelle (sans commit)."""
+        """Encrypts and writes the name of a custom category (no commit)."""
         blob = self.cipher.encrypt_category(category_id, meta)
         try:
             if not CategoryRepository(self._conn).set_v4_name_blob(category_id, blob):
-                raise CategoryDecryptionError(f"Catégorie {category_id} introuvable.")
+                raise CategoryDecryptionError(f"Category {category_id} not found.")
         finally:
             self.invalidate_categories()
 
@@ -199,7 +201,7 @@ class MetadataStore:
         self.generation += 1
 
     def invalidate(self) -> None:
-        """Tout relire au prochain accès (ex. après une restauration ou un import)."""
+        """Read everything again on the next access (e.g. after a restore or an import)."""
         self._entries = None
         self._unreadable, self._stale = set(), set()
         self.invalidate_categories()

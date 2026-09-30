@@ -1,4 +1,4 @@
-"""Écriture privée et atomique (app.utils.files.write_private_atomic)."""
+"""Private, atomic writes (app.utils.files.write_private_atomic)."""
 
 import os
 import secrets
@@ -17,7 +17,7 @@ class TestWritePrivateAtomic(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self._tmp.name)
         self.path = self.dir / "fichier.bin"
-        # umask permissif : les permissions ne doivent pas en dépendre.
+        # permissive umask: the permissions must not depend on it.
         self._old_umask = os.umask(0o022)
 
     def tearDown(self):
@@ -93,7 +93,7 @@ class TestWritePrivateAtomic(unittest.TestCase):
         self.assertEqual(self._leftovers(), [])
 
     def test_interrupted_write_leaves_no_file(self):
-        # Interruption (Ctrl+C) pendant l'écriture : ni destination, ni temporaire.
+        # Interruption (Ctrl+C) during the write: neither destination nor temporary.
         with mock.patch.object(files.os, "fsync", side_effect=KeyboardInterrupt), \
                 self.assertRaises(KeyboardInterrupt):
             write_private_atomic(self.path, b"x")
@@ -104,7 +104,7 @@ class TestWritePrivateAtomic(unittest.TestCase):
         real_fsync = os.fsync
         with mock.patch.object(files.os, "fsync", side_effect=real_fsync) as fsync:
             write_private_atomic(self.path, b"x")
-        self.assertGreaterEqual(fsync.call_count, 2)  # fichier puis dossier
+        self.assertGreaterEqual(fsync.call_count, 2)  # file, then folder
 
     def test_directory_sync_failure_is_not_fatal(self):
         real_open = os.open
@@ -120,7 +120,7 @@ class TestWritePrivateAtomic(unittest.TestCase):
 
 
 class TestCallersUsePrivateAtomicWrites(unittest.TestCase):
-    """Les services passent tous par la primitive commune."""
+    """The services all go through the shared primitive."""
 
     def test_no_other_private_write_implementation(self):
         app_dir = Path(__file__).resolve().parent.parent / "app"

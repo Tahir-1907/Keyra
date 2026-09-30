@@ -1,13 +1,13 @@
-"""Clé de récupération : affichage unique, utilisation (mot de passe oublié), gestion.
+"""Recovery key: single display, use (forgotten password), management.
 
-* `RecoveryKeyDialog` montre la clé UNE seule fois. Si elle est fermée sans
-  que l'utilisateur confirme l'avoir notée (y compris par un verrouillage),
-  la clé est aussitôt supprimée du coffre : une clé que personne n'a notée ne
-  doit pas rester capable d'ouvrir le coffre.
-* `RecoverVaultDialog` : clé + nouveau mot de passe maître (Argon2id en
-  arrière-plan). La clé utilisée est remplacée par une nouvelle.
-* `create_or_replace` / `remove` : gestion depuis les paramètres, mot de passe
-  maître exigé (une session ouverte ne suffit pas).
+* `RecoveryKeyDialog` shows the key ONCE only. If it is closed without the
+  user confirming they wrote it down (including through a lock), the key is
+  immediately removed from the vault: a key that nobody wrote down must not
+  remain able to open the vault.
+* `RecoverVaultDialog`: key + new master password (Argon2id in the
+  background). The key used is replaced by a new one.
+* `create_or_replace` / `remove`: management from the settings, master
+  password required (an open session is not enough).
 """
 
 from __future__ import annotations
@@ -46,16 +46,16 @@ from app.ui.vault_dialogs import _Busy, _labeled
 
 
 def describe(created_at: str | None) -> str:
-    """État lisible de la clé, pour les paramètres."""
+    """Readable state of the key, for the settings."""
     if not created_at:
-        return "Aucune clé : un mot de passe maître oublié rendrait le coffre irrécupérable."
+        return "No key: a forgotten master password would make the vault unrecoverable."
     from datetime import datetime
 
     try:
-        day = datetime.fromisoformat(created_at).astimezone().strftime("%d/%m/%Y")
+        day = datetime.fromisoformat(created_at).astimezone().strftime("%Y-%m-%d")
     except ValueError:
         return "Active."
-    return f"Active, créée le {day}. Elle ouvre le coffre à elle seule."
+    return f"Active, created {day}. It opens the vault on its own."
 
 
 class RecoveryKeyDialog(PremiumDialog):
@@ -63,15 +63,15 @@ class RecoveryKeyDialog(PremiumDialog):
                  on_abandoned: Callable[[], None], parent: QWidget | None = None,
                  renewed: bool = False, vault: Vault | None = None,
                  kept_if_abandoned: bool = False) -> None:
-        """`kept_if_abandoned` : la clé est déjà enregistrée et `on_abandoned` ne la
-        supprime pas (récupération faite, mise à niveau échouée) ; seul le texte de la
-        confirmation de fermeture en dépend, jamais le comportement."""
+        """`kept_if_abandoned`: the key is already saved and `on_abandoned` does not
+        remove it (recovery done, upgrade failed); only the text of the close
+        confirmation depends on it, never the behavior."""
         super().__init__(
             parent,
-            "Votre nouvelle clé de récupération" if renewed else "Votre clé de récupération",
-            ("L'ancienne clé ne fonctionne plus. " if renewed else "")
-            + "Elle permet de retrouver l'accès au coffre si vous oubliez le mot de passe "
-              "maître.", icon="key-round", width=560)
+            "Your new recovery key" if renewed else "Your recovery key",
+            ("The old key no longer works. " if renewed else "")
+            + "It lets you regain access to the vault if you forget the master "
+              "password.", icon="key-round", width=560)
         self._key = key
         self._clipboard = clipboard
         self._on_abandoned = on_abandoned
@@ -89,63 +89,63 @@ class RecoveryKeyDialog(PremiumDialog):
         groups = key.split("-")
         self.key_label = ui.label("-".join(groups[:4]) + "\n" + "-".join(groups[4:]))
         self.key_label.setFont(theme.mono_font(20))
-        self.key_label.setAccessibleName("Clé de récupération")
+        self.key_label.setAccessibleName("Recovery key")
         row.addWidget(self.key_label, 1)
-        self.copy_button = ui.CopyButton("Copier la clé", labeled=True)
+        self.copy_button = ui.CopyButton("Copy the key", labeled=True)
         self.copy_button.clicked.connect(self._copy)
         row.addWidget(self.copy_button, 0, Qt.AlignVCenter)
         self.body.addWidget(frame)
 
         pdf_row = QHBoxLayout()
         pdf_row.setSpacing(10)
-        self.pdf_button = ui.button("Enregistrer en PDF protégé…", "file-text",
+        self.pdf_button = ui.button("Save as a protected PDF…", "file-text",
                                     on_click=self._save_pdf)
         pdf_row.addWidget(self.pdf_button)
         self.pdf_status = ui.label("", "Faint", wrap=True)
         pdf_row.addWidget(self.pdf_status, 1)
-        if not pdf_export.protection_available():  # dépendance manquante : signalée
+        if not pdf_export.protection_available():  # missing dependency: reported
             self.pdf_button.setEnabled(False)
             self.pdf_status.setText(pdf_export.MISSING_DEPENDENCY)
         self.body.addLayout(pdf_row)
 
         for icon, color, text in (
                 ("square-pen", theme.ACCENT_2,
-                 "Recopiez-la sur papier, ou enregistrez-la en PDF protégé par mot de passe, "
-                 "et rangez-la en lieu sûr, loin de l'ordinateur (clé USB, tiroir fermé)."),
+                 "Copy it onto paper, or save it as a password-protected PDF, "
+                 "and keep it somewhere safe, away from the computer (USB drive, locked drawer)."),
                 ("shield-alert", theme.WARNING,
-                 "Elle ouvre votre coffre SANS le mot de passe maître : protégez-la comme lui. "
-                 "Ne la stockez pas en clair sur cet ordinateur ni dans un courriel."),
+                 "It opens your vault WITHOUT the master password: protect it just as well. "
+                 "Do not store it in plaintext on this computer or in an email."),
                 ("eye-off", theme.TEXT_2,
-                 "Elle ne sera plus jamais affichée. En cas de perte, créez-en une nouvelle "
-                 "depuis Paramètres → Ce coffre.")):
+                 "It will never be shown again. If you lose it, create a new one "
+                 "from Settings → This vault.")):
             line = QHBoxLayout()
             line.setSpacing(10)
             line.addWidget(ui.icon_label(icon, color, 16), 0, Qt.AlignTop)
             line.addWidget(ui.label(text, "Muted", wrap=True), 1)
             self.body.addLayout(line)
 
-        self.ack = ui.ToggleSwitch("J'ai noté ma clé (ou enregistré son PDF) en lieu sûr")
+        self.ack = ui.ToggleSwitch("I wrote down my key (or saved its PDF) somewhere safe")
         self.body.addSpacing(4)
         self.body.addWidget(self.ack)
-        _, self.done_button = self.add_buttons("", "Terminé", confirm_icon="check")
+        _, self.done_button = self.add_buttons("", "Done", confirm_icon="check")
         self.done_button.setEnabled(False)
         self.ack.toggled.connect(self.done_button.setEnabled)
         self.done_button.clicked.connect(self._confirm)
-        # Déclenché aussi par une fermeture forcée (verrouillage du coffre).
+        # Also triggered by a forced close (vault lock).
         self.finished.connect(self._on_finished)
 
     def _copy(self) -> None:
-        self._clipboard.copy(self._key, "Clé de récupération")
+        self._clipboard.copy(self._key, "Recovery key")
         self.copy_button.confirm()
 
     def _save_pdf(self) -> None:
         vault_name = self._vault.info.vault_name if self._vault is not None and \
-            not self._vault.is_locked else "Mon coffre"
+            not self._vault.is_locked else "My vault"
         dialog = RecoveryPdfDialog(self._key, vault_name, self._vault, self)
         if dialog.exec() == RecoveryPdfDialog.Accepted and dialog.saved_path is not None:
             self.saved_pdf = dialog.saved_path
-            self.pdf_status.setText(f"✓ PDF protégé enregistré : {dialog.saved_path.name}. "
-                                    "Déplacez-le hors de cet ordinateur.")
+            self.pdf_status.setText(f"✓ Protected PDF saved: {dialog.saved_path.name}. "
+                                    "Move it off this computer.")
             self.pdf_status.setStyleSheet(f"color: {theme.ACCENT_2};")
 
     def _confirm(self) -> None:
@@ -158,19 +158,19 @@ class RecoveryKeyDialog(PremiumDialog):
         super().reject()
 
     def _confirm_abandon(self) -> bool:
-        old_key = " L'ancienne clé ne fonctionne déjà plus." if self._renewed else ""
+        old_key = " The old key already no longer works." if self._renewed else ""
         if self._kept_if_abandoned:
             return dialogs.confirm(
-                self, "Fermer sans avoir noté la clé ?",
-                "Cette clé de récupération reste valide : elle est déjà enregistrée dans le "
-                "coffre et ne sera pas supprimée." + old_key + " Si vous ne l'avez pas "
-                "notée, remplacez-la une fois le coffre ouvert (Paramètres → Ce coffre).",
-                "Fermer quand même", danger=True, icon="key-round")
+                self, "Close without writing down the key?",
+                "This recovery key stays valid: it is already saved in the "
+                "vault and will not be removed." + old_key + " If you did not "
+                "write it down, replace it once the vault is open (Settings → This vault).",
+                "Close anyway", danger=True, icon="key-round")
         return dialogs.confirm(
-            self, "Ne pas garder de clé de récupération ?",
-            "Vous n'avez pas confirmé l'avoir notée : elle sera supprimée du coffre." + old_key
-            + " Vous pourrez en créer une depuis Paramètres → Ce coffre.",
-            "Supprimer la clé", danger=True, icon="key-round")
+            self, "Do not keep a recovery key?",
+            "You did not confirm writing it down: it will be removed from the vault." + old_key
+            + " You can create one from Settings → This vault.",
+            "Remove the key", danger=True, icon="key-round")
 
     def _on_finished(self, _result: int) -> None:
         self.key_label.clear()
@@ -181,39 +181,39 @@ class RecoveryKeyDialog(PremiumDialog):
 
 def _file_slug(name: str) -> str:
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")[:40] or "coffre"
+    return re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")[:40] or "vault"
 
 
 class RecoveryPdfDialog(PremiumDialog):
-    """Mot de passe du PDF de la clé (toujours chiffré), puis emplacement."""
+    """Password of the key PDF (always encrypted), then location."""
 
     def __init__(self, key: str, vault_name: str, vault: Vault | None,
                  parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Clé de récupération en PDF",
-                         "Le PDF est chiffré (AES-256) : ce mot de passe sera demandé pour "
-                         "l'ouvrir.", icon="file-text", width=500)
+        super().__init__(parent, "Recovery key as a PDF",
+                         "The PDF is encrypted (AES-256): this password will be asked to "
+                         "open it.", icon="file-text", width=500)
         self._key = key
         self._vault_name = vault_name
         self._vault = vault
         self.saved_path: Path | None = None
-        self.password = PasswordField("Mot de passe du PDF")
+        self.password = PasswordField("PDF password")
         self.confirm = PasswordField("Confirmation")
         self.confirm.returnPressed.connect(self._submit)
         self.meter = ui.StrengthBar()
         self.meter_label = ui.label("", "Faint")
         self.password.textChanged.connect(self._update_meter)
-        self.body.addWidget(_labeled("Mot de passe du PDF", self.password))
+        self.body.addWidget(_labeled("PDF password", self.password))
         self.body.addWidget(self.meter)
         self.body.addWidget(self.meter_label)
         self.body.addWidget(_labeled("Confirmation", self.confirm))
         self.body.addWidget(ui.label(
-            "Exigé « fort » et différent du mot de passe maître : la clé ouvre votre coffre à "
-            "elle seule, et un PDF volé peut être attaqué hors ligne. Retenez-le ou notez-le "
-            "ailleurs que sur cet ordinateur.", "Faint", wrap=True))
+            "Must be \"strong\" and different from the master password: the key opens your "
+            "vault on its own, and a stolen PDF can be attacked offline. Remember it or write "
+            "it down somewhere other than this computer.", "Faint", wrap=True))
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, ok = self.add_buttons("Annuler", "Choisir l'emplacement…", confirm_icon="file-text")
+        _, ok = self.add_buttons("Cancel", "Choose location…", confirm_icon="file-text")
         ok.clicked.connect(self._submit)
         self.password.setFocus()
 
@@ -234,7 +234,7 @@ class RecoveryPdfDialog(PremiumDialog):
     def _submit(self) -> None:
         password = self.password.text()
         if password != self.confirm.text():
-            self._fail("Les deux mots de passe ne correspondent pas.")
+            self._fail("The two passwords do not match.")
             return
         try:
             with _Busy():
@@ -242,8 +242,8 @@ class RecoveryPdfDialog(PremiumDialog):
         except VaultError as exc:
             self._fail(str(exc))
             return
-        default = Path.home() / f"cle-de-recuperation-{_file_slug(self._vault_name)}.pdf"
-        path_str, _ = QFileDialog.getSaveFileName(self, "Enregistrer la clé de récupération",
+        default = Path.home() / f"recovery-key-{_file_slug(self._vault_name)}.pdf"
+        path_str, _ = QFileDialog.getSaveFileName(self, "Save the recovery key",
                                                   str(default), "PDF (*.pdf)")
         if not path_str:
             return
@@ -258,7 +258,7 @@ class RecoveryPdfDialog(PremiumDialog):
             self._fail(str(exc))
             return
         except OSError as exc:
-            self._fail(f"Écriture impossible : {exc.strerror}.")
+            self._fail(f"Write impossible: {exc.strerror}.")
             return
         self.saved_path = path
         self.accept()
@@ -271,23 +271,23 @@ class RecoveryPdfDialog(PremiumDialog):
 
 
 class RecoverVaultDialog(PremiumDialog):
-    """Mot de passe oublié : clé de récupération → nouveau mot de passe maître."""
+    """Forgotten password: recovery key → new master password."""
 
     def __init__(self, vault_id: str, vault_name: str, parent: QWidget | None = None,
                  upgrade_backup_dir: Path | None = None) -> None:
-        super().__init__(parent, "Mot de passe maître oublié",
-                         f"Coffre « {vault_name} ». Saisissez la clé de récupération notée à "
-                         "sa création, puis choisissez un nouveau mot de passe maître.",
+        super().__init__(parent, "Forgotten master password",
+                         f"Vault \"{vault_name}\". Enter the recovery key written down when "
+                         "it was created, then choose a new master password.",
                          icon="key-round", width=520)
         self._vault_id = vault_id
         self._busy = False
-        # Coffre d'une version précédente (mise à niveau déjà confirmée) : récupération,
-        # puis mise à niveau et vérification, dans la même tâche d'arrière-plan.
+        # Vault from an earlier version (upgrade already confirmed): recovery,
+        # then upgrade and verification, in the same background task.
         self._upgrade_dir = upgrade_backup_dir
         self.vault: Vault | None = None
         self.new_key = ""
         self.upgrade_result = None  # vault_upgrade.UpgradeResult
-        # Récupération faite mais mise à niveau échouée : nouvelle clé à montrer.
+        # Recovery done but upgrade failed: new key to be shown.
         self.orphan_key = ""
         self.upgrade_error = ""
 
@@ -297,22 +297,22 @@ class RecoverVaultDialog(PremiumDialog):
         self.key.setPlaceholderText("XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX")
         self.key.setMinimumHeight(42)
         self.key.textEdited.connect(self._format_key)
-        self.new = PasswordField(f"{MIN_MASTER_PASSWORD_LENGTH} caractères minimum")
-        self.confirm = PasswordField("Confirmez le nouveau mot de passe")
+        self.new = PasswordField(f"{MIN_MASTER_PASSWORD_LENGTH} characters minimum")
+        self.confirm = PasswordField("Confirm the new password")
         self.confirm.returnPressed.connect(self._submit)
         self.meter = ui.StrengthBar()
         self.meter_label = ui.label("", "Faint")
         self.new.textChanged.connect(self._update_meter)
-        self.body.addWidget(_labeled("Clé de récupération", self.key))
-        self.body.addWidget(_labeled("Nouveau mot de passe maître", self.new))
+        self.body.addWidget(_labeled("Recovery key", self.key))
+        self.body.addWidget(_labeled("New master password", self.new))
         self.body.addWidget(self.meter)
         self.body.addWidget(self.meter_label)
         self.body.addWidget(_labeled("Confirmation", self.confirm))
         self.body.addWidget(ui.label(
-            ("Le coffre sera ensuite mis à niveau (sauvegarde chiffrée préalable). "
-             if upgrade_backup_dir is not None else "Vos données ne sont pas réécrites. ")
-            + "Une nouvelle clé de récupération vous sera donnée : celle-ci ne fonctionnera "
-              "plus.", "Faint", wrap=True))
+            ("The vault will then be upgraded (encrypted backup first). "
+             if upgrade_backup_dir is not None else "Your data is not rewritten. ")
+            + "A new recovery key will be given to you: this one will no longer "
+              "work.", "Faint", wrap=True))
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
@@ -323,21 +323,21 @@ class RecoverVaultDialog(PremiumDialog):
         busy_row.addStretch(1)
         busy_row.addWidget(self.spinner)
         busy_row.addWidget(ui.label(
-            "Récupération et mise à niveau en cours…" if upgrade_backup_dir is not None
-            else "Vérification de la clé (Argon2id)…", "Muted"))
+            "Recovery and upgrade in progress…" if upgrade_backup_dir is not None
+            else "Checking the key (Argon2id)…", "Muted"))
         busy_row.addStretch(1)
         busy.hide()
         self.busy_row = busy
         self.body.addWidget(busy)
         self.cancel, self.ok = self.add_buttons(
-            "Annuler", "Réinitialiser, mettre à niveau et ouvrir"
-            if upgrade_backup_dir is not None else "Réinitialiser et ouvrir",
+            "Cancel", "Reset, upgrade and open"
+            if upgrade_backup_dir is not None else "Reset and open",
             confirm_icon="lock-open")
         self.ok.clicked.connect(self._submit)
         self.key.setFocus()
 
     def _format_key(self, text: str) -> None:
-        """Groupes de 4 affichés automatiquement pendant la saisie."""
+        """Groups of 4 shown automatically while typing."""
         compact = "".join(ch for ch in text.upper() if ch.isalnum())[:32]
         formatted = recovery.format_key(compact)
         if formatted != text:
@@ -373,17 +373,17 @@ class RecoverVaultDialog(PremiumDialog):
             return
         key, password = self.key.text(), self.new.text()
         try:
-            recovery.normalize(key)  # faute de frappe signalée tout de suite
+            recovery.normalize(key)  # typo reported immediately
         except RecoveryKeyFormatError as exc:
             self._fail(str(exc))
             self.key.setFocus()
             return
         if password != self.confirm.text():
-            self._fail("Les deux mots de passe ne correspondent pas.")
+            self._fail("The two passwords do not match.")
             return
         if len(password) >= MIN_MASTER_PASSWORD_LENGTH and estimate_strength(password).score < 2:
-            self._fail("Ce mot de passe maître est trop facile à deviner. "
-                       "Une phrase de passe de 5 à 6 mots est recommandée.")
+            self._fail("This master password is too easy to guess. "
+                       "A passphrase of 5 to 6 words is recommended.")
             return
         self._set_busy(True)
         if self._upgrade_dir is not None:
@@ -411,23 +411,23 @@ class RecoverVaultDialog(PremiumDialog):
         self._set_busy(False)
         orphan = getattr(exc, "new_recovery_key", "")
         if orphan:
-            # Nouveau mot de passe et nouvelle clé déjà enregistrés : l'ancienne clé ne
-            # marche plus. On ferme pour que la nouvelle clé soit montrée sans délai.
+            # New password and new key already saved: the old key no longer works.
+            # Close so that the new key is shown without delay.
             self.orphan_key, self.upgrade_error = orphan, str(exc)
             self.done(PremiumDialog.Rejected)
             return
         if isinstance(exc, (RecoveryKeyFormatError, NoRecoveryKeyError)):
             message = str(exc)
         elif isinstance(exc, RecoveryKeyError):
-            message = "Clé de récupération incorrecte pour ce coffre."
+            message = "Wrong recovery key for this vault."
         elif isinstance(exc, VaultError):
             message = str(exc)
         else:
-            message = "La récupération a échoué."
+            message = "Recovery failed."
         self._fail(message)
 
     def reject(self) -> None:
-        if not self._busy:  # jamais pendant la dérivation : le résultat serait perdu
+        if not self._busy:  # never during the derivation: the result would be lost
             super().reject()
 
     def done(self, result: int) -> None:
@@ -443,10 +443,10 @@ class _MasterPasswordPrompt(PremiumDialog):
         super().__init__(parent, title, icon="key-round", width=460,
                          icon_color=theme.DANGER if danger else theme.ACCENT_2)
         self.body.addWidget(ui.label(text, "Muted", wrap=True))
-        self.password = PasswordField("Mot de passe maître", leading_icon="lock")
+        self.password = PasswordField("Master password", leading_icon="lock")
         self.password.returnPressed.connect(self.accept)
         self.body.addWidget(self.password)
-        _, ok = self.add_buttons("Annuler", confirm_text, "Danger" if danger else "Primary")
+        _, ok = self.add_buttons("Cancel", confirm_text, "Danger" if danger else "Primary")
         ok.clicked.connect(self.accept)
         self.password.setFocus()
 
@@ -463,7 +463,7 @@ def _ask_master_password(parent: QWidget, title: str, text: str, confirm_text: s
 def show_key(parent: QWidget, vault: Vault, key: str, clipboard: SecureClipboard,
              on_changed: Callable[[], None] = lambda: None,
              renewed: bool = False) -> RecoveryKeyDialog:
-    """Affiche la clé (fenêtre non bloquante) ; supprimée si l'affichage est abandonné."""
+    """Shows the key (non-blocking window); removed if the display is abandoned."""
 
     def abandoned() -> None:
         if not vault.is_locked:
@@ -480,21 +480,21 @@ def create_or_replace(parent: QWidget, vault: Vault, clipboard: SecureClipboard,
                       on_changed: Callable[[], None]) -> RecoveryKeyDialog | None:
     replacing = vault.has_recovery_key
     password = _ask_master_password(
-        parent, "Remplacer la clé de récupération" if replacing else
-        "Créer une clé de récupération",
-        ("L'ancienne clé cessera immédiatement de fonctionner. " if replacing else "")
-        + "Confirmez avec votre mot de passe maître.",
-        "Remplacer la clé" if replacing else "Créer la clé")
+        parent, "Replace the recovery key" if replacing else
+        "Create a recovery key",
+        ("The old key will stop working immediately. " if replacing else "")
+        + "Confirm with your master password.",
+        "Replace the key" if replacing else "Create the key")
     if password is None:
         return None
     try:
         with _Busy():
             key = vault.create_recovery_key(password)
     except WrongMasterPasswordError:
-        dialogs.alert(parent, "Clé non créée", "Mot de passe maître incorrect.")
+        dialogs.alert(parent, "Key not created", "Wrong master password.")
         return None
     except VaultError as exc:
-        dialogs.alert(parent, "Clé non créée", str(exc))
+        dialogs.alert(parent, "Key not created", str(exc))
         return None
     on_changed()
     return show_key(parent, vault, key, clipboard, on_changed, renewed=replacing)
@@ -502,17 +502,17 @@ def create_or_replace(parent: QWidget, vault: Vault, clipboard: SecureClipboard,
 
 def remove(parent: QWidget, vault: Vault, on_changed: Callable[[], None]) -> bool:
     password = _ask_master_password(
-        parent, "Supprimer la clé de récupération ?",
-        "Sans clé, un mot de passe maître oublié rend le coffre définitivement "
-        "irrécupérable. Confirmez avec votre mot de passe maître.",
-        "Supprimer la clé", danger=True)
+        parent, "Remove the recovery key?",
+        "Without a key, a forgotten master password makes the vault permanently "
+        "unrecoverable. Confirm with your master password.",
+        "Remove the key", danger=True)
     if password is None:
         return False
     try:
         with _Busy():
             vault.remove_recovery_key(password)
     except WrongMasterPasswordError:
-        dialogs.alert(parent, "Clé conservée", "Mot de passe maître incorrect.")
+        dialogs.alert(parent, "Key kept", "Wrong master password.")
         return False
     on_changed()
     return True

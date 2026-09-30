@@ -1,15 +1,14 @@
-"""Verrouillage du coffre quand la session Linux se verrouille ou se met en veille.
+"""Locks the vault when the Linux session locks or goes to sleep.
 
-Signaux D-Bus écoutés (QtDBus, inclus dans PySide6) :
-* bus de session : `org.gnome.ScreenSaver.ActiveChanged(true)` (GNOME) et
-  `org.freedesktop.ScreenSaver.ActiveChanged(true)` (KDE, Xfce…) ;
-* bus système : `org.freedesktop.login1.Manager.PrepareForSleep(true)`
-  (mise en veille / hibernation, systemd-logind).
+D-Bus signals listened to (QtDBus, included in PySide6):
+* session bus: `org.gnome.ScreenSaver.ActiveChanged(true)` (GNOME) and
+  `org.freedesktop.ScreenSaver.ActiveChanged(true)` (KDE, Xfce…);
+* system bus: `org.freedesktop.login1.Manager.PrepareForSleep(true)`
+  (sleep / hibernation, systemd-logind).
 
-Si D-Bus n'est pas disponible, la surveillance est simplement inactive
-(le verrouillage par inactivité reste en place) et un avertissement est
-journalisé. Un signal forgé par un autre processus de l'utilisateur ne
-peut que *verrouiller* le coffre : aucun risque de sécurité.
+If D-Bus is not available, monitoring is simply inactive (locking after
+inactivity remains in place) and a warning is logged. A signal forged by
+another process of the user can only *lock* the vault: no security risk.
 """
 
 from __future__ import annotations
@@ -20,12 +19,12 @@ from app.utils.logging import get_logger
 
 try:
     from PySide6.QtDBus import QDBusConnection
-except ImportError:  # pragma: no cover - module présent dans PySide6 standard
+except ImportError:  # pragma: no cover - module present in standard PySide6
     QDBusConnection = None
 
 
 class SystemLockMonitor(QObject):
-    lock_requested = Signal(str)  # raison, pour le message affiché
+    lock_requested = Signal(str)  # reason, for the displayed message
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -59,9 +58,9 @@ class SystemLockMonitor(QObject):
     @Slot(bool)
     def _on_screensaver(self, active: bool) -> None:
         if active:
-            self.lock_requested.emit("Coffre verrouillé : la session a été verrouillée.")
+            self.lock_requested.emit("Vault locked: the session was locked.")
 
     @Slot(bool)
     def _on_prepare_for_sleep(self, going_to_sleep: bool) -> None:
         if going_to_sleep:
-            self.lock_requested.emit("Coffre verrouillé : mise en veille du système.")
+            self.lock_requested.emit("Vault locked: the system is going to sleep.")

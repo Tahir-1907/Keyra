@@ -1,10 +1,9 @@
-"""Notifications (« toasts ») en bas à droite de la fenêtre.
+"""Notifications ("toasts") at the bottom right of the window.
 
-Courtes et non intrusives : entrée depuis la droite (+30 px, fondu), sortie
-vers la droite, empilement. Icône dans une pastille colorée + texte (l'état
-n'est jamais indiqué par la couleur seule). Une notification peut porter une
-barre de compte à rebours : après une copie, le temps restant avant
-l'effacement automatique du presse-papiers.
+Short and unobtrusive: entrance from the right (+30 px, fade), exit to the
+right, stacking. Icon in a colored badge + text (the state is never conveyed
+by color alone). A notification can carry a countdown bar: after a copy, the
+time left before the clipboard is cleared automatically.
 """
 
 from __future__ import annotations
@@ -116,7 +115,7 @@ class Toast(QFrame):
 
 
 class ToastManager(QObject):
-    """Empile les notifications dans le coin inférieur droit de `host`."""
+    """Stacks the notifications in the bottom-right corner of `host`."""
 
     def __init__(self, host: QWidget) -> None:
         super().__init__(host)
@@ -132,7 +131,7 @@ class ToastManager(QObject):
         toast.show()
         toast.raise_()
         self._layout(animate_new=toast)
-        # Minuteur rattaché à la notification : il disparaît avec elle.
+        # Timer attached to the notification: it disappears with it.
         timer = QTimer(toast)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda: self.dismiss(toast))
@@ -149,7 +148,7 @@ class ToastManager(QObject):
         if not effects.animations_enabled():
             self._remove(toast)
             return
-        # Sortie vers la droite en fondu.
+        # Exit to the right with a fade.
         effect = QGraphicsOpacityEffect(toast)
         toast.setGraphicsEffect(effect)
         fade = QPropertyAnimation(effect, b"opacity", toast)
@@ -187,9 +186,9 @@ class ToastManager(QObject):
         return positions
 
     def _layout(self, animate_new: Toast | None = None) -> None:
-        # Chaque animation appartient à SA notification (parent = toast) : si la
-        # notification est supprimée en cours d'animation (ex. verrouillage),
-        # l'animation disparaît avec elle au lieu de viser un objet détruit.
+        # Each animation belongs to ITS notification (parent = toast): if the
+        # notification is deleted during the animation (e.g. locking), the
+        # animation disappears with it instead of targeting a destroyed object.
         for toast, target in zip(self._toasts, self._target_positions(), strict=True):
             if not effects.animations_enabled():
                 toast.move(target)

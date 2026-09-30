@@ -29,9 +29,9 @@ class TestSettings(EntryTestCase):
     def test_invalid_values_fall_back_to_defaults(self):
         path = settings_mod.settings_path()
         path.write_text(json.dumps({
-            "auto_lock_seconds": 7,            # hors liste : pas de délai arbitraire
-            "clipboard_clear_seconds": 0,      # désactivation interdite
-            "lock_on_session_lock": "non",     # pas un booléen
+            "auto_lock_seconds": 7,            # outside the list: no arbitrary delay
+            "clipboard_clear_seconds": 0,      # disabling not allowed
+            "lock_on_session_lock": "non",     # not a boolean
             "auto_backups_kept": 10_000,
             "backup_dir": "relatif/dossier",
             "generator_length": 3,
@@ -88,7 +88,7 @@ class TestVaultManagement(EntryTestCase):
         other.close()
         self.assertEqual(sorted(v.vault_name for v in list_vaults()), ["Test", "Travail"])
         with self.assertRaises(WrongMasterPasswordError):
-            Vault.unlock("travail-1", MASTER)  # chaque coffre a son mot de passe
+            Vault.unlock("travail-1", MASTER)  # each vault has its own password
         self.assertEqual(self.entries.list_entries(), [])
 
     def test_delete_vault_requires_password(self):
@@ -110,7 +110,7 @@ class TestVaultManagement(EntryTestCase):
         b = self.entries.duplicate_entry(a)
         copy = self.entries.get_entry(b)
         self.assertEqual((copy.service_name, copy.password, copy.is_favorite),
-                         ("Banque (copie)", "pw", False))
+                         ("Banque (copy)", "pw", False))
 
 
 class TestUserEnvironment(unittest.TestCase):
@@ -141,7 +141,7 @@ class TestUserEnvironment(unittest.TestCase):
         from app.main import _check_user_environment
         os.makedirs(os.path.join(self._tmp.name, "data", "mon-coffre"))
         with mock.patch("os.getuid", return_value=os.getuid() + 4242):
-            self.assertIn("n'appartient pas", _check_user_environment())
+            self.assertIn("does not belong", _check_user_environment())
 
 
 try:
@@ -150,7 +150,7 @@ except ImportError:  # pragma: no cover
     QApplication = None
 
 
-@unittest.skipIf(QApplication is None, "PySide6 non installé")
+@unittest.skipIf(QApplication is None, "PySide6 not installed")
 class TestSingleInstance(unittest.TestCase):
     def test_second_launch_asks_first_to_show(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -173,7 +173,7 @@ class TestSingleInstance(unittest.TestCase):
                     QTest.qWait(25)
                 self.assertEqual(shown, [True])
                 socket = Path(runtime) / "mon-coffre-fort.sock"
-                self.assertEqual(oct(socket.stat().st_mode & 0o077), "0o0")  # propriétaire seul
+                self.assertEqual(oct(socket.stat().st_mode & 0o077), "0o0")  # owner only
                 server.deleteLater()
                 app.processEvents()
 

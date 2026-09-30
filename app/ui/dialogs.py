@@ -1,13 +1,13 @@
-"""Modales de l'application : socle commun + confirmations, saisies, alertes.
+"""Application modals: shared base + confirmations, inputs, alerts.
 
-Toutes les fenêtres de dialogue héritent de `PremiumDialog` :
-* l'application derrière est assombrie et floutée (voile) ;
-* ouverture : échelle 0,97 → 1 + fondu ; fermeture : l'inverse ;
-* carte arrondie, en-tête (titre, sous-titre, bouton fermer), Échap ferme ;
-* `close_now()` ferme sans animation (verrouillage : rien ne doit traîner).
+Every dialog window inherits from `PremiumDialog`:
+* the application behind it is dimmed and blurred (veil);
+* opening: scale 0.97 → 1 + fade; closing: the reverse;
+* rounded card, header (title, subtitle, close button), Esc closes;
+* `close_now()` closes without animation (locking: nothing may linger).
 
-Les appels passent par ce module (`dialogs.confirm(...)`) : un seul point
-d'entrée, facile à remplacer dans les tests.
+Calls go through this module (`dialogs.confirm(...)`): a single entry point,
+easy to replace in tests.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
 from app.ui import components as ui
 from app.ui import effects, theme
 
-_SHADOW = 26  # marge transparente autour de la carte (ombre dessinée)
+_SHADOW = 26  # transparent margin around the card (drawn shadow)
 
 
 class _Backdrop(QWidget):
-    """Voile flouté posé sur la fenêtre principale pendant une modale."""
+    """Blurred veil laid over the main window while a modal is open."""
 
     def __init__(self, window: QWidget) -> None:
         super().__init__(window)
@@ -72,7 +72,7 @@ class PremiumDialog(QDialog):
                  icon_color: str = theme.ACCENT_2) -> None:
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setWindowTitle(title or "Mon Coffre-Fort")
+        self.setWindowTitle(title or "Keyra")
         self.setModal(True)
         self._backdrop: _Backdrop | None = None
         self._progress = 1.0
@@ -102,17 +102,17 @@ class PremiumDialog(QDialog):
                 texts.addWidget(ui.label(subtitle, "Muted", wrap=True))
             header.addLayout(texts, 1)
             if closable:
-                close = ui.icon_button("x", "Fermer", "Échap", self.reject, 16)
-                close.setFocusPolicy(Qt.NoFocus)  # Échap ferme ; pas de cadre de focus initial
+                close = ui.icon_button("x", "Close", "Esc", self.reject, 16)
+                close.setFocusPolicy(Qt.NoFocus)  # Esc closes; no initial focus frame
                 header.addWidget(close, 0, Qt.AlignTop)
             self.card_layout.addLayout(header)
         self.body = QVBoxLayout()
         self.body.setSpacing(12)
         self.card_layout.addLayout(self.body)
 
-    # --- Boutons standard ----------------------------------------------------------------
+    # --- Standard buttons ----------------------------------------------------------------
 
-    def add_buttons(self, cancel_text: str = "Annuler", confirm_text: str = "",
+    def add_buttons(self, cancel_text: str = "Cancel", confirm_text: str = "",
                     kind: str = "Primary", confirm_icon: str | None = None):
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -129,7 +129,7 @@ class PremiumDialog(QDialog):
         self.card_layout.addLayout(row)
         return cancel, confirm
 
-    # --- Animation d'ouverture / fermeture ----------------------------------------------------
+    # --- Open / close animation ----------------------------------------------------
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -182,7 +182,7 @@ class PremiumDialog(QDialog):
         painter.setRenderHint(QPainter.Antialiasing)
         card_rect = QRectF(self.card.geometry())
         opacity = self._progress if self._snapshot is not None else 1.0
-        # Ombre douce dessinée (pas d'effet graphique : il bloquerait ceux des enfants).
+        # Soft drawn shadow (no graphics effect: it would block those of the children).
         painter.setPen(Qt.NoPen)
         for i in range(8):
             shadow = QColor(0, 0, 0, int(14 * opacity))
@@ -208,7 +208,7 @@ class PremiumDialog(QDialog):
         self._animate(opening=False, on_done=lambda: QDialog.done(self, result))
 
     def close_now(self, result: int = QDialog.Rejected) -> None:
-        """Fermeture immédiate, sans animation (verrouillage du coffre)."""
+        """Immediate close, without animation (vault locking)."""
         self._instant = True
         if self._backdrop is not None:
             self._backdrop.deleteLater()
@@ -217,7 +217,7 @@ class PremiumDialog(QDialog):
         QDialog.done(self, result)
 
 
-# --- Dialogues standard ---------------------------------------------------------------------------
+# --- Standard dialogs ---------------------------------------------------------------------------
 
 
 class ConfirmDialog(PremiumDialog):
@@ -231,7 +231,7 @@ class ConfirmDialog(PremiumDialog):
         if acknowledge:
             self.ack = ui.ToggleSwitch(acknowledge)
             self.body.addWidget(self.ack)
-        _, self.confirm = self.add_buttons("Annuler", confirm_text,
+        _, self.confirm = self.add_buttons("Cancel", confirm_text,
                                            "Danger" if danger else "Primary")
         self.confirm.clicked.connect(self.accept)
         if self.ack is not None:
@@ -239,10 +239,10 @@ class ConfirmDialog(PremiumDialog):
             self.ack.toggled.connect(self.confirm.setEnabled)
 
 
-def confirm(parent: QWidget, title: str, text: str, confirm_text: str = "Confirmer",
+def confirm(parent: QWidget, title: str, text: str, confirm_text: str = "Confirm",
             danger: bool = False, icon: str | None = None,
             acknowledge: str | None = None) -> bool:
-    """Demande de confirmation. `acknowledge` : interrupteur à activer (confirmation renforcée)."""
+    """Asks for confirmation. `acknowledge`: toggle to switch on (reinforced confirmation)."""
     return ConfirmDialog(parent, title, text, confirm_text, danger, icon,
                          acknowledge).exec() == QDialog.Accepted
 
@@ -257,7 +257,7 @@ class PromptDialog(PremiumDialog):
         self.field.selectAll()
         self.field.returnPressed.connect(self.accept)
         self.body.addWidget(self.field)
-        _, ok = self.add_buttons("Annuler", "Valider")
+        _, ok = self.add_buttons("Cancel", "OK")
         ok.clicked.connect(self.accept)
         self.field.setFocus()
 
@@ -272,7 +272,7 @@ def alert(parent: QWidget, title: str, text: str, kind: str = "error") -> None:
     icon = {"error": "circle-alert", "warning": "triangle-alert"}.get(kind, "circle-check")
     dialog = PremiumDialog(parent, title, icon=icon, width=420)
     dialog.body.addWidget(ui.label(text, "Muted", wrap=True))
-    _, ok = dialog.add_buttons("", "Compris")
+    _, ok = dialog.add_buttons("", "Got it")
     ok.clicked.connect(dialog.accept)
     dialog.exec()
 

@@ -1,8 +1,8 @@
-"""Vue « Sécurité » : score du coffre (méthode affichée), problèmes cliquables.
+"""The "Security" view: vault score (method shown), clickable issues.
 
-Le score n'est pas une mesure « scientifique » : c'est la part des comptes
-pour lesquels l'audit local (app.core.audit) ne détecte aucun problème. La
-vue l'affiche explicitement, avec la liste des contrôles effectués.
+The score is not a "scientific" measure: it is the share of entries for which
+the local audit (app.core.audit) finds no issue. The view says so explicitly,
+together with the list of checks performed.
 """
 
 from __future__ import annotations
@@ -33,16 +33,16 @@ from app.ui import effects, theme
 from app.ui.pages.base import AppContext, Page, scrolling
 
 ISSUES = (
-    (KIND_WEAK, "Mots de passe faibles", "Faciles à deviner : à remplacer.", "shield-alert",
+    (KIND_WEAK, "Weak passwords", "Easy to guess: replace them.", "shield-alert",
      theme.DANGER),
-    (KIND_REUSED, "Réutilisations", "Un même mot de passe sur plusieurs comptes.", "copy",
+    (KIND_REUSED, "Reuse", "The same password on several entries.", "copy",
      theme.WARNING),
-    (KIND_OLD, "Mots de passe anciens", "Inchangés depuis plus d'un an.", "clock", theme.INFO),
-    (KIND_EMPTY, "Sans mot de passe", "Comptes dont le mot de passe est vide.", "key-round",
+    (KIND_OLD, "Old passwords", "Unchanged for more than a year.", "clock", theme.INFO),
+    (KIND_EMPTY, "No password", "Entries whose password is empty.", "key-round",
      theme.WARNING),
-    (KIND_EXPIRED_CARD, "Cartes expirées", "Date d'expiration dépassée.", "credit-card",
+    (KIND_EXPIRED_CARD, "Expired cards", "Expiry date passed.", "credit-card",
      theme.INFO),
-    (KIND_UNREADABLE, "Entrées illisibles", "Donnée chiffrée altérée.", "triangle-alert",
+    (KIND_UNREADABLE, "Unreadable entries", "Tampered encrypted data.", "triangle-alert",
      theme.DANGER),
 )
 
@@ -86,8 +86,8 @@ class _IssueCard(QFrame):
 
 class SecurityPage(Page):
     key = "security"
-    title = "Sécurité"
-    subtitle = "Analyse locale de vos mots de passe"
+    title = "Security"
+    subtitle = "Local analysis of your passwords"
     icon = "shield-check"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -96,7 +96,7 @@ class SecurityPage(Page):
         self._selected_kind: str | None = None
         layout = scrolling(self)
 
-        # --- Recommandation : clé de récupération ----------------------------------------------
+        # --- Recommendation: recovery key ----------------------------------------------
         self.recovery_card = ui.card("Card")
         self.recovery_card.setStyleSheet(f"QFrame#Card {{ border-color: {theme.WARNING}; }}")
         rec_row = QHBoxLayout(self.recovery_card)
@@ -105,29 +105,29 @@ class SecurityPage(Page):
         rec_row.addWidget(ui.icon_label("key-round", theme.WARNING, 20), 0, Qt.AlignTop)
         rec_texts = QVBoxLayout()
         rec_texts.setSpacing(2)
-        rec_texts.addWidget(ui.label("Aucune clé de récupération", "H2"))
+        rec_texts.addWidget(ui.label("No recovery key", "H2"))
         rec_texts.addWidget(ui.label(
-            "Si vous oubliez le mot de passe maître, ce coffre sera définitivement perdu. "
-            "Une clé de récupération, notée sur papier, permet d'en choisir un nouveau.",
+            "If you forget the master password, this vault will be lost for good. "
+            "A recovery key, written down on paper, lets you choose a new one.",
             "Faint", wrap=True))
         rec_row.addLayout(rec_texts, 1)
-        rec_row.addWidget(ui.button("Créer une clé", "key-round", "Primary",
+        rec_row.addWidget(ui.button("Create a key", "key-round", "Primary",
                                     on_click=lambda: self.ctx.vault_action("recovery")),
                           0, Qt.AlignVCenter)
         self.recovery_card.hide()
         layout.addWidget(self.recovery_card)
 
-        # Côte à côte sur une fenêtre large, empilés quand elle est étroite (moitié d'écran).
+        # Side by side in a wide window, stacked when it is narrow (half of the screen).
         top = self._top = QBoxLayout(QBoxLayout.LeftToRight)
         top.setSpacing(16)
 
-        # --- Grande carte : score -------------------------------------------------------------
+        # --- Large card: score -------------------------------------------------------------
         score_card = ui.card("Surface")
         score_card.setMinimumWidth(330)
         score_layout = QVBoxLayout(score_card)
         score_layout.setContentsMargins(24, 22, 24, 22)
         score_layout.setSpacing(10)
-        score_layout.addWidget(ui.label("ÉTAT DU COFFRE", "Overline"), 0, Qt.AlignHCenter)
+        score_layout.addWidget(ui.label("VAULT STATE", "Overline"), 0, Qt.AlignHCenter)
         self.ring = ui.ScoreRing(188)
         score_layout.addWidget(self.ring, 0, Qt.AlignHCenter)
         self.level = ui.label("", "H2")
@@ -136,11 +136,11 @@ class SecurityPage(Page):
         self.method = ui.label("", "Faint", wrap=True)
         self.method.setAlignment(Qt.AlignCenter)
         score_layout.addWidget(self.method)
-        score_layout.addWidget(ui.button("Relancer l'analyse", "refresh-cw",
+        score_layout.addWidget(ui.button("Run the analysis again", "refresh-cw",
                                          on_click=self.run), 0, Qt.AlignHCenter)
         top.addWidget(score_card)
 
-        # --- Problèmes -------------------------------------------------------------------------
+        # --- Issues -------------------------------------------------------------------------
         grid = QGridLayout()
         grid.setSpacing(12)
         self.issue_cards: dict[str, _IssueCard] = {}
@@ -152,12 +152,12 @@ class SecurityPage(Page):
         top.addLayout(grid, 1)
         layout.addLayout(top)
 
-        # --- Détail d'un problème -----------------------------------------------------------------
+        # --- Issue details -----------------------------------------------------------------
         self.detail_card = ui.card()
         detail_layout = QVBoxLayout(self.detail_card)
         detail_layout.setContentsMargins(18, 16, 18, 14)
         detail_layout.setSpacing(4)
-        self.detail_title = ui.section("Comptes concernés", "Cliquez sur un problème ci-dessus.")
+        self.detail_title = ui.section("Affected entries", "Click an issue above.")
         detail_layout.addWidget(self.detail_title)
         self.detail_rows = QVBoxLayout()
         self.detail_rows.setSpacing(2)
@@ -165,17 +165,17 @@ class SecurityPage(Page):
         layout.addWidget(self.detail_card)
 
         methodology = ui.label(
-            "Contrôles effectués localement, sans connexion : robustesse estimée de chaque mot "
-            "de passe (motifs, dictionnaires, entropie), réutilisation entre comptes, ancienneté "
-            "(plus d'un an), absence de mot de passe, cartes expirées, intégrité des données "
-            "chiffrées. Dans la corbeille, seules les entrées dont les informations "
-            "chiffrées (nom, adresse, identifiant…) sont illisibles sont signalées. Aucune "
-            "vérification de fuite en ligne.",
+            "Checks performed locally, without any connection: estimated strength of each "
+            "password (patterns, dictionaries, entropy), reuse across entries, age "
+            "(more than a year), missing password, expired cards, integrity of the encrypted "
+            "data. In the Trash, only entries whose encrypted information "
+            "(name, address, username…) is unreadable are reported. No online "
+            "breach check.",
             "Faint", wrap=True)
         layout.addWidget(methodology)
         layout.addStretch(1)
 
-    _STACK_BELOW = 940  # largeur de vue sous laquelle le score passe au-dessus des problèmes
+    _STACK_BELOW = 940  # view width below which the score moves above the issues
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -188,7 +188,7 @@ class SecurityPage(Page):
 
     def on_show(self, **kwargs) -> None:
         self.refresh_recovery()
-        self.level.setText("Analyse en cours…")
+        self.level.setText("Analysis in progress…")
         QTimer.singleShot(0, self.run)
 
     def run(self) -> None:
@@ -200,12 +200,12 @@ class SecurityPage(Page):
         healthy = report.checked_entries - flagged
         self.ring.set_score(report.score)
         if report.checked_entries == 0:
-            self.level.setText("Coffre vide")
-            self.method.setText("Ajoutez des comptes pour obtenir une analyse.")
+            self.level.setText("Empty vault")
+            self.method.setText("Add entries to get an analysis.")
         else:
-            self.level.setText("Protection élevée" if report.score >= 80 else
-                               "Protection moyenne" if report.score >= 50 else "Protection faible")
-            self.method.setText(f"Part des comptes sans problème détecté : {healthy} sur "
+            self.level.setText("Strong protection" if report.score >= 80 else
+                               "Medium protection" if report.score >= 50 else "Weak protection")
+            self.method.setText(f"Share of entries with no issue found: {healthy} of "
                                 f"{report.checked_entries}.")
         for kind, card in self.issue_cards.items():
             card.set_count(len(report.by_kind(kind)), kind == self._selected_kind)
@@ -216,8 +216,8 @@ class SecurityPage(Page):
             if first:
                 self._select_kind(first)
             else:
-                self._show_rows([], "Aucun problème détecté",
-                                "Tous vos comptes passent les contrôles.")
+                self._show_rows([], "No issue found",
+                                "All your entries pass the checks.")
 
     def _select_kind(self, kind: str) -> None:
         if self._report is None:
@@ -227,8 +227,8 @@ class SecurityPage(Page):
             card.set_count(len(self._report.by_kind(key)), key == kind)
         findings = self._report.by_kind(kind)
         self._show_rows(findings, KIND_LABELS[kind],
-                        f"{len(findings)} compte{'s' if len(findings) > 1 else ''} · cliquez "
-                        "pour ouvrir")
+                        f"{len(findings)} entr{'ies' if len(findings) > 1 else 'y'} · click "
+                        "to open")
 
     def _show_rows(self, findings, title: str, subtitle: str) -> None:
         self.detail_card.layout().replaceWidget(

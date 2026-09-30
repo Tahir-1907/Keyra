@@ -1,8 +1,8 @@
-"""Icônes Lucide (https://lucide.dev, licence ISC — resources/lucide/LICENSE-Lucide.txt).
+"""Lucide icons (https://lucide.dev, ISC license — resources/lucide/LICENSE-Lucide.txt).
 
-Un seul style d'icônes dans toute l'application. Les SVG (version figée
-0.460.0) sont colorés à la volée (`currentColor` remplacé) et rendus en
-haute définition ; résultats mis en cache.
+A single icon style across the whole application. The SVGs (pinned version
+0.460.0) are colored on the fly (`currentColor` replaced) and rendered in high
+definition; results are cached.
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ class TestStrength(unittest.TestCase):
         for pw in ("aaaaaaaaaaaa", "abcdefghijkl", "azertyuiop12", "qsdfghjklm"):
             self.assertLessEqual(estimate_strength(pw).score, 1, pw)
 
-    @unittest.skipUnless(dictionary_available(), "dictionnaires absents")
+    @unittest.skipUnless(dictionary_available(), "dictionaries missing")
     def test_word_plus_year_is_weak(self):
         for pw in ("Soleil2024!", "Jean1985", "Chocolat1990"):
             self.assertLessEqual(estimate_strength(pw).score, 1, pw)
@@ -35,7 +35,7 @@ class TestStrength(unittest.TestCase):
 
     def test_short_password_gets_length_advice(self):
         result = estimate_strength("kX9#mQ")
-        self.assertTrue(any("12 caractères" in w for w in result.warnings))
+        self.assertTrue(any("12 characters" in w for w in result.warnings))
 
 
 if __name__ == "__main__":

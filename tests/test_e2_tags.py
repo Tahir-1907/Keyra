@@ -1,7 +1,7 @@
-"""E2 : tags dans l'interface, recherche `#tag`, debounce de la recherche.
+"""E2: tags in the interface, `#tag` search, search debounce.
 
-Cœur (EntryService) sur des coffres jetables, interface Qt en mode « offscreen ».
-Les règles des tags restent celles de app.core.metadata (normalize_tags, tag_key).
+Core (EntryService) on throwaway vaults, Qt interface in "offscreen" mode.
+The tag rules remain those of app.core.metadata (normalize_tags, tag_key).
 """
 
 import sys
@@ -22,7 +22,7 @@ class TagSearchTestCase(EntryTestCase):
         super().setUp()
         self.linux = self.entries.create_entry(Entry(
             service_name="Serveur maison", password="a", tags=["Linux", "perso"],
-            category_id=self.category_id("Personnel")))
+            category_id=self.category_id("Personal")))
         self.ecole = self.entries.create_entry(Entry(
             service_name="ENT", password="b", tags=["École"], is_favorite=True))
         self.primaire = self.entries.create_entry(Entry(
@@ -57,7 +57,7 @@ class TestHashTagSearch(TagSearchTestCase):
     def test_combined_with_text_and_filters(self):
         self.assertEqual(self.ids("#linux mairie"), [self.primaire])
         self.assertEqual(self.ids("mairie #linux"), [self.primaire])
-        self.assertEqual(self.ids("#linux", category_id=self.category_id("Personnel")),
+        self.assertEqual(self.ids("#linux", category_id=self.category_id("Personal")),
                          [self.linux])
         self.assertEqual(self.ids("#ecole", favorites_only=True), [self.ecole])
         self.assertEqual(self.ids("#linux", favorites_only=True), [])
@@ -199,7 +199,7 @@ class TestTagEditor(TagUiTestCase):
                 self.type_tag(editor, bad)
                 self.assertEqual(editor.tags(), ("Linux",))
                 self.assertTrue(editor.error_text())
-                self.assertEqual(editor.input.text(), bad)  # corrigeable, rien n'est perdu
+                self.assertEqual(editor.input.text(), bad)  # fixable, nothing is lost
         self.type_tag(editor, "ok")
         self.assertEqual(editor.error_text(), "")
 
@@ -250,7 +250,7 @@ class TestEntryDialogTags(TagUiTestCase):
         self.assertIn("Existant", dialog.tags.completer_model_strings())
         dialog.name.setText("Nouveau")
         self.type_tag(dialog.tags, "Linux")
-        dialog.tags.input.setText("en cours")  # pas encore validé par Entrée
+        dialog.tags.input.setText("en cours")  # not yet confirmed with Enter
         dialog._save()
         got = self.entries.get_entry(dialog.saved_entry_id)
         self.assertEqual(got.tags, ("Linux", "en cours"))
@@ -287,7 +287,7 @@ class TestTagDisplay(TagUiTestCase):
         self.assertEqual([w.text() for w in badges], ["Linux", "Écoles primaires"])
         badges[1].click()
         self.assertEqual(self.shell.search.text(), '#"Écoles primaires"')
-        self.assertFalse(page.has_pending_search())  # appliquée immédiatement
+        self.assertFalse(page.has_pending_search())  # applied immediately
         self.assertEqual(sorted(s.id for s in page.list.model().rows()), sorted([a, b]))
         page.list.select_entry(a)
         page.detail.tag_widgets()[0].click()
@@ -309,7 +309,7 @@ class TestTagDisplay(TagUiTestCase):
         dialog = HistoryDialog(self.entries, a, self.window._clipboard, {})
         badges = dialog.detail.tag_widgets()
         self.assertEqual([w.text() for w in badges], ["ancien"])
-        self.assertFalse(hasattr(badges[0], "click"))  # simple étiquette
+        self.assertFalse(hasattr(badges[0], "click"))  # plain label
         dialog.close_now()
         self.entries.delete_entry(a)
         self.shell.navigate("trash")
@@ -326,7 +326,7 @@ class TestSearchDebounce(TagUiTestCase):
         self._add(self.shell, service_name="Beta")
         self.shell.navigate("vault")
         self.page = self.shell.vault_page
-        # Chaque lecture de la liste note si le coffre était verrouillé à cet instant.
+        # Each read of the list records whether the vault was locked at that moment.
         self.locked_reads = []
         vault, real = self.shell.ctx.vault, self.entries.list_entries
 
@@ -337,7 +337,7 @@ class TestSearchDebounce(TagUiTestCase):
         self.calls = unittest.mock.patch.object(self.entries, "list_entries", side_effect=spy)
         self.spy = self.calls.start()
         self.addCleanup(self.calls.stop)
-        # Rafraîchissements de la liste du coffre (le tableau de bord lit aussi les entrées).
+        # Refreshes of the vault list (the overview reads the entries too).
         refresh = unittest.mock.patch.object(self.page, "refresh", wraps=self.page.refresh)
         self.refreshes = refresh.start()
         self.addCleanup(refresh.stop)
@@ -403,7 +403,7 @@ class TestSearchDebounce(TagUiTestCase):
         with unittest.mock.patch.object(sys, "excepthook",
                                         lambda *exc: errors.append(exc)):
             self.shell.search.setText("alpha")
-            self.window.lock()  # démontage différé (transition animée)
+            self.window.lock()  # deferred teardown (animated transition)
             self.assertTrue(self._wait_until(lambda: self.window._shell is None))
             self.run_timer_out()
         self.assertEqual(errors, [])
@@ -414,7 +414,7 @@ class TestSearchDebounce(TagUiTestCase):
         with unittest.mock.patch.object(sys, "excepthook",
                                         lambda *exc: errors.append(exc)):
             self.shell.search.setText("alpha")
-            self.shell.ctx.vault.lock()  # clé effacée sans passer par l'interface
+            self.shell.ctx.vault.lock()  # key erased without going through the interface
             self.run_timer_out()
         self.assertEqual(errors, [])
         self.assertNotIn(True, self.locked_reads)
@@ -441,5 +441,5 @@ class TestImportPreviewShowsDroppedTags(UiTestCase):
         dialog = ImportPreviewDialog(preview)
         self.addCleanup(dialog.deleteLater)
         texts = " ".join(label.text() for label in dialog.findChildren(QLabel))
-        self.assertIn("3 tag(s) invalide(s)", texts)
+        self.assertIn("3 invalid or duplicate tag(s)", texts)
 

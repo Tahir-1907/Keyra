@@ -1,4 +1,4 @@
-"""Champs de saisie spécialisés."""
+"""Specialized input fields."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from app.ui import lucide, theme
 
 
 class PasswordField(QLineEdit):
-    """Champ masqué (police mono) avec bouton « afficher / masquer » intégré."""
+    """Masked field (monospace font) with a built-in "show / hide" button."""
 
     def __init__(self, placeholder: str = "", parent: QWidget | None = None,
                  leading_icon: str | None = None) -> None:

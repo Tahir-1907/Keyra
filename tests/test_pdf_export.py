@@ -1,4 +1,4 @@
-"""Export PDF « copie papier » : mot de passe maître, contenu, échappement, droits."""
+"""PDF "paper copy" export: master password, content, escaping, permissions."""
 
 import os
 import secrets
@@ -19,7 +19,7 @@ from tests.test_vault import VaultTestCase
 
 
 def _text(path, password: str) -> str:
-    """Texte d'un PDF chiffré (copie déchiffrée en mémoire : pdftotext coupe à 32 car.)."""
+    """Text of an encrypted PDF (decrypted copy in memory: pdftotext cuts at 32 chars)."""
     import pikepdf
 
     plain = Path(tempfile.mkdtemp()) / "clair.pdf"
@@ -43,7 +43,7 @@ class TestPdfExport(VaultTestCase):
         self.vault = Vault.create(self.vault_id, "Perso <b>", self.master)
         categories = CategoryService(self.vault)
         categories.ensure_builtin_categories()
-        work = next(c.id for c in categories.list_categories() if c.name == "Travail")
+        work = next(c.id for c in categories.list_categories() if c.name == "Work")
         self.entries = EntryService(self.vault)
         self.password = "Q7$kV9#pL2!xR8&mN4@zT6%wB1"
         self.entries.create_entry(Entry(service_name="GitHub", username="utilisateur.test",
@@ -54,7 +54,7 @@ class TestPdfExport(VaultTestCase):
                                                "cvv": "123"}))
         trashed = self.entries.create_entry(Entry(service_name="Supprimé",
                                                   password="mot-de-passe-supprime"))
-        self.entries.delete_entry(trashed)  # vers la corbeille
+        self.entries.delete_entry(trashed)  # to the Trash
         self.out = Path(tempfile.mkdtemp(dir=self._tmpdir.name)) / "copie.pdf"
 
     def tearDown(self):
@@ -65,7 +65,7 @@ class TestPdfExport(VaultTestCase):
         with self.assertRaises(WrongMasterPasswordError):
             pdf_export.export_pdf(self.entries, self.vault, "mauvais", self.out)
         self.assertFalse(self.out.exists())
-        self.assertEqual(os.listdir(self.out.parent), [])  # aucun fichier temporaire
+        self.assertEqual(os.listdir(self.out.parent), [])  # no temporary file
 
     def test_pdf_written_privately_with_active_entries_only(self):
         count = pdf_export.export_pdf(self.entries, self.vault, self.master, self.out)
@@ -75,7 +75,7 @@ class TestPdfExport(VaultTestCase):
         self.assertEqual(oct(self.out.stat().st_mode & 0o777), "0o600")
         self.assertEqual(os.listdir(self.out.parent), ["copie.pdf"])
         if shutil.which("pdftotext") is None:
-            self.skipTest("pdftotext absent : contenu du PDF non vérifié")
+            self.skipTest("pdftotext missing: PDF content not checked")
         text = subprocess.run(["pdftotext", str(self.out), "-"], capture_output=True,
                               text=True, check=True).stdout
         self.assertIn(self.password, text)
@@ -90,14 +90,14 @@ class TestPdfExport(VaultTestCase):
         self.assertIn("&lt;script&gt;", document)
         self.assertIn("Perso &lt;b&gt;", document)
         self.assertNotIn("mot-de-passe-supprime", document)
-        self.assertIn("Travail", document)
+        self.assertIn("Work", document)
 
 
 class TestProtectedPdf(TestPdfExport):
     def setUp(self):
         super().setUp()
         if not pdf_export.protection_available():
-            self.skipTest("python3-pikepdf absent")
+            self.skipTest("python3-pikepdf missing")
         self.pdf_password = secrets.token_urlsafe(16)
 
     def test_protected_pdf_needs_its_password(self):
@@ -126,7 +126,7 @@ class TestProtectedPdf(TestPdfExport):
             pdf_export.export_pdf(self.entries, self.vault, self.master, self.out, "court")
         with self.assertRaises(InvalidMasterPasswordPolicyError) as ctx:
             pdf_export.export_pdf(self.entries, self.vault, self.master, self.out, self.master)
-        self.assertIn("différent du mot de passe maître", str(ctx.exception))
+        self.assertIn("different from the master password", str(ctx.exception))
         self.assertFalse(self.out.exists())
 
     def test_missing_dependency_is_reported_not_bypassed(self):
@@ -136,14 +136,14 @@ class TestProtectedPdf(TestPdfExport):
                 pdf_export.export_pdf(self.entries, self.vault, self.master, self.out,
                                       self.pdf_password)
         self.assertIn("python3-pikepdf", str(ctx.exception))
-        self.assertFalse(self.out.exists())  # jamais de repli silencieux vers un PDF en clair
+        self.assertFalse(self.out.exists())  # never a silent fallback to a plaintext PDF
 
 
 class TestRecoveryKeyPdf(TestPdfExport):
     def setUp(self):
         super().setUp()
         if not pdf_export.protection_available():
-            self.skipTest("python3-pikepdf absent")
+            self.skipTest("python3-pikepdf missing")
         from app.core import recovery
 
         self.key = recovery.generate()
@@ -165,17 +165,17 @@ class TestRecoveryKeyPdf(TestPdfExport):
         text = _text(self.out, self.pdf_password)
         compact = "".join(text.split())
         self.assertIn(self.key.replace("-", ""), compact.replace("-", ""))
-        self.assertIn("Mot de passe oublié", " ".join(text.split()))
+        self.assertIn("Forgot password", " ".join(text.split()))
         self.assertNotIn("<br>", text)
 
     def test_long_passwords_open_and_too_long_is_refused(self):
         import pikepdf
 
-        long_password = "phrase-de-passe-tres-longue-" * 4  # 112 caractères
+        long_password = "phrase-de-passe-tres-longue-" * 4  # 112 characters
         pdf_export.export_recovery_pdf(self.key, "Perso", self.out, long_password)
         pikepdf.open(self.out, password=long_password).close()
         with self.assertRaises(InvalidMasterPasswordPolicyError):
-            pdf_export.export_recovery_pdf(self.key, "Perso", self.out, "é" * 64)  # 128 octets
+            pdf_export.export_recovery_pdf(self.key, "Perso", self.out, "é" * 64)  # 128 bytes
 
     def test_recovery_pdf_password_rules(self):
         for weak in ("court", "motdepasse", "azertyuiop"):
@@ -184,13 +184,13 @@ class TestRecoveryKeyPdf(TestPdfExport):
         with self.assertRaises(InvalidMasterPasswordPolicyError) as ctx:
             pdf_export.export_recovery_pdf(self.key, "Perso", self.out, self.key.lower(),
                                            self.vault)
-        self.assertIn("la clé", str(ctx.exception))
+        self.assertIn("cannot be the key", str(ctx.exception))
         strong_master = "tulipe-gravier-horizon-melodie-cactus"
         self.vault.change_master_password(self.master, strong_master)
         with self.assertRaises(InvalidMasterPasswordPolicyError) as ctx:
             pdf_export.export_recovery_pdf(self.key, "Perso", self.out, strong_master,
                                            self.vault)
-        self.assertIn("mot de passe maître", str(ctx.exception))
+        self.assertIn("master password", str(ctx.exception))
         with (mock.patch.object(pdf_export, "pikepdf", None),
               self.assertRaises(pdf_export.PdfProtectionUnavailable)):
             pdf_export.export_recovery_pdf(self.key, "Perso", self.out, self.pdf_password)
@@ -198,7 +198,7 @@ class TestRecoveryKeyPdf(TestPdfExport):
 
 
 class TestPdfRenderingInsideTheApp(VaultTestCase):
-    """Rendu dans les conditions réelles : police de l'interface définie en pixels."""
+    """Rendering in real conditions: interface font defined in pixels."""
 
     @classmethod
     def setUpClass(cls):
@@ -208,10 +208,10 @@ class TestPdfRenderingInsideTheApp(VaultTestCase):
         from PySide6.QtGui import QFont
 
         if shutil.which("pdftotext") is None:
-            self.skipTest("pdftotext absent")
+            self.skipTest("pdftotext missing")
         previous = self.app.font()
         font = QFont("Inter")
-        font.setPixelSize(13)  # comme app.ui.theme.apply_theme
+        font.setPixelSize(13)  # like app.ui.theme.apply_theme
         self.app.setFont(font)
         try:
             data = pdf_export.render_pdf(

@@ -1,16 +1,15 @@
-"""Journal d'activité du coffre (vue « Historique »), en lecture seule.
+"""Vault activity log (the "History" view), read-only.
 
-Reconstruit à partir de ce que le coffre enregistre réellement — aucune
-donnée n'est inventée ni ajoutée :
-* création d'une entrée          ← métadonnées chiffrées (created_at)
-* modification d'une entrée      ← entry_history.created_at (une version par modification)
-* mise à la corbeille            ← métadonnées chiffrées (deleted_at)
-Les sauvegardes (fichiers .mcfbak) sont ajoutées par la couche services.
-Les verrouillages, copies, etc. ne sont volontairement enregistrés nulle
-part : ils n'apparaissent donc pas.
+Rebuilt from what the vault actually records — no data is invented or added:
+* entry created     ← encrypted metadata (created_at)
+* entry modified    ← entry_history.created_at (one version per modification)
+* moved to Trash    ← encrypted metadata (deleted_at)
+Backups (.mcfbak files) are added by the services layer.
+Locks, copies, etc. are deliberately not recorded anywhere, so they do not
+appear.
 
-Seules les métadonnées (déjà déchiffrées dans le cache du coffre) sont lues :
-aucun secret n'est déchiffré.
+Only metadata (already decrypted in the vault cache) is read: no secret is
+decrypted.
 """
 
 from __future__ import annotations
@@ -36,8 +35,8 @@ class ActivityEvent:
 
 
 def vault_activity(vault: Vault, limit: int = 200) -> list[ActivityEvent]:
-    """Événements du coffre, du plus récent au plus ancien."""
-    metas = vault.metadata.entries()  # VaultLockedError si verrouillé
+    """Vault events, most recent first."""
+    metas = vault.metadata.entries()  # VaultLockedError if locked
     events: list[ActivityEvent] = []
     for entry_id, meta in metas.items():
         events.append(ActivityEvent(meta.created_at, KIND_CREATED, meta.name, entry_id))
@@ -53,7 +52,7 @@ def vault_activity(vault: Vault, limit: int = 200) -> list[ActivityEvent]:
 
 
 def last_activity(vault: Vault) -> str | None:
-    """Date du dernier changement dans le coffre (création, modification, suppression)."""
+    """Date of the last change in the vault (creation, modification, deletion)."""
     events = vault_activity(vault, limit=1)
     latest = max((m.updated_at for m in vault.metadata.entries().values()
                   if m.deleted_at is None), default=None)

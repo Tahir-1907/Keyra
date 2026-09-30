@@ -38,7 +38,7 @@ class TestRedactingFilter(unittest.TestCase):
         everything = self.output() + self.errors.getvalue()
         for secret in ("SECRET-ARG", "SECRET-2", "SECRET-3", "SECRET-4"):
             self.assertNotIn(secret, everything)
-        self.assertEqual(self.errors.getvalue(), "")  # plus d'erreur de formatage
+        self.assertEqual(self.errors.getvalue(), "")  # no more formatting error
         self.assertIn("password=[REDACTED]", self.output())
 
     def test_normal_messages_untouched(self):
@@ -56,7 +56,7 @@ class TestSessionManager(EntryTestCase):
         self.assertTrue(session.should_lock())
         self.assertTrue(session.lock_if_idle())
         self.assertTrue(self.vault.is_locked)
-        self.assertFalse(session.should_lock())  # déjà verrouillé
+        self.assertFalse(session.should_lock())  # already locked
 
     def test_touch_postpones(self):
         session = SessionManager(self.vault, auto_lock_seconds=60)
@@ -82,15 +82,15 @@ class TestSessionManager(EntryTestCase):
 
 
 class TestIdleClock(EntryTestCase):
-    """Horloge d'inactivité : le temps passé en veille doit compter (CLOCK_BOOTTIME)."""
+    """Inactivity clock: the time spent asleep must count (CLOCK_BOOTTIME)."""
 
     def test_idle_time_includes_sleep(self):
-        # Horloge simulée qui, comme CLOCK_BOOTTIME, avance pendant la veille.
+        # Simulated clock that, like CLOCK_BOOTTIME, moves forward during sleep.
         now = [1000.0]
         session = SessionManager(self.vault, auto_lock_seconds=5 * 60, clock=lambda: now[0])
         now[0] += 60
         self.assertFalse(session.should_lock())
-        now[0] += 8 * 3600  # nuit en veille
+        now[0] += 8 * 3600  # a night asleep
         self.assertTrue(session.should_lock())
         self.assertTrue(session.lock_if_idle())
 

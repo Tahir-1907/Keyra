@@ -1,11 +1,11 @@
-"""Tests de sécurité : altérations, substitutions et messages d'erreur.
+"""Security tests: tampering, substitutions and error messages.
 
-Complètent test_crypto (primitives), test_entries (déplacement d'un BLOB) et
-test_phase4 (fichiers piégés) avec des scénarios ciblés : chaque partie d'une
-valeur chiffrée (nonce, chiffré, tag), substitution entre contextes, fichiers
-de sauvegarde tronqués ou recollés, et absence de secret dans les erreurs.
+Complement test_crypto (primitives), test_entries (moving a BLOB) and
+test_phase4 (crafted files) with targeted scenarios: every part of an encrypted
+value (nonce, ciphertext, tag), substitution between contexts, truncated or
+spliced backup files, and no secret in errors.
 
-Format d'un BLOB : version (1 o) | nonce (12 o) | chiffré | tag GCM (16 o).
+BLOB format: version (1 B) | nonce (12 B) | ciphertext | GCM tag (16 B).
 """
 
 import logging
@@ -33,7 +33,7 @@ TAG_LENGTH = 16
 
 
 class TestFieldTampering(EntryTestCase):
-    """Toute modification d'un champ chiffré est détectée, jamais « déchiffrée »."""
+    """Any change to an encrypted field is detected, never "decrypted"."""
 
     def setUp(self):
         super().setUp()
@@ -94,7 +94,7 @@ class TestFieldTampering(EntryTestCase):
             self.entries.get_entry(self.entry_id)
 
     def test_value_from_another_vault_is_rejected(self):
-        # Même identifiant d'entrée, même champ, mais autre coffre (autre DEK).
+        # Same entry identifier, same field, but another vault (another DEK).
         other = Vault.create(f"autre-{uuid.uuid4().hex[:8]}", "Autre", MASTER)
         try:
             from app.core.entries import EntryService
@@ -113,7 +113,7 @@ class TestFieldTampering(EntryTestCase):
 
 
 class TestCorruptedVaultMetadata(EntryTestCase):
-    """Un coffre dont les métadonnées sont altérées ne s'ouvre jamais en silence."""
+    """A vault whose metadata has been tampered with never opens silently."""
 
     def _tamper_meta(self, column: str, value: bytes) -> None:
         with self.vault.connection as conn:
@@ -142,7 +142,7 @@ class TestCorruptedVaultMetadata(EntryTestCase):
 
 
 class TestCorruptedBackups(EntryTestCase):
-    """Une sauvegarde altérée n'est jamais restaurée, et ne laisse aucun coffre partiel."""
+    """A tampered backup is never restored, and leaves no partial vault behind."""
 
     def setUp(self):
         super().setUp()
@@ -185,7 +185,7 @@ class TestCorruptedBackups(EntryTestCase):
         self._assert_refused(bytes(data))
 
     def test_header_of_another_vault_is_rejected(self):
-        # En-tête (valide) d'un autre coffre au même mot de passe, recollé sur ce corps.
+        # (Valid) header of another vault with the same password, spliced onto this body.
         other = Vault.create(f"autre-{uuid.uuid4().hex[:8]}", "Autre", MASTER)
         try:
             other_raw = backup.create_backup(other, self.backup_dir).read_bytes()
@@ -198,10 +198,10 @@ class TestCorruptedBackups(EntryTestCase):
 
 
 class TestErrorsRevealNoSecret(EntryTestCase):
-    """Messages, traces et journaux d'erreur ne contiennent aucun secret."""
+    """Error messages, tracebacks and logs contain no secret."""
 
     def _assert_no_secret(self, exc: BaseException, *secrets_: str) -> None:
-        text = "".join(traceback.format_exception(exc))  # message, chaîne des causes
+        text = "".join(traceback.format_exception(exc))  # message, chain of causes
         for secret in secrets_:
             self.assertNotIn(secret, text)
             self.assertNotIn(secret, repr(exc))
@@ -255,7 +255,7 @@ class TestErrorsRevealNoSecret(EntryTestCase):
 
 
 class TestMalformedBackupListing(EntryTestCase):
-    """Un fichier .mcfbak malformé est ignoré au listage, jamais une exception brute."""
+    """A malformed .mcfbak file is ignored when listing, never a raw exception."""
 
     def test_invalid_header_versions_are_skipped(self):
         import json
@@ -274,7 +274,7 @@ class TestMalformedBackupListing(EntryTestCase):
 
 
 class TestMalformedVaultFiles(EntryTestCase):
-    """Coffre malformé : toujours VaultCorruptedError, jamais une exception brute."""
+    """Malformed vault: always VaultCorruptedError, never a raw exception."""
 
     def _tamper(self, sql: str, args: tuple = ()) -> None:
         with self.vault.connection as conn:
@@ -366,7 +366,7 @@ class TestMalformedRecoveryEnvelope(EntryTestCase):
 
 
 class TestMalformedBackupHeader(EntryTestCase):
-    """En-tête de sauvegarde malformé : BackupError, aucun coffre créé."""
+    """Malformed backup header: BackupError, no vault created."""
 
     def setUp(self):
         super().setUp()
@@ -413,7 +413,7 @@ class TestMalformedBackupHeader(EntryTestCase):
 
 
 class TestMalformedEncryptedExport(EntryTestCase):
-    """Export .mcfexport malformé : ImportExportError avant toute dérivation."""
+    """Malformed .mcfexport export: ImportExportError before any derivation."""
 
     def setUp(self):
         super().setUp()

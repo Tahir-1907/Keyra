@@ -1,3 +1,3 @@
-"""Mon Coffre-Fort — gestionnaire de mots de passe local et sécurisé."""
+"""Keyra — a local, offline password manager."""
 
 __version__ = "1.7.0-rc1"

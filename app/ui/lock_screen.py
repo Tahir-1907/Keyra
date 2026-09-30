@@ -1,15 +1,14 @@
-"""Écrans du coffre verrouillé : déverrouillage et création d'un coffre.
+"""Locked vault screens: unlocking and creating a vault.
 
-Composition : fond sombre à halo très doux, icône bouclier-cadenas dans un
-halo qui « respire » lentement (seule animation continue), nom de
-l'application, état, champ du mot de passe maître, action principale, liens
-secondaires, ligne technique en pied de page. Mauvais mot de passe : légère
-secousse. Réussite : le cadenas s'ouvre, puis l'interface glisse vers la
-gauche (géré par la fenêtre principale).
+Layout: dark background with a very soft halo, the application logo in a
+slowly "breathing" halo (the only continuous animation), application name,
+state, master password field, primary action, secondary links, technical line
+in the footer. Wrong password: slight shake. Success: an open padlock replaces
+the logo, then the interface slides to the left (handled by the main window).
 
-Ces écrans ne touchent ni au coffre ni à la cryptographie : ils émettent une
-demande que la fenêtre principale transmet au cœur. Les champs de mot de
-passe sont vidés après chaque tentative.
+These screens touch neither the vault nor the cryptography: they emit a
+request that the main window passes on to the core. The password fields are
+cleared after each attempt.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ COLUMN_WIDTH = 380
 
 
 class _LockBackground(QWidget):
-    """Fond : halo émeraude très discret derrière la colonne, bords assombris."""
+    """Background: very subtle emerald halo behind the column, darkened edges."""
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
@@ -48,20 +47,20 @@ def _vault_label(info: VaultInfo, duplicate: bool) -> str:
     if not duplicate or not info.created_at:
         return info.vault_name
     try:
-        created = datetime.fromisoformat(info.created_at).astimezone().strftime("%d/%m/%Y")
+        created = datetime.fromisoformat(info.created_at).astimezone().strftime("%Y-%m-%d")
     except ValueError:
         return f"{info.vault_name} ({info.vault_id})"
-    return f"{info.vault_name} — créé le {created}"
+    return f"{info.vault_name} — created {created}"
 
 
 class _LockLayout(QWidget):
-    """Squelette commun : colonne centrée + pied de page technique."""
+    """Shared skeleton: centered column + technical footer."""
 
     def __init__(self, icon: str, title: str, subtitle: str) -> None:
         super().__init__()
         background = _LockBackground(self)
         self._background = background
-        self.card = QWidget()  # la colonne (cible de la secousse)
+        self.card = QWidget()  # the column (target of the shake)
         self.card.setFixedWidth(COLUMN_WIDTH)
         self.column = QVBoxLayout(self.card)
         self.column.setContentsMargins(0, 0, 0, 0)
@@ -82,7 +81,7 @@ class _LockLayout(QWidget):
         footer.setSpacing(8)
         footer.addStretch(1)
         footer.addWidget(ui.icon_label("shield-check", theme.TEXT_3, 14))
-        footer.addWidget(ui.label("AES-256-GCM · Argon2id · 100 % hors ligne", "Faint"))
+        footer.addWidget(ui.label("AES-256-GCM · Argon2id · 100% offline", "Faint"))
         footer.addStretch(1)
         version = ui.label(f"v{__version__}", "Faint")
 
@@ -128,13 +127,13 @@ class _LockLayout(QWidget):
 
 
 class UnlockScreen(_LockLayout):
-    unlock_requested = Signal(str, str)  # vault_id, mot de passe maître
-    recovery_requested = Signal(str)     # vault_id : mot de passe maître oublié
+    unlock_requested = Signal(str, str)  # vault_id, master password
+    recovery_requested = Signal(str)     # vault_id: forgotten master password
     restore_requested = Signal()
     new_vault_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("lock-keyhole", "Mon Coffre-Fort", "Votre coffre est verrouillé")
+        super().__init__(ui.BRAND, "Keyra", "Your vault is locked")
         if parent is not None:
             self.setParent(parent)
         self.info = ui.label("", "BadgeAccent", wrap=True)
@@ -143,13 +142,13 @@ class UnlockScreen(_LockLayout):
         self.column.addWidget(self.info)
 
         self.vault_combo = QComboBox()
-        self.vault_combo.setToolTip("Coffre à déverrouiller")
+        self.vault_combo.setToolTip("Vault to unlock")
         self.vault_label = ui.label("", "Badge")
         self.vault_label.setAlignment(Qt.AlignCenter)
         self.column.addWidget(self.vault_combo)
         self.column.addWidget(self.vault_label, 0, Qt.AlignHCenter)
 
-        self.password = PasswordField("Mot de passe maître", leading_icon="lock")
+        self.password = PasswordField("Master password", leading_icon="lock")
         self.password.setMinimumHeight(44)
         self.password.returnPressed.connect(self._submit)
         self.column.addWidget(self.password)
@@ -157,21 +156,21 @@ class UnlockScreen(_LockLayout):
         self.error.setAlignment(Qt.AlignCenter)
         self.error.hide()
         self.column.addWidget(self.error)
-        self.button = ui.button("Déverrouiller", "lock-open", "Primary",
-                                "Déverrouiller  ·  Entrée", self._submit)
+        self.button = ui.button("Unlock", "lock-open", "Primary",
+                                "Unlock  ·  Enter", self._submit)
         self.button.setMinimumHeight(44)
         self.column.addWidget(self.button)
         self.busy_row, self.spinner, self.busy_status = super().busy_row()
         self.column.addWidget(self.busy_row)
-        self.forgot = self.link("Mot de passe oublié ?", "key-round")
+        self.forgot = self.link("Forgot password?", "key-round")
         self.forgot.clicked.connect(self._forgot)
         self.column.addWidget(self.forgot, 0, Qt.AlignHCenter)
         links = QHBoxLayout()
         links.setSpacing(4)
         links.addStretch(1)
-        new_vault = self.link("Nouveau coffre", "plus")
+        new_vault = self.link("New vault", "plus")
         new_vault.clicked.connect(lambda: self.new_vault_requested.emit())
-        restore = self.link("Restaurer une sauvegarde", "rotate-ccw")
+        restore = self.link("Restore a backup", "rotate-ccw")
         restore.clicked.connect(lambda: self.restore_requested.emit())
         links.addWidget(new_vault)
         links.addWidget(restore)
@@ -200,7 +199,7 @@ class UnlockScreen(_LockLayout):
         self.error.hide()
         self.info.setText(info)
         self.info.setVisible(bool(info))
-        self.halo.set_icon("lock-keyhole", theme.ACCENT_2)
+        self.halo.set_icon(ui.BRAND, theme.ACCENT_2)
         self.set_busy(False)
         self.password.setFocus()
 
@@ -209,18 +208,18 @@ class UnlockScreen(_LockLayout):
             widget.setEnabled(not busy)
         self.button.setVisible(not busy)
         self.busy_row.setVisible(busy)
-        if busy:  # nouvelle tentative : les messages précédents disparaissent
+        if busy:  # new attempt: previous messages disappear
             self.error.hide()
             self.info.hide()
-            self.busy_status.setText("Vérification du mot de passe maître…")
+            self.busy_status.setText("Checking the master password…")
             self.spinner.start()
         else:
             self.spinner.stop()
 
     def show_success(self) -> None:
-        """Micro-interaction : le cadenas s'ouvre juste avant la transition."""
+        """Micro-interaction: an open padlock replaces the logo just before the transition."""
         self.spinner.stop()
-        self.busy_status.setText("Coffre déverrouillé")
+        self.busy_status.setText("Vault unlocked")
         self.halo.set_icon("lock-open", theme.ACCENT_2)
 
     def show_error(self, message: str) -> None:
@@ -242,31 +241,31 @@ class UnlockScreen(_LockLayout):
         if not vault_id:
             return
         if not password:
-            self.show_error("Saisissez votre mot de passe maître.")
+            self.show_error("Enter your master password.")
             return
         self.unlock_requested.emit(vault_id, password)
 
 
 class CreateVaultScreen(_LockLayout):
-    create_requested = Signal(str, str, bool)  # nom, mot de passe maître, clé de récupération
+    create_requested = Signal(str, str, bool)  # name, master password, recovery key
     restore_requested = Signal()
     back_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("shield-check", "Bienvenue",
-                         "Créez votre coffre-fort chiffré. Le mot de passe maître n'est "
-                         "stocké nulle part : sans lui, seule la clé de récupération permet "
-                         "de retrouver l'accès.")
+        super().__init__(ui.BRAND, "Welcome",
+                         "Create your encrypted vault. The master password is not "
+                         "stored anywhere: without it, only the recovery key can "
+                         "restore access.")
         if parent is not None:
             self.setParent(parent)
-        self.name = QLineEdit("Personnel")
-        self.name.setPlaceholderText("Nom du coffre")
+        self.name = QLineEdit("Personal")
+        self.name.setPlaceholderText("Vault name")
         self.name.addAction(ui.lucide.icon("lock-keyhole", theme.TEXT_3, 16),
                             QLineEdit.LeadingPosition)
         self.password = PasswordField(
-            f"Mot de passe maître ({MIN_MASTER_PASSWORD_LENGTH} caractères minimum)",
+            f"Master password ({MIN_MASTER_PASSWORD_LENGTH} characters minimum)",
             leading_icon="lock")
-        self.confirm = PasswordField("Confirmez le mot de passe maître", leading_icon="lock")
+        self.confirm = PasswordField("Confirm the master password", leading_icon="lock")
         self.confirm.returnPressed.connect(self._submit)
         self.strength = ui.StrengthBar()
         self.strength_label = ui.label("", "Faint")
@@ -279,17 +278,17 @@ class CreateVaultScreen(_LockLayout):
         self.column.addWidget(self.strength)
         self.column.addWidget(self.strength_label)
         self.column.addWidget(self.confirm)
-        self.with_recovery = ui.ToggleSwitch("Créer une clé de récupération (recommandé)")
+        self.with_recovery = ui.ToggleSwitch("Create a recovery key (recommended)")
         self.with_recovery.setToolTip(
-            "Un code à noter sur papier, qui permet de choisir un nouveau mot de passe "
-            "maître en cas d'oubli.")
+            "A code to write down on paper, which lets you choose a new master "
+            "password if you forget it.")
         self.with_recovery.setChecked(True)
         self.column.addWidget(self.with_recovery)
         self.error = ui.label("", "Error", wrap=True)
         self.error.setAlignment(Qt.AlignCenter)
         self.error.hide()
         self.column.addWidget(self.error)
-        self.button = ui.button("Créer le coffre", "shield-check", "Primary",
+        self.button = ui.button("Create vault", "shield-check", "Primary",
                                 on_click=self._submit)
         self.button.setMinimumHeight(44)
         self.column.addWidget(self.button)
@@ -297,9 +296,9 @@ class CreateVaultScreen(_LockLayout):
         self.column.addWidget(self.busy_row)
         links = QHBoxLayout()
         links.addStretch(1)
-        self.back = self.link("Retour", "log-out")
+        self.back = self.link("Back", "log-out")
         self.back.clicked.connect(lambda: self.back_requested.emit())
-        restore = self.link("Restaurer une sauvegarde", "rotate-ccw")
+        restore = self.link("Restore a backup", "rotate-ccw")
         restore.clicked.connect(lambda: self.restore_requested.emit())
         links.addWidget(self.back)
         links.addWidget(restore)
@@ -307,9 +306,9 @@ class CreateVaultScreen(_LockLayout):
         self.column.addLayout(links)
 
     def set_first_vault(self, first: bool) -> None:
-        self.title.setText("Bienvenue" if first else "Nouveau coffre")
+        self.title.setText("Welcome" if first else "New vault")
         self.back.setVisible(not first)
-        self.name.setText("Personnel" if first else "")
+        self.name.setText("Personal" if first else "")
 
     def _update_strength(self, text: str) -> None:
         if not text:
@@ -335,7 +334,7 @@ class CreateVaultScreen(_LockLayout):
         self.busy_row.setVisible(busy)
         if busy:
             self.error.hide()
-            self.busy_status.setText("Génération des clés (Argon2id)…")
+            self.busy_status.setText("Generating keys (Argon2id)…")
             self.spinner.start()
         else:
             self.spinner.stop()
@@ -352,20 +351,20 @@ class CreateVaultScreen(_LockLayout):
         self.password.reset()
         self.confirm.reset()
         if not name:
-            self.show_error("Donnez un nom à votre coffre.")
+            self.show_error("Give your vault a name.")
             return
         if password != confirm:
-            self.show_error("Les deux mots de passe ne correspondent pas.")
+            self.show_error("The two passwords do not match.")
             self.password.setFocus()
             return
         weak = (len(password) >= MIN_MASTER_PASSWORD_LENGTH
                 and estimate_strength(password).score < 2)
         if weak and not dialogs.confirm(
-                self, "Mot de passe maître faible",
-                "Il protège TOUS vos mots de passe et semble facile à deviner. Une phrase "
-                "de passe de 5 à 6 mots est recommandée.", "Utiliser quand même",
+                self, "Weak master password",
+                "It protects ALL your passwords and looks easy to guess. A passphrase "
+                "of 5 to 6 words is recommended.", "Use anyway",
                 danger=True, icon="shield-alert"):
             self.password.setFocus()
             return
-        # La politique (longueur minimale) est vérifiée par le cœur (Vault.create).
+        # The policy (minimum length) is checked by the core (Vault.create).
         self.create_requested.emit(name, password, self.with_recovery.isChecked())

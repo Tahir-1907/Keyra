@@ -1,7 +1,7 @@
-"""Point d'entrée de l'application.
+"""Application entry point.
 
-Ce fichier reste volontairement un simple « bootstrap » : toute la logique
-vit dans app/core, app/database et app/ui — jamais directement ici.
+This file deliberately remains a simple bootstrap: all the logic lives in
+app/core, app/database and app/ui — never directly here.
 """
 
 from __future__ import annotations
@@ -14,22 +14,22 @@ from app import __version__
 from app.core import strength
 from app.utils.logging import setup_logging
 
-# Doit correspondre au nom du fichier .desktop (packaging/mon-coffre-fort.desktop)
-# pour que l'environnement de bureau associe la fenêtre à l'icône du lanceur.
+# Must match the name of the .desktop file (packaging/mon-coffre-fort.desktop)
+# so that the desktop environment associates the window with the launcher icon.
 DESKTOP_FILE_NAME = "mon-coffre-fort"
 
 
 def _check_user_environment() -> str | None:
-    """Isolation entre utilisateurs Linux : message d'erreur, ou None si tout va bien.
+    """Isolation between Linux users: error message, or None if all is well.
 
-    * Jamais en root : les coffres et la configuration créés appartiendraient
-      à root, et une interface graphique n'a pas à tourner avec ces droits.
-    * Les dossiers de données doivent appartenir à l'utilisateur courant
-      (sinon : lancé une fois avec sudo, ou HOME partagé/mal configuré).
+    * Never as root: the vaults and configuration created would belong to
+      root, and a graphical interface has no business running with those rights.
+    * The data folders must belong to the current user (otherwise: launched
+      once with sudo, or a shared/misconfigured HOME).
     """
     if os.geteuid() == 0:
-        return ("Mon Coffre-Fort ne doit pas être lancé en tant que root (sudo).\n"
-                "Lancez-le avec votre compte utilisateur habituel.")
+        return ("Keyra must not be run as root (sudo).\n"
+                "Start it with your usual user account.")
     for env, default in (("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")):
         base = os.environ.get(env) or os.path.join(os.path.expanduser("~"), default)
         path = os.path.join(base, "mon-coffre")
@@ -38,36 +38,36 @@ def _check_user_environment() -> str | None:
         except FileNotFoundError:
             continue
         if owner != os.getuid():
-            return (f"Le dossier {path} n'appartient pas à l'utilisateur courant.\n"
-                    "Il a probablement été créé en lançant l'application avec sudo.\n"
-                    f"Corrigez-le avec : sudo chown -R $USER: {path}")
+            return (f"The folder {path} does not belong to the current user.\n"
+                    "It was probably created by running the application with sudo.\n"
+                    f"Fix it with: sudo chown -R $USER: {path}")
     return None
 
 
 def main() -> int:
-    # Tout fichier créé par l'application (coffres, WAL, logs) n'est lisible
-    # que par son propriétaire, en plus des répertoires déjà restreints en 0700.
+    # Every file created by the application (vaults, WAL, logs) is readable
+    # only by its owner, in addition to the directories already restricted to 0700.
     os.umask(0o077)
     problem = _check_user_environment()
     if problem:
         print(problem, file=sys.stderr)
-        try:  # lancé depuis le menu des applications : message visible
+        try:  # launched from the applications menu: visible message
             from PySide6.QtWidgets import QApplication, QMessageBox
 
             _app = QApplication(sys.argv)
-            QMessageBox.critical(None, "Mon Coffre-Fort", problem)
-        except Exception:  # noqa: BLE001, S110 - l'erreur est déjà sur stderr
+            QMessageBox.critical(None, "Keyra", problem)
+        except Exception:  # noqa: BLE001, S110 - the error is already on stderr
             pass
         return 2
     logger = setup_logging()
-    logger.info("Starting Mon Coffre-Fort %s", __version__)
+    logger.info("Starting Keyra %s", __version__)
 
     try:
         from PySide6.QtWidgets import QApplication
     except ImportError:
         print(
-            "PySide6 n'est pas installé dans cet environnement.\n"
-            "Installez les dépendances avec :\n"
+            "PySide6 is not installed in this environment.\n"
+            "Install the dependencies with:\n"
             "    pip install -r requirements.txt\n",
             file=sys.stderr,
         )
@@ -82,16 +82,16 @@ def main() -> int:
     if notify_running_instance():
         logger.info("Already running: existing window brought to front")
         return 0
-    app.setApplicationName(DESKTOP_FILE_NAME)  # nom technique (WM_CLASS)
+    app.setApplicationName(DESKTOP_FILE_NAME)  # technical name (WM_CLASS)
     app.setApplicationDisplayName(APP_DISPLAY_NAME)
     app.setApplicationVersion(__version__)
     app.setDesktopFileName(DESKTOP_FILE_NAME)
     app.setWindowIcon(app_icon())
     apply_theme(app)
 
-    # Préchargement des dictionnaires de l'estimateur de robustesse (lecture de
-    # fichiers texte uniquement, sans accès au coffre) pour ne pas figer la
-    # première saisie d'un mot de passe.
+    # Preload the strength estimator dictionaries (text files only, no vault
+    # access) so that the first password typed does not freeze the
+    # interface.
     threading.Thread(target=strength.dictionary_available, daemon=True).start()
 
     window = MainWindow()
@@ -99,7 +99,7 @@ def main() -> int:
     instance_server.show_requested.connect(window.bring_to_front)
     window.show()
     code = app.exec()
-    logger.info("Exiting Mon Coffre-Fort")
+    logger.info("Exiting Keyra")
     return code
 
 

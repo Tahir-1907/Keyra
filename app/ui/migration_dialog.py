@@ -1,22 +1,22 @@
-"""Mise à niveau d'un coffre créé par une version précédente (v1 à v3 -> v4).
+"""Upgrade of a vault created by an earlier version (v1 to v3 -> v4).
 
-Deux usages :
-* `job` fourni (déverrouillage) : confirmation explicite, puis mise à niveau en
-  arrière-plan (app.ui.tasks) ; en cas d'échec, erreur affichée et « Réessayer ».
-* `job=None` (mot de passe oublié) : confirmation seule ; la mise à niveau est
-  ensuite faite par la fenêtre de récupération.
+Two uses:
+* `job` provided (unlocking): explicit confirmation, then the upgrade runs in
+  the background (app.ui.tasks); on failure, the error is shown with "Retry".
+* `job=None` (forgotten password): confirmation only; the upgrade is then done
+  by the recovery window.
 
-Pendant la mise à niveau, la fenêtre ne peut pas être fermée (Échap, croix,
-Annuler, verrouillage) : le résultat serait perdu. La fermeture de
-l'application est elle aussi refusée (MainWindow.closeEvent).
+During the upgrade, the window cannot be closed (Esc, close button, Cancel,
+locking): the result would be lost. Closing the application is refused too
+(MainWindow.closeEvent).
 
-Mot de passe maître : la fonction de travail (`job`) le capture. La fenêtre la
-libère dès qu'elle n'est plus utile (travail réussi, fenêtre fermée), ne garde
-aucune trace d'exception (dont les frames retiendraient les variables locales),
-et l'appelant la détruit après usage (`take_outcome` puis `deleteLater`). Limite :
-Python ne permet pas d'effacer une `str` ; on supprime les références pour que la
-mémoire soit rendue au plus tôt, sans garantie sur son contenu (même limite que
-app.core.crypto.wipe).
+Master password: the work function (`job`) captures it. The window releases it
+as soon as it is no longer needed (work succeeded, window closed), keeps no
+exception traceback (whose frames would retain the local variables), and the
+caller destroys it after use (`take_outcome` then `deleteLater`). Limitation:
+Python cannot erase a `str`; the references are dropped so that the memory is
+returned as early as possible, without any guarantee about its content (same
+limitation as app.core.crypto.wipe).
 """
 
 from __future__ import annotations
@@ -36,43 +36,43 @@ from app.ui.dialogs import PremiumDialog
 class MigrationDialog(PremiumDialog):
     def __init__(self, check: UpgradeCheck, vault_name: str, backup_dir: Path,
                  job: Callable[[], object] | None, parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Mettre à niveau le coffre",
-                         f"« {vault_name} » a été créé par une version précédente de Mon "
-                         f"Coffre-Fort (format v{check.schema_version}).",
+        super().__init__(parent, "Upgrade the vault",
+                         f"\"{vault_name}\" was created by an earlier version of the "
+                         f"application (format v{check.schema_version}).",
                          icon="shield-check", width=580)
         self._job = job
         self._busy = False
-        self.result = None  # UpgradeResult après succès
+        self.result = None  # UpgradeResult after success
         self.last_error: Exception | None = None
         self.attempts = 0
 
         self.body.addWidget(ui.label(
-            "Cette version chiffre aussi les noms, adresses, identifiants, catégories, tags "
-            "et dates de vos comptes (seule la date d'enregistrement de chaque version de "
-            "l'historique reste lisible). Pour cela, le coffre doit être mis à niveau :",
+            "This version also encrypts the names, addresses, usernames, categories, tags "
+            "and dates of your entries (only the date each history version was recorded "
+            "stays readable). To do so, the vault must be upgraded:",
             wrap=True))
         for text in (
-            "avant toute modification, une sauvegarde chiffrée du coffre, dans son format "
-            f"actuel, est créée et vérifiée dans « {backup_dir} ». Elle est conservée et "
-            "s'ouvre avec votre mot de passe maître actuel ;",
-            "en cas de problème pendant la mise à niveau, tout est annulé : le coffre reste "
-            "tel qu'il est ;",
-            "la mise à niveau est définitive : une version 1.6 ne pourra plus ouvrir ce "
-            "coffre.",
-            "pour revenir en arrière, il faudra une version 1.6 de Mon Coffre-Fort : sa "
-            "fonction « Restaurer une sauvegarde » ouvre la sauvegarde ci-dessus, sous "
-            "forme d'un nouveau coffre. Selon la façon dont elle a été installée (paquet "
-            "Debian, par exemple), la version 1.7 peut remplacer la 1.6 : gardez de quoi la "
-            "réinstaller si vous pensez en avoir besoin.",
+            "before any modification, an encrypted backup of the vault, in its current "
+            f"format, is created and verified in \"{backup_dir}\". It is kept and "
+            "opens with your current master password;",
+            "if a problem occurs during the upgrade, everything is cancelled: the vault "
+            "stays as it is;",
+            "the upgrade is final: a version 1.6 will no longer be able to open this "
+            "vault.",
+            "to go back, you will need a version 1.6 of the application: its "
+            "\"Restore a backup\" function opens the backup above as a new "
+            "vault. Depending on how it was installed (Debian package, for "
+            "example), version 1.7 may replace 1.6: keep a way to reinstall it "
+            "if you think you may need it.",
         ):
             self.body.addWidget(ui.label("•  " + text, "Muted", wrap=True))
         if check.legacy_plaintext_copies:
             names = ", ".join(p.name for p in check.legacy_plaintext_copies)
             self.body.addWidget(ui.label(
-                f"Attention : {len(check.legacy_plaintext_copies)} ancienne(s) copie(s) NON "
-                f"chiffrée(s) se trouvent à côté du coffre ({names}). Elles ne sont ni "
-                "utilisées ni supprimées : supprimez-les vous-même une fois le coffre "
-                "vérifié.", "Error", wrap=True))
+                f"Warning: {len(check.legacy_plaintext_copies)} old UNENCRYPTED "
+                f"copy(ies) are next to the vault ({names}). They are neither "
+                "used nor deleted: delete them yourself once the vault has been "
+                "verified.", "Error", wrap=True))
 
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
@@ -83,14 +83,14 @@ class MigrationDialog(PremiumDialog):
         self.spinner = effects.Spinner(16)
         row.addStretch(1)
         row.addWidget(self.spinner)
-        row.addWidget(ui.label("Mise à niveau en cours — ne fermez pas l'application…",
+        row.addWidget(ui.label("Upgrade in progress — do not close the application…",
                                "Muted"))
         row.addStretch(1)
         busy.hide()
         self.busy_row = busy
         self.body.addWidget(busy)
         self.cancel, self.ok = self.add_buttons(
-            "Annuler", "Mettre à niveau" if job is not None else "Continuer",
+            "Cancel", "Upgrade" if job is not None else "Continue",
             confirm_icon="shield-check")
         self.ok.clicked.connect(self.start)
 
@@ -100,24 +100,24 @@ class MigrationDialog(PremiumDialog):
         return self._busy
 
     def start(self) -> None:
-        """Confirmation explicite de l'utilisateur (bouton « Mettre à niveau »)."""
+        """Explicit confirmation by the user ("Upgrade" button)."""
         if self._busy:
             return
         if self._job is None:
             self.accept()
             return
         self.attempts += 1
-        self.last_error = None  # l'erreur de l'essai précédent n'est plus retenue
+        self.last_error = None  # the error of the previous attempt is no longer kept
         self._set_busy(True)
         tasks.run_task(self._job, self._on_done, self._on_failed, self)
 
     def take_outcome(self) -> tuple[object, Exception | None]:
-        """(résultat, erreur) remis à l'appelant, puis oubliés par la fenêtre."""
+        """(result, error) handed to the caller, then forgotten by the window."""
         outcome = (self.result, self.last_error)
         self.result = self.last_error = None
         return outcome
 
-    # --- Interne -------------------------------------------------------------------------
+    # --- Internal -------------------------------------------------------------------------
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -131,37 +131,37 @@ class MigrationDialog(PremiumDialog):
             self.spinner.stop()
 
     def _on_done(self, result) -> None:
-        # Le travail est terminé (ce rappel s'exécute dans le fil de l'interface, après
-        # le fil de travail) : la fonction qui capture le mot de passe n'est plus utile.
+        # The work is over (this callback runs on the interface thread, after the
+        # worker thread): the function that captures the password is no longer needed.
         self._job = None
         self.result = result
         self._set_busy(False)
         self.accept()
 
     def _on_failed(self, exc: Exception) -> None:
-        # La fonction de travail est gardée : « Réessayer » en a besoin tant que la
-        # fenêtre est ouverte. La trace, elle, retiendrait les variables locales des
-        # frames traversées (dont le mot de passe) : seule l'erreur est conservée.
+        # The work function is kept: "Retry" needs it while the window is open.
+        # The traceback, however, would retain the local variables of the frames it
+        # went through (including the password): only the error is kept.
         self.last_error = _without_tracebacks(exc)
         self._set_busy(False)
         self.error.setText(_failure_text(exc))
         self.error.show()
         effects.shake(self.card)
         if isinstance(exc, UpgradeVerificationError):
-            # Migration déjà appliquée : un nouvel essai n'a pas de sens.
+            # Migration already applied: retrying makes no sense.
             self.ok.hide()
-            self.cancel.setText("Fermer")
+            self.cancel.setText("Close")
         else:
-            self.ok.setText("Réessayer")
+            self.ok.setText("Retry")
 
     def reject(self) -> None:
         if not self._busy:
             super().reject()
 
     def done(self, result: int) -> None:
-        if self._busy:  # jamais pendant le travail : le rappel du fil de travail arrive
+        if self._busy:  # never during the work: the worker thread callback is on its way
             return
-        self._job = None  # fenêtre fermée : aucun nouvel essai possible
+        self._job = None  # window closed: no retry possible
         super().done(result)
 
     def close_now(self, result: int = QDialog.Rejected) -> None:
@@ -171,20 +171,20 @@ class MigrationDialog(PremiumDialog):
 
 
 def _failure_text(exc: Exception) -> str:
-    """Message court et compréhensible, puis le détail technique utile au diagnostic
-    (message de l'application, chemin et cause d'un échec de fichier)."""
+    """Short, understandable message, then the technical detail useful for diagnosis
+    (application message, path and cause of a file failure)."""
     if not isinstance(exc, VaultError):
-        return "La mise à niveau a échoué."
+        return "The upgrade failed."
     if isinstance(exc, UpgradeVerificationError):
         return str(exc)
-    lines = ["La mise à niveau n'a pas abouti.", f"Détail : {exc}"]
+    lines = ["The upgrade did not complete.", f"Detail: {exc}"]
     return "\n".join(lines + failure_details(exc))
 
 
 def _without_tracebacks(exc: Exception) -> Exception:
-    """Détache les traces de `exc` et de ses causes : leurs frames (et les variables
-    locales qu'elles portent, mot de passe compris) ne sont plus retenues. Le message
-    et le type, seuls utilisés pour l'affichage, sont conservés."""
+    """Detaches the tracebacks of `exc` and its causes: their frames (and the local
+    variables they carry, password included) are no longer retained. The message
+    and type, the only things used for display, are kept."""
     seen: set[int] = set()
     pending: list[BaseException | None] = [exc]
     while pending:

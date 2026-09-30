@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Lance Mon Coffre-Fort, en créant l'environnement virtuel au premier lancement.
+# Starts Keyra, creating the virtual environment on first run.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 if [ ! -d ".venv" ]; then
-    echo "Création de l'environnement virtuel (.venv)..."
+    echo "Creating the virtual environment (.venv)..."
     python3 -m venv .venv
     # shellcheck disable=SC1091
     source .venv/bin/activate

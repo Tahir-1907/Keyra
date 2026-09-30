@@ -1,13 +1,13 @@
-"""Liste des comptes en cartes compactes (coffre, corbeille, tableau de bord).
+"""List of entries as compact cards (Vault, Trash, Overview).
 
-Peinte par un délégué (rapide même avec des centaines d'entrées) :
-* carte : avatar monogramme, nom, identifiant, domaine, favori ;
-* survol : fond plus clair + bordure plus visible ;
-* sélection : fond actif, bordure accent, léger halo ;
-* apparition décalée (30 ms entre cartes) à chaque nouvelle liste ;
-* suppression : la carte sort vers la gauche (-30 px) en s'effaçant.
+Painted by a delegate (fast even with hundreds of entries):
+* card: monogram avatar, name, username, domain, favorite;
+* hover: lighter background + more visible border;
+* selection: active background, accent border, slight halo;
+* staggered appearance (30 ms between cards) for each new list;
+* deletion: the card leaves towards the left (-30 px) while fading out.
 
-Ne manipule que des `EntrySummary` : aucun champ sensible.
+Only handles `EntrySummary` objects: no sensitive field.
 """
 
 from __future__ import annotations
@@ -56,14 +56,14 @@ def relative_date(iso: str) -> str:
     delta = datetime.now().astimezone() - moment
     seconds = int(delta.total_seconds())
     if seconds < 60:
-        return "à l'instant"
+        return "just now"
     if seconds < 3600:
-        return f"il y a {seconds // 60} min"
+        return f"{seconds // 60} min ago"
     if seconds < 86400 and moment.date() == datetime.now().astimezone().date():
-        return f"aujourd'hui à {moment:%H:%M}"
+        return f"today at {moment:%H:%M}"
     if delta.days < 2:
-        return f"hier à {moment:%H:%M}"
-    return f"le {moment:%d/%m/%Y}"
+        return f"yesterday at {moment:%H:%M}"
+    return f"on {moment:%Y-%m-%d}"
 
 
 class EntryListModel(QAbstractListModel):
@@ -124,7 +124,7 @@ class EntryCardDelegate(QStyledItemDelegate):
         hovered = bool(option.state & QStyle.State_MouseOver)
         trash = self._view.trash_mode
 
-        if selected:  # halo discret autour de la carte active
+        if selected:  # subtle halo around the active card
             glow = QColor(theme.ACCENT)
             for i, alpha in enumerate((26, 14, 6)):
                 glow.setAlpha(alpha)
@@ -141,7 +141,7 @@ class EntryCardDelegate(QStyledItemDelegate):
         painter.setPen(QPen(border, 1))
         painter.setBrush(background)
         painter.drawRoundedRect(rect, theme.RADIUS_L, theme.RADIUS_L)
-        if selected:  # liseré d'accent à gauche
+        if selected:  # accent edge on the left
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(theme.ACCENT))
             painter.drawRoundedRect(QRectF(rect.left() + 1, rect.top() + 16, 3,
@@ -170,13 +170,13 @@ class EntryCardDelegate(QStyledItemDelegate):
                          painter.fontMetrics().elidedText(text, Qt.ElideRight,
                                                           int(sub_rect.width())))
 
-        # À droite : favori ou date de suppression (corbeille), catégorie.
+        # On the right: favorite or deletion date (Trash), category.
         painter.setFont(theme.font(theme.SIZE_TINY, QFont.Medium))
         if trash:
             painter.setPen(QColor(theme.TEXT_3))
             painter.drawText(QRectF(right - 150, rect.top() + 13, 150, 20),
                              Qt.AlignRight | Qt.AlignVCenter,
-                             f"supprimée {relative_date(summary.deleted_at)}")
+                             f"deleted {relative_date(summary.deleted_at)}")
         else:
             star = lucide.pixmap("star", theme.WARNING if summary.is_favorite else theme.TEXT_3,
                                  16, 1.8)
@@ -190,7 +190,7 @@ class EntryCardDelegate(QStyledItemDelegate):
 
 
 class EntryListView(QListView):
-    """Liste de cartes ; signaux `entry_selected(id | None)` et `favorite_clicked(id)`."""
+    """List of cards; signals `entry_selected(id | None)` and `favorite_clicked(id)`."""
 
     entry_selected = Signal(object)
     favorite_clicked = Signal(int)
@@ -216,7 +216,7 @@ class EntryListView(QListView):
     def model(self) -> EntryListModel:  # type: ignore[override]
         return super().model()
 
-    # --- Données -------------------------------------------------------------------------
+    # --- Data -------------------------------------------------------------------------
 
     def set_entries(self, rows: list[EntrySummary], animate: bool = True,
                     keep_id: int | None = None) -> None:
@@ -248,13 +248,13 @@ class EntryListView(QListView):
     def selected_summary(self) -> EntrySummary | None:
         return self.model().summary(self.model().row_of(self.selected_id()))
 
-    # --- Suppression animée ------------------------------------------------------------------
+    # --- Animated deletion ------------------------------------------------------------------
 
     def removal_progress(self, entry_id: int) -> float:
         return self._removals.get(entry_id, 0.0)
 
     def animate_removal(self, entry_id: int, then: Callable[[], None]) -> None:
-        """La carte sort vers la gauche, puis `then()` (suppression réelle) est appelé."""
+        """The card leaves towards the left, then `then()` (actual deletion) is called."""
         if not effects.animations_enabled() or self.model().row_of(entry_id) < 0:
             then()
             return

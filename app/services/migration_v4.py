@@ -1,39 +1,43 @@
-"""Migration d'un coffre v1/v2/v3 vers le schéma v4 (métadonnées chiffrées).
+"""Migration of a v1/v2/v3 vault to schema v4 (encrypted metadata).
 
-Moteur autonome, appelé par app.services.vault_upgrade (préflight strict des
-structures, confirmation explicite dans l'interface, vérification complète
-après migration) ; il n'est jamais déclenché automatiquement.
+Standalone engine, called by app.services.vault_upgrade (strict structure
+preflight, explicit confirmation in the interface, full verification after
+the migration); it is never triggered automatically.
 
-Déroulement (tout ou rien) :
+Sequence (all or nothing):
 
-1. Avant toute modification : sauvegarde CHIFFRÉE `.mcfbak` (type « migration »),
-   vérifiée par déchiffrement complet. Jamais de copie `.bak` en clair ; les
-   anciennes copies `vault.db.avant-schema-v*.bak` (en clair) sont seulement
-   signalées, jamais utilisées ni supprimées.
-2. Une seule transaction (BEGIN IMMEDIATE ... COMMIT) :
-   a. étapes structurelles v1/v2 -> v3 si besoin (réutilisées telles quelles) ;
-   b. structures v4 ajoutées, `vault_uuid` généré ;
-   c. catégories : clé technique (intégrées) ou nom chiffré (personnelles) ;
-   d. tags hérités de `entry_tags` ;
-   e. entrées : JSON de métadonnées chiffré, écrit, RELU, déchiffré et comparé
-      champ par champ à la source v3 ; secrets vérifiés (déchiffrables) ;
-   f. historique : chaque version déchiffrée et validée (format v1) ;
-   g. validation globale : résumés de recherche (donc toutes les recherches et
-      tous les filtres), catégories et compteurs identiques avant/après ;
-   h. reconstruction des tables SANS les colonnes en clair ni `entry_tags`,
-      compteurs AUTOINCREMENT conservés, puis revalidation complète
-      (structure, foreign_key_check, intégrité, octets des secrets inchangés) ;
-   i. `schema_version = 4` en DERNIER.
-   Toute erreur : ROLLBACK — le coffre reste un coffre v1/v2/v3 intact.
-3. Après COMMIT : checkpoint du WAL, VACUUM (réécriture du fichier sans les
-   anciennes pages), nouveau checkpoint.
+1. Before any modification: ENCRYPTED `.mcfbak` backup ("migration" kind),
+   verified by full decryption. Never a plaintext `.bak` copy; the old
+   plaintext copies `vault.db.avant-schema-v*.bak` are only reported, never
+   used or deleted.
+2. A single transaction (BEGIN IMMEDIATE ... COMMIT):
+   a. v1/v2 -> v3 structural steps if needed (reused as they are);
+   b. v4 structures added, `vault_uuid` generated;
+   c. categories: technical key (built-in) or encrypted name (custom);
+   d. tags inherited from `entry_tags`;
+   e. entries: encrypted metadata JSON, written, READ BACK, decrypted and
+      compared field by field with the v3 source; secrets checked (decryptable);
+   f. history: every version decrypted and validated (format v1);
+   g. global validation: search summaries (hence every search and every
+      filter), categories and counters identical before/after;
+   h. rebuild of the tables WITHOUT the plaintext columns or `entry_tags`,
+      AUTOINCREMENT counters kept, then full re-validation (structure,
+      foreign_key_check, integrity, secret bytes unchanged);
+   i. `schema_version = 4` LAST.
+   Any error: ROLLBACK — the vault remains an intact v1/v2/v3 vault.
+3. After COMMIT: WAL checkpoint, VACUUM (the file is rewritten without the
+   old pages), another checkpoint.
 
-`PRAGMA foreign_keys` : désactivé juste avant BEGIN et réactivé dans un finally.
-C'est la procédure de reconstruction de tables documentée par SQLite (« Making
-other kinds of table schema changes ») : avec les clés étrangères actives,
-DROP TABLE entries déclencherait le ON DELETE CASCADE et SUPPRIMERAIT tout
-l'historique. L'intégrité référentielle est vérifiée par PRAGMA
-foreign_key_check avant validation : un seul écart annule la migration.
+`PRAGMA foreign_keys`: disabled just before BEGIN and re-enabled in a finally.
+This is the table rebuild procedure documented by SQLite ("Making other kinds
+of table schema changes"): with foreign keys enabled, DROP TABLE entries
+would trigger the ON DELETE CASCADE and DELETE the whole history. Referential
+integrity is checked with PRAGMA foreign_key_check before validation: a
+single discrepancy cancels the migration.
+
+The v4 view built here (`load_v4_view`) names built-in categories with their
+LEGACY French names, because it is compared with the plaintext v3 state; it
+is used by the migration and its tests only, never displayed.
 """
 
 from __future__ import annotations
@@ -47,7 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.core import crypto
-from app.core.builtin_categories import builtin_key_for_v3_row, builtin_name
+from app.core.builtin_categories import builtin_key_for_v3_row, legacy_builtin_name
 from app.core.entries import (
     UNCATEGORIZED,
     EntryFilter,
@@ -87,7 +91,7 @@ _COPY_SQL = {
 
 
 class MigrationError(VaultError):
-    """La migration a échoué ; le coffre n'a pas été modifié (retour arrière complet)."""
+    """The migration failed; the vault was not modified (full rollback)."""
 
 
 @dataclass(slots=True)
@@ -105,35 +109,38 @@ class MigrationReport:
 
 @dataclass(slots=True)
 class V4View:
-    """Contenu v4 déchiffré (en mémoire) : métadonnées et noms de catégories."""
+    """Decrypted v4 content (in memory): metadata and category names."""
 
     entries: dict[int, EntryMetadata] = field(default_factory=dict)
-    categories: dict[int, tuple[str, bool]] = field(default_factory=dict)  # id -> (nom, intégrée)
+    categories: dict[int, tuple[str, bool]] = field(default_factory=dict)  # id -> (name, built-in)
 
 
 def legacy_plaintext_copies(vault: Vault) -> list[Path]:
-    """Anciennes copies en clair laissées par les migrations v1.x (à signaler seulement)."""
+    """Old plaintext copies left by the v1.x migrations (to be reported only)."""
     return sorted(Path(vault._db_path).parent.glob("vault.db.avant-schema-v*.bak"))
 
 
-# --- Lecture du contenu v4 ----------------------------------------------------------------
+# --- Reading the v4 content ----------------------------------------------------------------
 
 
 def load_v4_view(conn: sqlite3.Connection, cipher: MetadataCipher) -> V4View:
-    """Déchiffre toutes les métadonnées et catégories (structures v4 requises)."""
+    """Decrypts all metadata and categories (v4 structures required).
+
+    Built-in categories get their legacy (v1.x) name, to match the v3 reference.
+    """
     view = V4View()
     for entry_id, blob in EntryRepository(conn).list_metadata_blobs():
         view.entries[entry_id] = cipher.decrypt_entry(entry_id, blob)
     for row in conn.execute("SELECT id, builtin_key, name_enc FROM categories ORDER BY id;"):
         if row[1] is not None:
-            view.categories[row[0]] = (builtin_name(row[1]), True)
+            view.categories[row[0]] = (legacy_builtin_name(row[1]), True)
         else:
             view.categories[row[0]] = (cipher.decrypt_category(row[0], row[2]).name, False)
     return view
 
 
 def summaries_v4(view: V4View, flt: EntryFilter | None = None) -> list[EntrySummary]:
-    """Mêmes résumés, filtres et tri que EntryService.list_entries, à partir du v4."""
+    """Same summaries, filters and sorting as EntryService.list_entries, from the v4 content."""
     flt = flt or EntryFilter()
     result = []
     for entry_id, meta in view.entries.items():
@@ -160,11 +167,11 @@ def summaries_v4(view: V4View, flt: EntryFilter | None = None) -> list[EntrySumm
 
 def migrate_to_v4(vault: Vault, backup_dir: Path,
                   _fault: Callable[[str], None] | None = None) -> MigrationReport:
-    """Migre un coffre DÉVERROUILLÉ (v1 à v3) vers v4. Tout ou rien.
+    """Migrates an UNLOCKED vault (v1 to v3) to v4. All or nothing.
 
-    `_fault` : réservé aux tests (injection d'une erreur à une étape donnée).
-    Lève MigrationError (le coffre est alors intact) ; la sauvegarde chiffrée de
-    migration, créée avant toute modification, est conservée dans tous les cas.
+    `_fault`: reserved for tests (injects an error at a given step).
+    Raises MigrationError (the vault is then intact); the encrypted migration
+    backup, created before any modification, is kept in every case.
     """
     started = time.monotonic()
     step = _fault or (lambda _name: None)
@@ -173,13 +180,13 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
     conn = vault.connection
     meta = VaultMetaRepository(conn).get()
     if meta is None or not 1 <= meta.schema_version < database.V4_SCHEMA_VERSION:
-        raise MigrationError("Ce coffre ne peut pas être migré vers le format v4.")
+        raise MigrationError("This vault cannot be migrated to the v4 format.")
     report = MigrationReport(meta.schema_version, Path(), legacy_plaintext_copies(vault))
     if report.legacy_plaintext_copies:
         logger.warning("Legacy plaintext copies next to vault %s: %d (not used, not deleted)",
                        vault.vault_id, len(report.legacy_plaintext_copies))
 
-    # 1. Sauvegarde chiffrée, vérifiée, AVANT toute modification.
+    # 1. Encrypted, verified backup, BEFORE any modification.
     try:
         report.backup_path = backup.create_backup(vault, directory=backup_dir,
                                                   kind=backup.KIND_MIGRATION)
@@ -187,15 +194,15 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
     except (VaultError, OSError, sqlite3.Error) as exc:
         logger.error("Migration backup failed, vault untouched: %s (%s)", vault.vault_id,
                      type(exc).__name__)
-        raise MigrationError("Sauvegarde préalable impossible : le coffre n'a pas été "
-                             "modifié.") from exc
+        raise MigrationError("Preliminary backup impossible: the vault has not been "
+                             "modified.") from exc
 
-    # 2. Transaction unique.
+    # 2. Single transaction.
     conn.commit()
     conn.execute("PRAGMA foreign_keys = OFF;")
     try:
         if conn.execute("PRAGMA foreign_keys;").fetchone()[0] != 0:
-            raise MigrationError("Impossible de préparer la reconstruction des tables.")
+            raise MigrationError("Cannot prepare the table rebuild.")
         conn.execute("BEGIN IMMEDIATE;")
         try:
             _migrate(vault, conn, dek, meta.schema_version, step, report)
@@ -207,21 +214,21 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
     except MigrationError:
         logger.error("Vault migration to v4 failed, rolled back: %s", vault.vault_id)
         raise
-    except Exception as exc:  # toute erreur annule la migration (cause chaînée)
+    except Exception as exc:  # any error cancels the migration (chained cause)
         logger.error("Vault migration to v4 failed, rolled back: %s (%s)",
                      vault.vault_id, type(exc).__name__)
         raise MigrationError(
-            "La migration vers le format v4 a échoué ; le coffre n'a pas été modifié.") from exc
+            "The migration to the v4 format failed; the vault has not been modified.") from exc
     finally:
         conn.execute("PRAGMA foreign_keys = ON;")
 
-    # 3. Anciennes pages : hors du fichier (le WAL et les pages libres ne gardent rien).
+    # 3. Old pages: out of the file (the WAL and free pages keep nothing).
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
         conn.execute("VACUUM;")
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
         report.vacuumed = True
-    except sqlite3.Error as exc:  # migration déjà validée : on le signale, sans l'annuler
+    except sqlite3.Error as exc:  # migration already committed: report it, without cancelling it
         logger.error("VACUUM after migration failed: %s (%s)", vault.vault_id,
                      type(exc).__name__)
     report.seconds = time.monotonic() - started
@@ -232,7 +239,7 @@ def migrate_to_v4(vault: Vault, backup_dir: Path,
 
 
 def _fail(message: str) -> MigrationError:
-    return MigrationError(f"Migration impossible : {message}")
+    return MigrationError(f"Migration impossible: {message}")
 
 
 def _sha(blob: bytes | None) -> str:
@@ -249,153 +256,153 @@ def _migrate(vault: Vault, conn: sqlite3.Connection, dek: bytes, from_version: i
     VaultMetaRepository(conn).set_vault_uuid(new_vault_uuid())
     cipher = MetadataCipher(dek, VaultMetaRepository(conn).get().vault_uuid)
 
-    # État v3 de référence, lu dans les colonnes v3 AVANT toute écriture de métadonnées.
+    # Reference v3 state, read from the v3 columns BEFORE any metadata is written.
     entries_repo, categories_repo = EntryRepository(conn), CategoryRepository(conn)
     records = sorted(entries_repo.list_active() + entries_repo.list_deleted(),
                      key=lambda r: r.id)
     old_active, old_trash, old_categories = _v3_reference(conn, records)
 
-    # c. Catégories.
+    # c. Categories.
     category_ids = set()
     for category in categories_repo.list_all_v4():
         category_ids.add(category.id)
         try:
             key = builtin_key_for_v3_row(category.name, category.is_builtin)
         except ValueError as exc:
-            raise _fail("catégorie intégrée inconnue.") from exc
+            raise _fail("unknown built-in category.") from exc
         if key is not None:
             if not categories_repo.set_builtin_key(category.id, key):
-                raise _fail("catégorie intégrée non enregistrée.")
+                raise _fail("built-in category not saved.")
         else:
             source = CategoryMetadata(name=category.name, created_at=category.created_at)
             if not categories_repo.set_name_blob(
                     category.id, cipher.encrypt_category(category.id, source)):
-                raise _fail("catégorie personnelle non enregistrée.")
+                raise _fail("custom category not saved.")
         step("category")
-    for category in categories_repo.list_all_v4():  # relecture
+    for category in categories_repo.list_all_v4():  # read back
         if category.builtin_key is not None:
-            if builtin_name(category.builtin_key) != category.name:
-                raise _fail("catégorie intégrée relue différente.")
+            if legacy_builtin_name(category.builtin_key) != category.name:
+                raise _fail("built-in category read back differently.")
         elif cipher.decrypt_category(category.id, category.name_enc) != CategoryMetadata(
                 category.name, category.created_at):
-            raise _fail("catégorie personnelle relue différente.")
+            raise _fail("custom category read back differently.")
     report.categories = len(category_ids)
 
-    # d. Tags hérités (table entry_tags, jamais alimentée par l'application jusqu'ici).
+    # d. Inherited tags (entry_tags table, never filled by the application so far).
     entry_ids = {r.id for r in records}
     raw_tags: dict[int, list[str]] = {}
     for entry_id, tag in conn.execute("SELECT entry_id, tag FROM entry_tags ORDER BY rowid;"):
         if entry_id not in entry_ids:
-            raise _fail("tag rattaché à une entrée inexistante.")
+            raise _fail("tag attached to a non-existent entry.")
         raw_tags.setdefault(entry_id, []).append(tag)
     tags: dict[int, tuple[str, ...]] = {}
     for entry_id, values in raw_tags.items():
         try:
             tags[entry_id] = normalize_tags(values)
         except EntryValidationError as exc:
-            raise _fail(f"tags invalides pour l'entrée {entry_id}.") from exc
+            raise _fail(f"invalid tags for entry {entry_id}.") from exc
     report.tags = sum(len(t) for t in tags.values())
     step("tags")
 
-    # e. Entrées : chiffrement, relecture, comparaison champ par champ.
+    # e. Entries: encryption, read-back, field-by-field comparison.
     expected: dict[int, EntryMetadata] = {}
     secrets_sha: dict[int, tuple[str, ...]] = {}
     for record in records:
         if record.category_id is not None and record.category_id not in category_ids:
-            raise _fail(f"catégorie introuvable pour l'entrée {record.id}.")
+            raise _fail(f"category not found for entry {record.id}.")
         if record.is_deleted != (record.deleted_at is not None):
-            raise _fail(f"état de corbeille incohérent pour l'entrée {record.id}.")
+            raise _fail(f"inconsistent Trash state for entry {record.id}.")
         source = EntryMetadata(
             name=record.service_name, url=record.url or "", username=record.username or "",
             entry_type=record.entry_type, category_id=record.category_id,
             is_favorite=record.is_favorite, tags=tags.get(record.id, ()),
             created_at=record.created_at, updated_at=record.updated_at,
-            # Même repli que la lecture v3 (EntryService.get_entry).
+            # Same fallback as the v3 read (EntryService.get_entry).
             password_changed_at=record.password_changed_at or record.updated_at,
             deleted_at=record.deleted_at if record.is_deleted else None,
         )
         try:
             blob = cipher.encrypt_entry(record.id, source)
         except EntryValidationError as exc:
-            raise _fail(f"métadonnées invalides pour l'entrée {record.id}.") from exc
+            raise _fail(f"invalid metadata for entry {record.id}.") from exc
         if not entries_repo.set_metadata_blob(record.id, blob):
-            raise _fail(f"entrée {record.id} non enregistrée.")
+            raise _fail(f"entry {record.id} not saved.")
         reread = cipher.decrypt_entry(record.id, entries_repo.get_metadata_blob(record.id))
         if reread != source or (reread.name, reread.url, reread.username, reread.entry_type,
                                 reread.category_id, reread.is_favorite) != (
                 record.service_name, record.url or "", record.username or "",
                 record.entry_type, record.category_id, record.is_favorite):
-            raise _fail(f"métadonnées relues différentes pour l'entrée {record.id}.")
+            raise _fail(f"metadata read back differently for entry {record.id}.")
         expected[record.id] = source
         blobs = (record.email_enc, record.password_enc, record.notes_enc,
                  record.extra_fields_enc)
         for column, secret in zip(_SECRET_COLUMNS, blobs, strict=True):
             if secret is None:
-                raise _fail(f"champ secret absent pour l'entrée {record.id}.")
+                raise _fail(f"missing secret field for entry {record.id}.")
             try:
                 crypto.decrypt_field(dek, secret,
                                      f"mon-coffre-fort:entry:{record.id}:{column}".encode())
             except (ValueError, crypto.AuthenticationFailed) as exc:
-                raise _fail(f"champ secret illisible pour l'entrée {record.id}.") from exc
+                raise _fail(f"unreadable secret field for entry {record.id}.") from exc
         secrets_sha[record.id] = tuple(_sha(b) for b in blobs)
         step("entry")
     report.entries = len(records)
 
-    # f. Historique (format v1 conservé tel quel, seulement vérifié).
+    # f. History (format v1 kept as is, only checked).
     history_sha: dict[int, tuple[int, str, str]] = {}
     for hid, entry_id, snapshot, created_at in conn.execute(
             "SELECT id, entry_id, snapshot_enc, created_at FROM entry_history ORDER BY id;"):
         if entry_id not in entry_ids or snapshot is None:
-            raise _fail(f"version d'historique {hid} orpheline ou vide.")
+            raise _fail(f"history version {hid} orphaned or empty.")
         try:
             parse_snapshot(json.loads(crypto.decrypt_field(
                 dek, snapshot, f"mon-coffre-fort:history:{entry_id}:{hid}".encode())))
         except (ValueError, crypto.AuthenticationFailed) as exc:
-            raise _fail(f"version d'historique {hid} illisible.") from exc
+            raise _fail(f"history version {hid} unreadable.") from exc
         history_sha[hid] = (entry_id, _sha(snapshot), created_at)
         step("history")
     report.history_versions = len(history_sha)
 
-    # g. Validation globale avant reconstruction.
+    # g. Global validation before the rebuild.
     view = load_v4_view(conn, cipher)
     _check_view(view, expected, old_active, old_trash, old_categories)
     step("validation")
 
-    # h. Reconstruction des tables sans aucune colonne en clair.
+    # h. Rebuild of the tables without any plaintext column.
     _rebuild(conn, step)
     view = load_v4_view(conn, cipher)
     _check_view(view, expected, old_active, old_trash, old_categories)
     for record_id, *blobs in conn.execute(
             "SELECT id, email_enc, password_enc, notes_enc, extra_fields_enc FROM entries;"):
         if tuple(_sha(b) for b in blobs) != secrets_sha.get(record_id):
-            raise _fail("champs secrets modifiés par la reconstruction.")
+            raise _fail("secret fields changed by the rebuild.")
     rebuilt_history = {hid: (entry_id, _sha(snapshot), created_at)
                        for hid, entry_id, snapshot, created_at in conn.execute(
                            "SELECT id, entry_id, snapshot_enc, created_at FROM entry_history;")}
     if rebuilt_history != history_sha:
-        raise _fail("historique modifié par la reconstruction.")
+        raise _fail("history changed by the rebuild.")
     problems = database.structure_problems(conn, database.V4_SCHEMA_VERSION)
     if problems:
-        raise _fail("structure v4 invalide (" + "; ".join(problems) + ").")
+        raise _fail("invalid v4 structure (" + "; ".join(problems) + ").")
     if conn.execute("PRAGMA foreign_key_check;").fetchall():
-        raise _fail("références incohérentes entre les tables.")
+        raise _fail("inconsistent references between the tables.")
     if conn.execute("PRAGMA integrity_check;").fetchone()[0] != "ok":
-        raise _fail("contrôle d'intégrité SQLite en échec.")
+        raise _fail("SQLite integrity check failed.")
     step("before_version")
 
-    # i. Le numéro de schéma, en dernier.
+    # i. The schema number, last.
     conn.execute("UPDATE vault_meta SET schema_version = ? WHERE id = 1;",
                  (database.V4_SCHEMA_VERSION,))
     if VaultMetaRepository(conn).get().schema_version != database.V4_SCHEMA_VERSION:
-        raise _fail("numéro de schéma non enregistré.")
+        raise _fail("schema number not saved.")
     step("before_commit")
 
 
 def _v3_reference(conn: sqlite3.Connection, records: list) -> tuple[
         list[EntrySummary], list[EntrySummary], list[tuple]]:
-    """Résumés (actifs, corbeille) et catégories tels que la version 1.6 les calculait
-    (EntryService.list_entries / CategoryService.list_categories v3), à partir des
-    seules colonnes v3 : la migration ne dépend pas des services, qui sont v4."""
+    """Summaries (active, Trash) and categories as version 1.6 computed them
+    (v3 EntryService.list_entries / CategoryService.list_categories), from the v3
+    columns alone: the migration does not depend on the services, which are v4."""
     categories = CategoryRepository(conn).list_all()
     names = {c.id: c.name for c in categories}
     summaries = [
@@ -419,14 +426,14 @@ def _v3_reference(conn: sqlite3.Connection, records: list) -> tuple[
 def _check_view(view: V4View, expected: dict[int, EntryMetadata],
                 old_active: list[EntrySummary], old_trash: list[EntrySummary],
                 old_categories: list[tuple]) -> None:
-    """Le contenu v4 déchiffré correspond exactement à l'état v3 de référence."""
+    """The decrypted v4 content matches the reference v3 state exactly."""
     if view.entries != expected:
-        raise _fail("métadonnées différentes de la source.")
-    # Résumés identiques (mêmes champs, même ordre) => recherches et filtres identiques.
+        raise _fail("metadata differs from the source.")
+    # Identical summaries (same fields, same order) => identical searches and filters.
     if summaries_v4(view) != old_active:
-        raise _fail("liste des entrées différente.")
+        raise _fail("entry list differs.")
     if summaries_v4(view, EntryFilter(in_trash=True)) != old_trash:
-        raise _fail("corbeille différente.")
+        raise _fail("Trash differs.")
     counts: dict[int, int] = {}
     for meta in view.entries.values():
         if meta.deleted_at is None and meta.category_id is not None:
@@ -434,19 +441,19 @@ def _check_view(view: V4View, expected: dict[int, EntryMetadata],
     new_categories = sorted((cid, name, builtin, counts.get(cid, 0))
                             for cid, (name, builtin) in view.categories.items())
     if new_categories != old_categories:
-        raise _fail("catégories différentes.")
+        raise _fail("categories differ.")
     if UNCATEGORIZED in view.categories:
-        raise _fail("identifiant de catégorie réservé.")
+        raise _fail("reserved category identifier.")
 
 
 def _rebuild(conn: sqlite3.Connection, step: Callable[[str], None]) -> None:
-    """Tables v4 définitives, copiées depuis les tables validées (clés étrangères désactivées)."""
+    """Final v4 tables, copied from the validated tables (foreign keys disabled)."""
     sequences = {name: seq for name, seq in conn.execute(
         "SELECT name, seq FROM sqlite_sequence;")}
     tables_sql = database.v4_tables_sql(suffix="_v4")
     for table in _REBUILT_TABLES:
         conn.execute(tables_sql[table])
-        columns = _COPY_SQL[table]  # noms de tables et de colonnes : constantes du module
+        columns = _COPY_SQL[table]  # table and column names: module constants
         sql = f"INSERT INTO {table}_v4 ({columns}) SELECT {columns} FROM {table};"  # noqa: S608
         conn.execute(sql)
     step("rebuild")
@@ -456,7 +463,7 @@ def _rebuild(conn: sqlite3.Connection, step: Callable[[str], None]) -> None:
         conn.execute(f"ALTER TABLE {table}_v4 RENAME TO {table};")
     for statement in database.V4_POST_REBUILD_SQL:
         conn.execute(statement)
-    # AUTOINCREMENT : un identifiant supprimé ne doit jamais être réattribué (AAD).
+    # AUTOINCREMENT: a deleted identifier must never be reassigned (AAD).
     for table in ("categories", "entries", "entry_history"):
         if table in sequences:
             conn.execute("DELETE FROM sqlite_sequence WHERE name = ?;", (table,))

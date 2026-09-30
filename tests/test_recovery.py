@@ -1,4 +1,4 @@
-"""Clé de récupération : format, création, usage unique, sécurité."""
+"""Recovery key: format, creation, single use, security."""
 
 import hashlib
 import secrets
@@ -54,8 +54,8 @@ class TestRecoveryKeyFormat(VaultTestCase):
         with self.assertRaises(RecoveryKeyFormatError):
             recovery.normalize(key[:-1])
         with self.assertRaises(RecoveryKeyFormatError):
-            recovery.normalize(key[:-1] + "U")  # U n'est pas dans l'alphabet
-        # Un caractère changé : le contrôle le détecte (sauf collision, 1 sur 1024).
+            recovery.normalize(key[:-1] + "U")  # U is not in the alphabet
+        # One character changed: the check detects it (except a collision, 1 in 1024).
         detected = 0
         for position in range(0, 30, 3):
             char = key[position]
@@ -101,7 +101,7 @@ class TestRecoveryKey(VaultTestCase):
         self.assertNotEqual(new_key, self.key)
         self.assertEqual(EntryService(vault).get_entry(self.entry_id).password, "secret-de-test")
         vault.close()
-        # L'ancien mot de passe et l'ancienne clé n'ouvrent plus rien ; les nouveaux, oui.
+        # The old password and the old key no longer open anything; the new ones do.
         with self.assertRaises(WrongMasterPasswordError):
             Vault.unlock(self.vault_id, self.master)
         with self.assertRaises(RecoveryKeyError):
@@ -124,10 +124,10 @@ class TestRecoveryKey(VaultTestCase):
         self.vault = Vault.unlock(self.vault_id, self.master)
 
     def test_envelopes_are_not_interchangeable(self):
-        # Pire cas : le mot de passe maître EST la partie secrète d'une clé de
-        # récupération, donc la même KEK. Copier l'enveloppe du mot de passe dans
-        # l'emplacement de récupération ne doit pourtant rien ouvrir : seules les
-        # données associées AES-GCM (distinctes) l'empêchent.
+        # Worst case: the master password IS the secret part of a recovery key,
+        # hence the same KEK. Copying the password envelope into the recovery slot
+        # must still open nothing: only the (distinct) AES-GCM associated data
+        # prevents it.
         key = recovery.generate()
         other_id = self.vault_id + "-aad"
         vault = Vault.create(other_id, "AAD", recovery.normalize(key))
@@ -139,7 +139,7 @@ class TestRecoveryKey(VaultTestCase):
         with self.assertRaises(RecoveryKeyError) as ctx:
             Vault.recover(other_id, key, _password())
         self.assertNotIsInstance(ctx.exception, RecoveryKeyFormatError)
-        Vault.unlock(other_id, recovery.normalize(key)).close()  # rien n'a changé
+        Vault.unlock(other_id, recovery.normalize(key)).close()  # nothing changed
 
     def test_create_replace_and_remove_require_master_password(self):
         with self.assertRaises(WrongMasterPasswordError):
@@ -150,7 +150,7 @@ class TestRecoveryKey(VaultTestCase):
         self.assertNotEqual(replaced, self.key)
         self.vault.close()
         with self.assertRaises(RecoveryKeyError):
-            Vault.recover(self.vault_id, self.key, _password())  # l'ancienne est révoquée
+            Vault.recover(self.vault_id, self.key, _password())  # the old one is revoked
         self.vault = Vault.unlock(self.vault_id, self.master)
         self.vault.remove_recovery_key(self.master)
         self.assertFalse(self.vault.has_recovery_key)
@@ -184,8 +184,8 @@ class TestVaultWithoutRecoveryKey(VaultTestCase):
         self.assertFalse(vault_has_recovery_key(self.vault_id))
         with self.assertRaises(NoRecoveryKeyError):
             Vault.recover(self.vault_id, recovery.generate(), _password())
-        # Vrai coffre v2 (Mon Coffre-Fort 1.0.0, sans table vault_recovery) : pas de clé,
-        # et toute récupération exige d'abord la mise à niveau v4 (fichier non modifié).
+        # Real v2 vault (app version 1.0.0, no vault_recovery table): no key,
+        # and any recovery requires the v4 upgrade first (file not modified).
         fixture = Path(__file__).resolve().parent / "fixtures" / "v2-app-1.0.0" / "vault.db"
         shutil.copyfile(fixture, vault_path("coffre-v2") / "vault.db")
         self.assertFalse(vault_has_recovery_key("coffre-v2"))

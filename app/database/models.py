@@ -1,9 +1,9 @@
-"""Modèles de données (dataclasses typées).
+"""Data models (typed dataclasses).
 
-Ces dataclasses reflètent les tables SQLite telles qu'elles sont stockées :
-les champs sensibles y sont des BLOB chiffrés opaques. Les objets
-« déchiffrés » manipulés par l'application (Entry, EntrySummary) vivent
-dans app/core/entries.py, car seule la couche cœur connaît la clé.
+These dataclasses mirror the SQLite tables as they are stored: sensitive
+fields are opaque encrypted BLOBs there. The "decrypted" objects handled by
+the application (Entry, EntrySummary) live in app/core/entries.py, because
+only the core layer knows the key.
 """
 
 from __future__ import annotations
@@ -13,25 +13,25 @@ from dataclasses import dataclass
 from app.core.builtin_categories import BUILTIN_CATEGORY_KEYS
 from app.core.crypto import Argon2Params, check_salt
 
-VAULT_UUID_SIZE = 16  # identique à app.core.metadata.VAULT_UUID_SIZE (vérifié par un test)
+VAULT_UUID_SIZE = 16  # identical to app.core.metadata.VAULT_UUID_SIZE (checked by a test)
 
 
 def _check_blob(value: object, what: str) -> None:
     if not isinstance(value, bytes):
-        raise ValueError(f"{what} invalide.")
+        raise ValueError(f"Invalid {what}.")
 
 
 def _check_version(value: object, what: str) -> None:
-    # bool est un int en Python : exclu explicitement.
+    # bool is an int in Python: excluded explicitly.
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ValueError(f"{what} invalide.")
+        raise ValueError(f"Invalid {what}.")
 
 
 @dataclass(slots=True)
 class RecoveryRecord:
-    """Ligne de `vault_recovery` : la DEK enveloppée par la clé de récupération.
+    """Row of `vault_recovery`: the DEK wrapped by the recovery key.
 
-    Ne contient ni la clé de récupération, ni la DEK en clair.
+    Contains neither the recovery key nor the plaintext DEK.
     """
 
     kdf_params: Argon2Params
@@ -40,18 +40,17 @@ class RecoveryRecord:
     created_at: str
 
     def __post_init__(self) -> None:
-        """Valeurs relues d'un fichier : ValueError si elles sont malformées."""
+        """Values read back from a file: ValueError if they are malformed."""
         check_salt(self.kdf_salt)
-        _check_blob(self.wrapped_key_blob, "Enveloppe de récupération")
+        _check_blob(self.wrapped_key_blob, "recovery envelope")
 
 
 @dataclass(slots=True)
 class VaultMeta:
-    """Représentation en mémoire de la table `vault_meta`.
+    """In-memory representation of the `vault_meta` table.
 
-    `wrapped_key_blob` et `verifier_blob` sont des BLOB chiffrés opaques
-    (voir app.core.crypto.pack_blob) : cette dataclass ne contient jamais
-    de clé en clair.
+    `wrapped_key_blob` and `verifier_blob` are opaque encrypted BLOBs (see
+    app.core.crypto.pack_blob): this dataclass never contains a plaintext key.
     """
 
     schema_version: int
@@ -64,32 +63,32 @@ class VaultMeta:
     vault_name: str
     created_at: str
     updated_at: str
-    # v4 : identité stable du coffre (AAD des métadonnées). None pour un coffre v3 :
-    # jamais générée à la lecture, seulement par la migration ou la création v4.
+    # v4: stable vault identity (metadata AAD). None for a v3 vault:
+    # never generated on read, only by the migration or by v4 creation.
     vault_uuid: bytes | None = None
 
     def __post_init__(self) -> None:
-        """Valeurs relues d'un fichier (coffre, en-tête de sauvegarde) : ValueError si
-        elles sont malformées, traduite en « coffre corrompu » par les appelants."""
-        _check_version(self.schema_version, "Version de schéma")
-        _check_version(self.format_version, "Version de format")
+        """Values read back from a file (vault, backup header): ValueError if they
+        are malformed, which callers turn into "corrupted vault"."""
+        _check_version(self.schema_version, "schema version")
+        _check_version(self.format_version, "format version")
         if self.kdf_name != "argon2id":
-            raise ValueError("Fonction de dérivation inconnue.")
+            raise ValueError("Unknown key derivation function.")
         check_salt(self.kdf_salt)
-        _check_blob(self.wrapped_key_blob, "Clé enveloppée")
-        _check_blob(self.verifier_blob, "Vérificateur")
+        _check_blob(self.wrapped_key_blob, "wrapped key")
+        _check_blob(self.verifier_blob, "verifier")
         if self.vault_uuid is not None and (
                 not isinstance(self.vault_uuid, bytes) or len(self.vault_uuid) != VAULT_UUID_SIZE):
-            raise ValueError("Identité de coffre invalide.")
+            raise ValueError("Invalid vault identity.")
 
 
 @dataclass(slots=True)
 class EntryRecord:
-    """Ligne de la table `entries` d'un coffre v1 à v3 (métadonnées en clair).
+    """Row of the `entries` table of a v1 to v3 vault (plaintext metadata).
 
-    Legacy : lue par la migration v3 -> v4 uniquement ; le runtime v4 ne manipule
-    que des blobs (EntryRepository, méthodes v4). Les attributs `*_enc` sont des BLOB
-    AES-256-GCM (voir app.core.crypto.pack_blob) ou None si le champ est vide.
+    Legacy: read by the v3 -> v4 migration only; the v4 runtime only handles
+    blobs (EntryRepository, v4 methods). The `*_enc` attributes are AES-256-GCM
+    BLOBs (see app.core.crypto.pack_blob) or None if the field is empty.
     """
 
     id: int | None
@@ -113,10 +112,10 @@ class EntryRecord:
 
 @dataclass(slots=True)
 class CategoryRecord:
-    """Ligne de la table `categories` pendant la migration (legacy, voir EntryRecord).
+    """Row of the `categories` table during the migration (legacy, see EntryRecord).
 
-    v3 : `name` en clair. v4 (colonnes ajoutées) : `builtin_key` pour une catégorie
-    intégrée, OU `name_enc` (nom chiffré) pour une catégorie personnelle.
+    v3: plaintext `name`. v4 (added columns): `builtin_key` for a built-in
+    category, OR `name_enc` (encrypted name) for a custom category.
     """
 
     id: int
@@ -128,16 +127,16 @@ class CategoryRecord:
 
     def __post_init__(self) -> None:
         if self.builtin_key is not None and self.builtin_key not in BUILTIN_CATEGORY_KEYS:
-            raise ValueError("Clé de catégorie intégrée inconnue.")
+            raise ValueError("Unknown built-in category key.")
         if self.name_enc is not None:
-            _check_blob(self.name_enc, "Nom de catégorie chiffré")
+            _check_blob(self.name_enc, "encrypted category name")
         if self.builtin_key is not None and self.name_enc is not None:
-            raise ValueError("Catégorie à la fois intégrée et personnelle.")
+            raise ValueError("Category is both built-in and custom.")
 
 
 @dataclass(slots=True)
 class HistoryRecord:
-    """Ligne de `entry_history` : une version précédente, chiffrée, d'une entrée."""
+    """Row of `entry_history`: an encrypted previous version of an entry."""
 
     id: int
     entry_id: int

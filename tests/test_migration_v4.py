@@ -1,7 +1,7 @@
-"""Migration v1/v2/v3 -> v4 (C2) : conservation, retour arrière, confidentialité.
+"""Migration v1/v2/v3 -> v4 (C2): preservation, rollback, confidentiality.
 
-Toujours sur des COPIES des coffres de référence (tests/fixtures) ou sur des
-coffres jetables. La migration n'est appelée par aucun code de l'application.
+Always on COPIES of the reference vaults (tests/fixtures) or on throwaway
+vaults.
 """
 
 import json
@@ -45,12 +45,12 @@ class MigrationTestCase(FixtureVaultTestCase):
 
     def install(self, name: str) -> dict:
         manifest = super().install(name)
-        # État de référence, avant toute opération sur le coffre.
+        # Reference state, before any operation on the vault.
         self.v3_dump = logical_dump(self.db_path(manifest))
         return manifest
 
     def migrate(self, name: str, fault=None, prepare=None):
-        """Installe une copie, la prépare éventuellement (SQL brut), puis la migre."""
+        """Installs a copy, optionally prepares it (raw SQL), then migrates it."""
         manifest = self.install(name)
         if prepare is not None:
             conn = sqlite3.connect(self.db_path(manifest))
@@ -93,7 +93,7 @@ class MigrationTestCase(FixtureVaultTestCase):
                 "tags": meta.tags,
             }
             wanted = {k: expected[k] for k in actual if k != "tags"} | {"tags": ()}
-            self.assertEqual(actual, wanted, f"entrée {entry_id}")
+            self.assertEqual(actual, wanted, f"entry {entry_id}")
             if with_history:
                 history = []
                 for record in HistoryRepository(conn).list_for_entry(entry_id):
@@ -110,8 +110,8 @@ class MigrationTestCase(FixtureVaultTestCase):
                              search["result"], f"recherche {search['filter']}")
 
     def assert_intact_v3(self, manifest: dict) -> None:
-        """Après un échec : coffre v3 STRICTEMENT identique (schéma et toutes les lignes),
-        et toujours migrable avec succès."""
+        """After a failure: v3 vault STRICTLY identical (schema and every row), and still
+        migratable successfully."""
         conn = self.vault.connection
         self.assertEqual(conn.execute("PRAGMA foreign_keys;").fetchone()[0], 1)
         self.assertFalse(conn.in_transaction)
@@ -138,7 +138,7 @@ class TestSuccessfulMigration(MigrationTestCase):
                          (manifest["schema_version"], 11, 8, 3, 0))
         self.assertTrue(report.vacuumed)
         self.assertEqual(report.backup_path.suffix, ".mcfbak")
-        self.assertEqual(list(self.db_path(manifest).parent.glob("*.bak")), [])  # jamais de .bak
+        self.assertEqual(list(self.db_path(manifest).parent.glob("*.bak")), [])  # never a .bak
         self.assert_v4_matches_manifest(manifest)
 
     def test_v3_vault_made_by_1_6_0(self):
@@ -180,7 +180,7 @@ class TestSuccessfulMigration(MigrationTestCase):
         before = dict(conn.execute("SELECT name, seq FROM sqlite_sequence"))
         max_category = conn.execute("SELECT MAX(id) FROM categories").fetchone()[0]
         conn.close()
-        # La catégorie supprimée du coffre de référence avait le plus grand identifiant.
+        # The deleted category of the reference vault had the largest identifier.
         self.assertGreater(before["categories"], max_category)
         self.vault = Vault.open_for_migration(manifest["vault_id"], manifest["master_password"])
         migrate_to_v4(self.vault, self.backup_dir)
@@ -190,7 +190,7 @@ class TestSuccessfulMigration(MigrationTestCase):
         with self.vault.connection as conn:
             conn.execute("INSERT INTO categories (name_enc) VALUES (x'01')")
         new_id = self.vault.connection.execute("SELECT MAX(id) FROM categories").fetchone()[0]
-        self.assertEqual(new_id, before["categories"] + 1)  # identifiant jamais réattribué
+        self.assertEqual(new_id, before["categories"] + 1)  # identifier never reassigned
 
     def test_legacy_tags_are_migrated(self):
         def add_tags(conn):
@@ -237,7 +237,7 @@ class TestBackups(MigrationTestCase):
         info = backup.restore_backup(report.backup_path, manifest["master_password"])
         restored = vault_path(info.vault_id) / "vault.db"
         self.assertEqual(logical_dump(restored)["entries"], self.v3_dump["entries"])
-        # Coffre restauré tel quel (v3), puis migrable comme l'original.
+        # Vault restored as is (v3), then migratable like the original.
         self.vault = Vault.open_for_migration(info.vault_id, manifest["master_password"])
         self.assertEqual(VaultMetaRepository(self.vault.connection).get().schema_version, 3)
         migrate_to_v4(self.vault, self.backup_dir)
@@ -261,14 +261,14 @@ class TestBackups(MigrationTestCase):
         manifest = self.install(V3)
         self.vault = Vault.open_for_migration(manifest["vault_id"], manifest["master_password"])
         blocker = Path(self._tmp.name) / "fichier"
-        blocker.write_bytes(b"")  # un fichier à la place du dossier : sauvegarde impossible
+        blocker.write_bytes(b"")  # a file instead of the folder: backup impossible
         with self.assertRaises(MigrationError):
             migrate_to_v4(self.vault, blocker / "sauvegardes")
         self.assert_intact_v3(manifest)
 
 
 class TestRollback(MigrationTestCase):
-    """Erreur injectée à chaque étape : retour arrière complet, coffre v3 intact."""
+    """Error injected at every step: full rollback, v3 vault intact."""
 
     STEPS = (("start", 1), ("structures", 1), ("category", 4), ("tags", 1), ("entry", 6),
              ("history", 2), ("validation", 1), ("rebuild", 1), ("rebuilt", 1),
@@ -280,7 +280,7 @@ class TestRollback(MigrationTestCase):
         def fault(step: str) -> None:
             seen[step] = seen.get(step, 0) + 1
             if step == target and seen[step] == occurrence:
-                raise error(f"panne simulée : {step}")
+                raise error(f"simulated failure: {step}")
         return fault, seen
 
     def test_every_step(self):
@@ -293,7 +293,7 @@ class TestRollback(MigrationTestCase):
                 try:
                     with self.assertRaises(MigrationError) as ctx:
                         migrate_to_v4(self.vault, self.backup_dir, _fault=fault)
-                    self.assertEqual(seen[step], occurrence)  # l'étape a bien été atteinte
+                    self.assertEqual(seen[step], occurrence)  # the step was actually reached
                     self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
                     self.assert_intact_v3(manifest)
                 finally:
@@ -332,28 +332,28 @@ class TestRollback(MigrationTestCase):
 
     def test_real_errors_abort_the_migration(self):
         cases = {
-            "version d'historique altérée": lambda c: c.execute(
+            "tampered history version": lambda c: c.execute(
                 "UPDATE entry_history SET snapshot_enc = substr(snapshot_enc, 1, 40) "
                 "WHERE id = (SELECT MIN(id) FROM entry_history)"),
-            "corbeille incohérente": lambda c: c.execute(
+            "inconsistent trash": lambda c: c.execute(
                 "UPDATE entries SET is_deleted = 1, deleted_at = NULL WHERE id = 1"),
-            "type d'entrée inconnu": lambda c: c.execute(
+            "unknown entry type": lambda c: c.execute(
                 "UPDATE entries SET entry_type = 'admin' WHERE id = 1"),
-            "secret absent": lambda c: c.execute(
+            "missing secret": lambda c: c.execute(
                 "UPDATE entries SET password_enc = NULL WHERE id = 1"),
-            "secret altéré": lambda c: c.execute(
+            "tampered secret": lambda c: c.execute(
                 "UPDATE entries SET notes_enc = substr(notes_enc, 1, length(notes_enc) - 1) "
                 "WHERE id = 2"),
-            "tags en double": lambda c: c.executemany(
+            "duplicate tags": lambda c: c.executemany(
                 "INSERT INTO entry_tags (entry_id, tag) VALUES (?, ?)",
                 [(1, "Linux"), (1, "LINUX")]),
-            "tag orphelin": lambda c: c.execute(
+            "orphan tag": lambda c: c.execute(
                 "INSERT INTO entry_tags (entry_id, tag) VALUES (999, 'x')"),
-            "date sans fuseau": lambda c: c.execute(
+            "date without time zone": lambda c: c.execute(
                 "UPDATE entries SET created_at = '2024-01-01T00:00:00' WHERE id = 1"),
         }
         for label, prepare in cases.items():
-            with self.subTest(cas=label):
+            with self.subTest(case=label):
                 try:
                     self._assert_refused(prepare)
                 finally:
@@ -363,7 +363,7 @@ class TestRollback(MigrationTestCase):
 
 
 class TestConfidentiality(MigrationTestCase):
-    """Après migration, les anciennes valeurs en clair ne sont plus dans le fichier."""
+    """After the migration, the old plaintext values are no longer in the file."""
 
     def _raw(self, manifest: dict) -> bytes:
         path = self.db_path(manifest)
@@ -379,15 +379,15 @@ class TestConfidentiality(MigrationTestCase):
         for c in manifest["categories"]:
             if not c["is_builtin"]:
                 values.add(c["name"].encode())
-        values.add("Catégorie supprimée".encode())  # supprimée avant la génération
+        values.add("Catégorie supprimée".encode())  # deleted before the fixture was generated
         values.update({b"secure_note", b"identity", b"server"})
-        values.add(b"2001-01-01T00:00:00+00:00")  # deleted_at de la corbeille ancienne
+        values.add(b"2001-01-01T00:00:00+00:00")  # deleted_at of the old Trash entry
         values.update(t.encode() for t in extra_tags)
         return values
 
     def _entry_dates_not_kept_on_purpose(self, manifest: dict) -> set[bytes]:
-        """Dates d'entrée, sauf celles qui restent en clair par décision (D3 : dates des
-        versions d'historique ; dates du coffre)."""
+        """Entry dates, except those that stay in plaintext by decision (D3: dates of the
+        history versions; vault dates)."""
         conn = self.vault.connection
         public = {r[0] for r in conn.execute("SELECT created_at FROM entry_history")}
         public |= set(conn.execute("SELECT created_at, updated_at FROM vault_meta").fetchone())
@@ -399,7 +399,7 @@ class TestConfidentiality(MigrationTestCase):
         return dates
 
     def test_scanner_finds_the_values_before_migration(self):
-        # Témoin : dans le coffre v3, ces valeurs sont bien lisibles en clair.
+        # Control: in the v3 vault, these values are indeed readable in plaintext.
         manifest = self.install(V3)
         raw = self._raw(manifest)
         found = [v for v in self._plaintext_values(manifest) if v in raw]
@@ -415,13 +415,13 @@ class TestConfidentiality(MigrationTestCase):
         manifest, _ = self.migrate(V3, prepare=add_tags)
         sensitive = self._plaintext_values(manifest, tags) | self._entry_dates_not_kept_on_purpose(
             manifest)
-        for label, raw in (("coffre ouvert", self._raw(manifest)),):
+        for label, raw in (("vault open", self._raw(manifest)),):
             leaks = sorted(v for v in sensitive if v in raw)
             self.assertEqual(leaks, [], label)
         self.vault.close()
         self.vault = None
         raw = self._raw(manifest)
-        self.assertEqual(sorted(v for v in sensitive if v in raw), [], "coffre fermé")
+        self.assertEqual(sorted(v for v in sensitive if v in raw), [], "vault closed")
 
     def test_schema_keeps_no_plaintext_column_or_index(self):
         _, _ = self.migrate(V3)
@@ -439,8 +439,8 @@ class TestConfidentiality(MigrationTestCase):
 
 
 def add_v3_entries(vault: Vault, count: int, versions: int) -> None:
-    """Ajoute des entrées AU FORMAT v3 (colonnes en clair, secrets sous la DEK), comme la
-    v1.6 les écrivait : l'application ne sait plus produire de coffre v3."""
+    """Adds entries IN THE v3 FORMAT (plaintext columns, secrets under the DEK), as
+    v1.6 wrote them: the application can no longer produce a v3 vault."""
     dek, conn, now = vault._require_unlocked_key(), vault.connection, "2026-01-01T00:00:00+00:00"
 
     def enc(value: str, aad: str) -> bytes:
@@ -481,9 +481,9 @@ class TestPerformance(MigrationTestCase):
         report = migrate_to_v4(self.vault, self.backup_dir)
         elapsed = time.monotonic() - started
         self.assertEqual((report.entries, report.history_versions), (2011, 203))
-        self.assertLess(elapsed, 60)  # budget large : la fiabilité prime
+        self.assertLess(elapsed, 60)  # generous budget: reliability comes first
         if os.environ.get("MCF_BENCH"):
-            print(f"\nmigration de 2011 entrées / 203 versions : {elapsed:.2f} s")
+            print(f"\nmigration of 2011 entries / 203 versions: {elapsed:.2f} s")
 
 
 class TestFixturesUntouched(MigrationTestCase):

@@ -1,8 +1,8 @@
-"""Composants visuels réutilisables (design system appliqué).
+"""Reusable visual components (the design system applied).
 
-Aucune logique métier : ces widgets affichent des valeurs qu'on leur donne.
-Toutes les couleurs et dimensions viennent de `theme`, toutes les
-animations respectent l'interrupteur global de `effects`.
+No domain logic: these widgets display the values they are given. Every
+color and dimension comes from `theme`, and every animation honors the global
+switch of `effects`.
 """
 
 from __future__ import annotations
@@ -46,9 +46,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.ui import effects, lucide, theme
+from app.ui import effects, icons, lucide, theme
 
-# --- Briques de base ---------------------------------------------------------------------------
+# --- Basic building blocks ------------------------------------------------------------------------
 
 
 def card(kind: str = "Card", parent: QWidget | None = None) -> QFrame:
@@ -71,20 +71,20 @@ def label(text: str = "", kind: str | None = None, wrap: bool = False) -> QLabel
     return widget
 
 
-_ZWSP = "\u200b"  # espace de largeur nulle : point de coupure invisible
+_ZWSP = "\u200b"  # zero-width space: invisible break point
 
 
 def breakable(text: str) -> str:
-    """Texte pouvant passer à la ligne n'importe où (mot de passe, URL, e-mail longs).
+    """Text that may wrap anywhere (long password, URL, email).
 
-    Affichage uniquement : ne jamais copier ce texte (utiliser la valeur d'origine).
+    Display only: never copy this text (use the original value).
     """
     return _ZWSP.join(text)
 
 
 def button(text: str, icon: str | None = None, kind: str | None = None,
            tooltip: str = "", on_click: Callable[[], None] | None = None) -> QPushButton:
-    """Bouton standard. kind ∈ {None, "Primary", "Danger", "Ghost", "Chip"}."""
+    """Standard button. kind ∈ {None, "Primary", "Danger", "Ghost", "Chip"}."""
     widget = QPushButton(text)
     if kind:
         widget.setObjectName(kind)
@@ -103,7 +103,7 @@ def button(text: str, icon: str | None = None, kind: str | None = None,
 def icon_button(icon: str, tooltip: str, shortcut: str = "",
                 on_click: Callable[[], None] | None = None, size: int = 18,
                 color: str = theme.TEXT_2) -> QToolButton:
-    """Bouton-icône avec infobulle (et raccourci affiché)."""
+    """Icon button with a tooltip (and the shortcut shown)."""
     widget = QToolButton()
     widget.setIcon(lucide.icon(icon, color, size))
     widget.setIconSize(QSize(size, size))
@@ -122,17 +122,26 @@ def icon_label(icon: str, color: str = theme.TEXT_2, size: int = 18) -> QLabel:
     return widget
 
 
-# --- Avatar (monogramme) -------------------------------------------------------------------------
+def brand_label(size: int = 22) -> QLabel:
+    """Brand symbol (logo), distinct from the functional Lucide icons."""
+    widget = QLabel()
+    widget.setPixmap(icons.brand_pixmap(size))
+    widget.setFixedSize(size, size)
+    widget.setAccessibleName("Keyra")
+    return widget
+
+
+# --- Avatar (monogram) -------------------------------------------------------------------------
 
 
 def avatar_color(name: str) -> str:
-    # Choix d'une couleur stable à partir du nom : aucun rôle de sécurité.
+    # Stable color choice from the name: no security role.
     digest = hashlib.sha1(name.strip().lower().encode("utf-8"), usedforsecurity=False).digest()
     return theme.AVATAR_COLORS[digest[0] % len(theme.AVATAR_COLORS)]
 
 
 def paint_avatar(painter: QPainter, rect: QRectF, name: str, font_size: int = 14) -> None:
-    """Carré arrondi teinté + initiale (utilisé par les listes peintes et Avatar)."""
+    """Tinted rounded square + initial (used by the painted lists and Avatar)."""
     color = QColor(avatar_color(name))
     background = QColor(color)
     background.setAlpha(38)
@@ -166,11 +175,11 @@ class Avatar(QWidget):
         paint_avatar(painter, QRectF(self.rect()), self._name, int(self.height() * 0.4))
 
 
-# --- Statistique ---------------------------------------------------------------------------------
+# --- Statistic ---------------------------------------------------------------------------------
 
 
 class StatCard(QFrame):
-    """Carte statistique : icône, grand chiffre qui défile, libellé, précision."""
+    """Statistics card: icon, large counting number, label, detail."""
 
     clicked = Signal()
 
@@ -206,11 +215,11 @@ class StatCard(QFrame):
         super().mouseReleaseEvent(event)
 
 
-# --- Anneau de score -----------------------------------------------------------------------------
+# --- Score ring -----------------------------------------------------------------------------
 
 
 class ScoreRing(QWidget):
-    """Jauge circulaire animée 0 → score (sur 100)."""
+    """Animated circular gauge 0 → score (out of 100)."""
 
     def __init__(self, size: int = 188, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -271,11 +280,11 @@ class ScoreRing(QWidget):
         painter.drawText(rect.adjusted(0, 44, 0, 44), Qt.AlignCenter, "/ 100")
 
 
-# --- États vides, squelettes ----------------------------------------------------------------------
+# --- Empty states, skeletons ----------------------------------------------------------------------
 
 
 class EmptyState(QWidget):
-    """Page jamais vide : icône dans un halo, titre, explication, action."""
+    """Never an empty page: icon in a halo, title, explanation, action."""
 
     def __init__(self, icon: str, title: str, text: str, action_text: str = "",
                  on_action: Callable[[], None] | None = None, action_icon: str = "plus",
@@ -293,8 +302,8 @@ class EmptyState(QWidget):
         layout.addWidget(self.title)
         self.text = label(text, "Muted", wrap=True)
         self.text.setAlignment(Qt.AlignCenter)
-        # Largeur ET hauteur imposées (ajustées à la place disponible) : un QLabel à
-        # retour à la ligne ne signale pas seul sa hauteur aux mises en page parentes.
+        # Width AND height enforced (adjusted to the available space): a word-wrapping
+        # QLabel does not report its height to parent layouts on its own.
         self._fit_text(self._TEXT_MAX)
         layout.addWidget(self.text, 0, Qt.AlignHCenter)
         self.action = None
@@ -307,7 +316,7 @@ class EmptyState(QWidget):
     _TEXT_MIN, _TEXT_MAX = 180, 340
 
     def minimumSizeHint(self) -> QSize:
-        # Le texte se resserre : ne jamais imposer sa largeur courante (moitié d'écran).
+        # The text narrows: never enforce its current width (half the screen).
         hint = super().minimumSizeHint()
         return QSize(min(hint.width(), self._TEXT_MIN + 48), hint.height())
 
@@ -328,7 +337,7 @@ class EmptyState(QWidget):
 
 
 class Skeleton(QWidget):
-    """Lignes grisées au reflet animé, le temps d'un calcul (audit…)."""
+    """Grey lines with an animated sheen, while something is computed (audit…)."""
 
     def __init__(self, widths: tuple[float, ...] = (0.9, 0.6, 0.75), line_height: int = 12,
                  parent: QWidget | None = None) -> None:
@@ -368,11 +377,11 @@ class Skeleton(QWidget):
             y += self._line + 12
 
 
-# --- Interrupteur ---------------------------------------------------------------------------------
+# --- Toggle switch --------------------------------------------------------------------------------
 
 
 class ToggleSwitch(QAbstractButton):
-    """Interrupteur à curseur animé (remplace les cases à cocher dans les réglages)."""
+    """Animated slider toggle (replaces check boxes in the settings)."""
 
     def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -396,7 +405,7 @@ class ToggleSwitch(QAbstractButton):
 
     offset = Property(float, _get_offset, _set_offset)
 
-    def setChecked(self, checked: bool) -> None:  # état initial : sans animation
+    def setChecked(self, checked: bool) -> None:  # initial state: no animation
         super().setChecked(checked)
         self._animation.stop()
         self._offset = 1.0 if checked else 0.0
@@ -442,13 +451,13 @@ class ToggleSwitch(QAbstractButton):
             painter.drawText(QRectF(48, 0, self.width() - 48, 28), Qt.AlignVCenter, self.text())
 
 
-# --- Robustesse -----------------------------------------------------------------------------------
+# --- Strength -----------------------------------------------------------------------------------
 
 _STRENGTH_COLORS = (theme.DANGER, "#F97316", theme.WARNING, theme.ACCENT, theme.ACCENT_2)
 
 
 class StrengthBar(QWidget):
-    """Barre de robustesse animée + libellé textuel (jamais la couleur seule)."""
+    """Animated strength bar + text label (never color alone)."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -461,7 +470,7 @@ class StrengthBar(QWidget):
         self._animation.valueChanged.connect(self._on_value)
 
     def set_score(self, score: int, bits: float) -> None:
-        """score 0-4 ; la longueur suit l'entropie (plafonnée à 128 bits)."""
+        """score 0-4; the length follows the entropy (capped at 128 bits)."""
         self._score = score
         target = 0.0 if score < 0 else max(0.06, min(1.0, bits / 128))
         if not effects.animations_enabled():
@@ -487,16 +496,16 @@ class StrengthBar(QWidget):
             painter.drawRoundedRect(QRectF(0, 0, self.width() * self._ratio, self.height()), 3, 3)
 
 
-# --- Bouton de copie (icône copier → ✓) -----------------------------------------------------------
+# --- Copy button (copy icon → ✓) -----------------------------------------------------------
 
 
 class CopyButton(QToolButton):
-    """Bouton de copie : après un clic, l'icône devient ✓ (et « Copié ») un court instant.
+    """Copy button: after a click, the icon briefly becomes ✓ (and "Copied").
 
-    `labeled=True` affiche le texte « Copier » à côté de l'icône (champs secrets).
+    `labeled=True` shows the text "Copy" next to the icon (secret fields).
     """
 
-    def __init__(self, tooltip: str = "Copier", parent: QWidget | None = None,
+    def __init__(self, tooltip: str = "Copy", parent: QWidget | None = None,
                  labeled: bool = False) -> None:
         super().__init__(parent)
         self._labeled = labeled
@@ -514,20 +523,23 @@ class CopyButton(QToolButton):
     def _reset(self) -> None:
         self.setIcon(lucide.icon("copy", theme.TEXT_2, 16))
         if self._labeled:
-            self.setText("Copier")
+            self.setText("Copy")
 
     def confirm(self) -> None:
         self.setIcon(lucide.icon("check", theme.ACCENT_2, 16))
         if self._labeled:
-            self.setText("Copié")
+            self.setText("Copied")
         self._restore.start(1400)
 
 
-# --- Icône à halo (écran de verrouillage, états vides) --------------------------------------------
+# --- Halo icon (lock screen, empty states) --------------------------------------------
+
+
+BRAND = "brand"  # reserved name: HaloIcon(BRAND) shows the logo instead of a Lucide icon
 
 
 class HaloIcon(QWidget):
-    """Icône Lucide au centre d'un halo circulaire, éventuellement « respirant »."""
+    """Lucide icon (or the logo, with BRAND) in the middle of a halo, optionally "breathing"."""
 
     def __init__(self, icon: str, size: int = 120, color: str = theme.ACCENT_2,
                  animated: bool = True, parent: QWidget | None = None) -> None:
@@ -557,7 +569,7 @@ class HaloIcon(QWidget):
         self._timer.stop()
 
     def _tick(self) -> None:
-        # Respiration lente (3,2 s) — la seule animation continue de l'écran.
+        # Slow breathing (3.2 s) — the only continuous animation on screen.
         self._phase = (self._clock.elapsed() % 3200) / 3200
         self.update()
 
@@ -582,12 +594,17 @@ class HaloIcon(QWidget):
         ring.setAlpha(int(70 + 50 * breath))
         painter.setPen(QPen(ring, 1.2))
         painter.drawEllipse(center, inner, inner)
-        icon_size = int(inner * 0.95)
+        if self._icon == BRAND:
+            icon_size = int(inner * 1.2)
+            pixmap = icons.brand_pixmap(icon_size)
+        else:
+            icon_size = int(inner * 0.95)
+            pixmap = lucide.pixmap(self._icon, self._color, icon_size, 1.6)
         painter.drawPixmap(int(center.x() - icon_size / 2), int(center.y() - icon_size / 2),
-                           lucide.pixmap(self._icon, self._color, icon_size, 1.6))
+                           pixmap)
 
 
-# --- Titre de section -----------------------------------------------------------------------------
+# --- Section title -----------------------------------------------------------------------------
 
 
 def section(title: str, subtitle: str = "", trailing: QWidget | None = None) -> QWidget:

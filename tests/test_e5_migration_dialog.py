@@ -1,13 +1,13 @@
-"""E5.1 : la fenêtre de mise à niveau ne retient pas le mot de passe maître.
+"""E5.1: the upgrade window does not retain the master password.
 
-Le mot de passe entre dans la fonction de travail (`MigrationDialog._job`, une
-closure) et, en cas d'échec, dans la trace de l'exception (`last_error`, dont
-les frames gardent leurs variables locales). Ces tests vérifient qu'aucune
-référence APPLICATIVE ne les conserve après le flux (succès, annulation, échec,
-nouvel essai, travail en arrière-plan) et que la fenêtre est détruite.
+The password goes into the work function (`MigrationDialog._job`, a closure) and,
+on failure, into the exception traceback (`last_error`, whose frames keep their
+local variables). These tests check that no APPLICATION reference keeps them
+after the flow (success, cancel, failure, retry, background work) and that the
+window is destroyed.
 
-Ils ne prétendent pas que la mémoire est effacée : une `str` Python ne peut pas
-l'être (voir app/ui/migration_dialog.py).
+They do not claim that the memory is erased: a Python `str` cannot be (see
+app/ui/migration_dialog.py).
 """
 
 import gc
@@ -22,9 +22,9 @@ from tests.test_e3_upgrade import UpgradeUiTestCase, schema_of
 
 
 def closures_holding(secret: str) -> list:
-    """Fonctions vivantes dont la closure contient `secret` (références durables)."""
-    gc.collect()  # élimine seulement les cycles DÉJÀ inaccessibles : aucune conclusion
-    #               sur l'effacement physique de la mémoire n'en est tirée.
+    """Live functions whose closure contains `secret` (lasting references)."""
+    gc.collect()  # only removes ALREADY unreachable cycles: no conclusion is drawn
+    #               about the physical erasure of memory.
     return [f for f in gc.get_objects()
             if isinstance(f, types.FunctionType) and f.__closure__
             and any(_cell_is(c, secret) for c in f.__closure__)]
@@ -33,12 +33,12 @@ def closures_holding(secret: str) -> list:
 def _cell_is(cell, secret: str) -> bool:
     try:
         return cell.cell_contents == secret
-    except ValueError:  # cellule vide
+    except ValueError:  # empty cell
         return False
 
 
 def traceback_chain(exc):
-    """Toutes les exceptions liées (__cause__ ET __context__), sans boucle."""
+    """All linked exceptions (__cause__ AND __context__), without looping."""
     seen, pending = [], [exc]
     while pending:
         current = pending.pop()
@@ -50,14 +50,14 @@ def traceback_chain(exc):
 
 
 def failing_engine():
-    """Le VRAI moteur, avec une panne injectée : MigrationError chaînée (from) à la panne,
-    donc des traces à plusieurs niveaux (dont la frame de vault_upgrade.upgrade)."""
+    """The REAL engine, with an injected failure: MigrationError chained (from) to the
+    failure, hence multi-level tracebacks (including the vault_upgrade.upgrade frame)."""
     real = vault_upgrade.migrate_to_v4
 
     def engine(vault, backup_dir, _fault=None):
         def fault(step):
             if step == "entry":
-                raise RuntimeError("panne simulée")
+                raise RuntimeError("simulated failure")
         return real(vault, backup_dir, _fault=fault)
     return engine
 
@@ -74,7 +74,7 @@ class MigrationDialogLifetimeTestCase(UpgradeUiTestCase):
         self.app.processEvents()
 
     def remember(self, dialog):
-        """Références FAIBLES : n'allongent pas la durée de vie de ce qu'on observe."""
+        """WEAK references: they do not extend the lifetime of what is observed."""
         self.refs["dialog"] = weakref.ref(dialog)
         self.refs["job"] = weakref.ref(dialog._job)
 
@@ -84,7 +84,7 @@ class MigrationDialogLifetimeTestCase(UpgradeUiTestCase):
         self.flush_deletions()
         self.assertEqual(self.window.findChildren(MigrationDialog), [])
         self.assertIsNone(self.window._blocking_dialog)
-        self.assertIsNone(self.refs["job"](), "fonction de travail encore référencée")
+        self.assertIsNone(self.refs["job"](), "work function still referenced")
         self.assertEqual(closures_holding(self.manifest["master_password"]), [])
 
 
@@ -96,12 +96,12 @@ class TestMigrationDialogReleasesSecrets(MigrationDialogLifetimeTestCase):
             dialog = self.migration_dialog()
             self.remember(dialog)
             dialog.start()
-            self.assertIsNone(dialog._job)  # travail terminé : plus de mot de passe capturé
+            self.assertIsNone(dialog._job)  # work over: no password captured anymore
 
         errors = self.later(confirm)
         self.unlock_with(manifest["master_password"])
         self.assertEqual(errors, [])
-        self.assertIsNotNone(self.window._shell)  # non-régression : session ouverte
+        self.assertIsNotNone(self.window._shell)  # non-regression: session opened
         self.assertEqual(schema_of(self.path), 4)
         self.assert_released()
 
@@ -127,14 +127,14 @@ class TestMigrationDialogReleasesSecrets(MigrationDialogLifetimeTestCase):
         def fail_then_close():
             dialog = self.migration_dialog()
             self.remember(dialog)
-            dialog.start()  # échoue
+            dialog.start()  # fails
             self.assertTrue(dialog.error.isVisibleTo(dialog))
-            self.assertEqual(dialog.ok.text(), "Réessayer")
-            self.assertIsNotNone(dialog._job)  # nouvel essai encore possible
+            self.assertEqual(dialog.ok.text(), "Retry")
+            self.assertIsNotNone(dialog._job)  # a new attempt is still possible
             chain = traceback_chain(dialog.last_error)
             self.assertIsInstance(chain[0], MigrationError)
-            self.assertTrue(any(isinstance(e, RuntimeError) for e in chain))  # cause réelle
-            # Plus aucune frame (et donc aucune variable locale) retenue par l'erreur.
+            self.assertTrue(any(isinstance(e, RuntimeError) for e in chain))  # real cause
+            # No frame (hence no local variable) retained by the error anymore.
             self.assertTrue(all(e.__traceback__ is None for e in chain))
             seen["error"] = weakref.ref(dialog.last_error)
             dialog.reject()
@@ -144,10 +144,10 @@ class TestMigrationDialogReleasesSecrets(MigrationDialogLifetimeTestCase):
             self.unlock_with(manifest["master_password"])
         self.assertEqual(errors, [])
         self.assertIsNone(self.window._shell)
-        self.assertIn("pas été modifié", self.window._unlock_screen.error.text())
+        self.assertIn("has not been modified", self.window._unlock_screen.error.text())
         self.assertEqual(schema_of(self.path), 3)
         self.assert_released()
-        self.assertIsNone(seen["error"](), "erreur encore référencée après fermeture")
+        self.assertIsNone(seen["error"](), "error still referenced after closing")
 
     def test_retry_does_not_keep_the_previous_attempt(self):
         manifest = self.install()
@@ -157,17 +157,17 @@ class TestMigrationDialogReleasesSecrets(MigrationDialogLifetimeTestCase):
         def flaky(*args, **kwargs):
             attempts.append(1)
             if len(attempts) == 1:
-                raise MigrationError("panne simulée")
+                raise MigrationError("simulated failure")
             return real(*args, **kwargs)
 
         def fail_then_retry():
             dialog = self.migration_dialog()
             self.remember(dialog)
-            dialog.start()  # échec
+            dialog.start()  # failure
             first = weakref.ref(dialog.last_error)
-            self.assertEqual(dialog.ok.text(), "Réessayer")
-            dialog.start()  # nouvel essai : réussit
-            self.assertIsNone(first(), "l'erreur du premier essai est encore retenue")
+            self.assertEqual(dialog.ok.text(), "Retry")
+            dialog.start()  # retry: succeeds
+            self.assertIsNone(first(), "the first attempt's error is still retained")
             self.assertIsNone(dialog.last_error)
             self.assertIsNone(dialog._job)
 
@@ -182,11 +182,11 @@ class TestMigrationDialogReleasesSecrets(MigrationDialogLifetimeTestCase):
 
 
 class TestMigrationDialogInBackground(MigrationDialogLifetimeTestCase):
-    """Vrai travail d'arrière-plan (QThreadPool) : le résultat revient par signal."""
+    """Real background work (QThreadPool): the result comes back through a signal."""
 
     def when_dialog_opens(self, fn):
-        """La fenêtre s'ouvre dans une boucle exec() imbriquée, après un déverrouillage en
-        arrière-plan : un minuteur répété la guette depuis cette boucle."""
+        """The window opens in a nested exec() loop, after a background unlock: a repeating
+        timer watches for it from within that loop."""
         from PySide6.QtCore import QTimer
 
         from app.ui.migration_dialog import MigrationDialog
@@ -203,7 +203,7 @@ class TestMigrationDialogInBackground(MigrationDialogLifetimeTestCase):
             timer.stop()
             try:
                 fn(dialog)
-            except Exception as exc:  # noqa: BLE001 - remonté après exec()
+            except Exception as exc:  # noqa: BLE001 - raised again after exec()
                 errors.append(exc)
                 dialog._busy = False
                 dialog.close_now()
@@ -217,41 +217,41 @@ class TestMigrationDialogInBackground(MigrationDialogLifetimeTestCase):
         from app.ui import tasks
 
         manifest = self.install()
-        tasks.BACKGROUND_TASKS = True  # rétabli par UiTestCase.tearDown
+        tasks.BACKGROUND_TASKS = True  # restored by UiTestCase.tearDown
         real, threads = vault_upgrade.migrate_to_v4, []
 
-        def engine(*args, **kwargs):  # note le fil qui exécute réellement la migration
+        def engine(*args, **kwargs):  # records the thread that actually runs the migration
             threads.append(threading.get_ident())
             return real(*args, **kwargs)
 
         def confirm(dialog):
             self.remember(dialog)
-            dialog.start()  # rend la main : le travail tourne dans un autre fil
+            dialog.start()  # returns control: the work runs in another thread
             self.assertTrue(dialog.is_busy())
 
         errors = self.when_dialog_opens(confirm)
         with unittest.mock.patch.object(vault_upgrade, "migrate_to_v4", engine):
-            self.unlock_with(manifest["master_password"])  # déverrouillage en arrière-plan
+            self.unlock_with(manifest["master_password"])  # background unlock
             self.assertTrue(self._wait_until(lambda: self.window._shell is not None, 30000))
             self.assertTrue(tasks.wait_for_tasks(30000))
         self.assertEqual(errors, [])
-        # Migration exécutée par un fil du QThreadPool, pas par le fil de l'interface.
+        # Migration run by a QThreadPool thread, not by the interface thread.
         self.assertEqual(len(threads), 1)
         self.assertNotEqual(threads[0], threading.main_thread().ident)
-        self.assertEqual(tasks._pending, set())  # aucun relais en attente
+        self.assertEqual(tasks._pending, set())  # no pending hand-over
         self.assertEqual(schema_of(self.path), 4)
         self.assert_released()
 
     def test_background_failure_is_delivered_then_retry_succeeds(self):
-        """Échec dans le fil de travail : l'erreur revient au fil de l'interface (rien de
-        perdu ni de silencieux), le coffre reste v3, « Réessayer » relance un vrai travail
-        d'arrière-plan qui réussit ; puis tout est libéré."""
+        """Failure in the worker thread: the error comes back to the interface thread (nothing
+        lost or silent), the vault stays v3, "Retry" starts real background work again,
+        which succeeds; then everything is released."""
         from PySide6.QtCore import QTimer
 
         from app.ui import tasks
 
         manifest = self.install()
-        tasks.BACKGROUND_TASKS = True  # rétabli par UiTestCase.tearDown
+        tasks.BACKGROUND_TASKS = True  # restored by UiTestCase.tearDown
         real, threads, seen = vault_upgrade.migrate_to_v4, [], {}
         fail_first = failing_engine()
 
@@ -261,12 +261,12 @@ class TestMigrationDialogInBackground(MigrationDialogLifetimeTestCase):
 
         def after_failure(dialog, timer):
             if dialog.is_busy() or dialog.last_error is None:
-                return  # l'erreur n'est pas encore revenue du fil de travail
+                return  # the error has not come back from the worker thread yet
             timer.stop()
             seen["error"] = dialog.error.text()
             seen["retry"] = dialog.ok.text()
             seen["schema_after_failure"] = schema_of(self.path)
-            dialog.start()  # « Réessayer » : second travail d'arrière-plan
+            dialog.start()  # "Retry": second background work
 
         def confirm(dialog):
             self.remember(dialog)
@@ -283,9 +283,9 @@ class TestMigrationDialogInBackground(MigrationDialogLifetimeTestCase):
             self.assertTrue(self._wait_until(lambda: self.window._shell is not None, 30000))
             self.assertTrue(tasks.wait_for_tasks(30000))
         self.assertEqual(errors, [])
-        self.assertIn("n'a pas abouti", seen["error"])
-        self.assertIn("pas été modifié", seen["error"])
-        self.assertEqual(seen["retry"], "Réessayer")
+        self.assertIn("did not complete", seen["error"])
+        self.assertIn("has not been modified", seen["error"])
+        self.assertEqual(seen["retry"], "Retry")
         self.assertEqual(seen["schema_after_failure"], 3)
         self.assertEqual(len(threads), 2)
         self.assertNotIn(threading.main_thread().ident, threads)

@@ -1,8 +1,8 @@
-"""Cache des métadonnées déchiffrées (Vault.metadata) : cycle de vie et fraîcheur.
+"""Cache of the decrypted metadata (Vault.metadata): lifecycle and freshness.
 
-Sur des copies MIGRÉES du coffre de référence 1.6.0. L'accent est mis sur les
-données périmées : après écriture, ROLLBACK, suppression, restauration, et au
-verrouillage, le cache ne doit jamais présenter autre chose que la base.
+On MIGRATED copies of the 1.6.0 reference vault. The focus is on stale data:
+after a write, ROLLBACK, deletion, restore, and on locking, the cache must
+never show anything other than the database.
 """
 
 import dataclasses
@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from unittest import mock
 
+from app.core.builtin_categories import legacy_builtin_name
 from app.core.exceptions import (
     EntryDecryptionError,
     EntryNotFoundError,
@@ -27,7 +28,7 @@ from tests.test_fixtures import FixtureVaultTestCase
 from tests.test_migration_v4 import V3, MigrationTestCase
 
 NOW = "2026-09-27T12:00:00+00:00"
-BANK = 1  # « Banque Exemple » dans le coffre de référence
+BANK = 1  # "Banque Exemple" in the reference vault
 
 
 class StoreTestCase(MigrationTestCase):
@@ -49,13 +50,15 @@ class TestLifecycle(StoreTestCase):
             first = spy.call_count
             self.store.entries()
             self.store.entry(BANK)
-        self.assertEqual(first, 11)  # chaque blob déchiffré une fois…
-        self.assertEqual(spy.call_count, 11)  # … et plus jamais ensuite
+        self.assertEqual(first, 11)  # each blob decrypted once…
+        self.assertEqual(spy.call_count, 11)  # … and never again afterwards
 
     def test_content_matches_the_database(self):
         view = load_v4_view(self.vault.connection, self.store.cipher)
         self.assertEqual(dict(self.store.entries()), view.entries)
-        self.assertEqual({i: (c.name, c.is_builtin) for i, c in self.store.categories().items()},
+        # The migration view uses the legacy (v1.x) names of built-in categories.
+        self.assertEqual({i: (legacy_builtin_name(c.builtin_key) if c.is_builtin else c.name,
+                              c.is_builtin) for i, c in self.store.categories().items()},
                          view.categories)
         self.assertEqual(self.store.category_name(None), "")
 
@@ -135,12 +138,12 @@ class TestNoStaleData(StoreTestCase):
         self.store.entries()
         with self.assertRaises(RuntimeError), self.vault.connection:
             self.store.write_entry(BANK, self._renamed("Jamais enregistré"))
-            self.assertEqual(self.store.entry(BANK).name, "Jamais enregistré")  # dans la txn
+            self.assertEqual(self.store.entry(BANK).name, "Jamais enregistré")  # inside the txn
             raise RuntimeError("échec après écriture")
         self.assertEqual(self.store.entry(BANK).name, "Banque Exemple")
 
     def test_first_load_during_a_rolled_back_transaction(self):
-        # Le cache n'a encore rien chargé : le premier chargement a lieu DANS la transaction.
+        # The cache has loaded nothing yet: the first load happens INSIDE the transaction.
         self.assertFalse(self.store.is_loaded)
         with self.assertRaises(RuntimeError), self.vault.connection:
             self.store.write_entry(BANK, self._renamed("Provisoire"))
@@ -151,7 +154,7 @@ class TestNoStaleData(StoreTestCase):
     def test_committed_write_is_kept(self):
         with self.vault.connection:
             self.store.write_entry(BANK, self._renamed("Validée"))
-            self.store.entries()  # lue pendant la transaction
+            self.store.entries()  # read during the transaction
         self.assertEqual(self.store.entry(BANK).name, "Validée")
         self.vault.close()
         self.vault = Vault.unlock(self.manifest["vault_id"], self.manifest["master_password"])
@@ -205,7 +208,7 @@ class TestNoStaleData(StoreTestCase):
         self.assertEqual(self.store.categories()[builtin.id].name, builtin.name)
 
     def test_external_change_needs_invalidate(self):
-        # Limite documentée : SQL direct hors du cache -> visible après invalidate().
+        # Documented limitation: direct SQL outside the cache -> visible after invalidate().
         self.store.entries()
         cipher = self.store.cipher
         blob = cipher.encrypt_entry(BANK, self._renamed("Changé ailleurs"))
@@ -268,7 +271,7 @@ class TestPerformance(EntryTestCase):
 
 class TestStoreWithoutVault(StoreTestCase):
     def test_store_can_be_built_directly(self):
-        # Construction explicite (utile aux services) : même contenu que via le Vault.
+        # Explicit construction (useful to the services): same content as through the Vault.
         uuid = self.vault.connection.execute("SELECT vault_uuid FROM vault_meta").fetchone()[0]
         store = MetadataStore(self.vault.connection, self.vault._require_unlocked_key(), uuid)
         self.assertEqual(dict(store.entries()), dict(self.store.entries()))

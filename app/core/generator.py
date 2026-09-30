@@ -1,14 +1,13 @@
-"""Générateur de mots de passe et de phrases de passe.
+"""Password and passphrase generator.
 
-Tout l'aléa provient exclusivement de `secrets` (CSPRNG du système) :
-`secrets.choice` pour les tirages et un mélange de Fisher-Yates basé sur
-`secrets.randbelow`. Le module `random` n'est jamais importé (un test le
-vérifie sur tout le paquet `app`).
+All randomness comes exclusively from `secrets` (the system CSPRNG):
+`secrets.choice` for draws and a Fisher-Yates shuffle based on
+`secrets.randbelow`. The `random` module is never imported (a test checks
+this across the whole `app` package).
 
-Phrases de passe : la liste de mots provient de `/usr/share/dict/french`
-(paquet Debian `wfrench`). Elle n'est pas embarquée dans le projet ; si
-elle est absente, `WordlistUnavailableError` est levée avec le nom du
-paquet à installer.
+Passphrases: the word list comes from `/usr/share/dict/french` (Debian
+package `wfrench`). It is not bundled with the project; if it is missing,
+`WordlistUnavailableError` is raised with the name of the package to install.
 """
 
 from __future__ import annotations
@@ -37,11 +36,11 @@ _WORD_PATTERN = re.compile(r"^[a-z]{4,8}$")
 
 
 class GeneratorError(VaultError):
-    """Options de génération invalides."""
+    """Invalid generation options."""
 
 
 class WordlistUnavailableError(GeneratorError):
-    """La liste de mots nécessaire aux phrases de passe est introuvable."""
+    """The word list required for passphrases cannot be found."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,12 +66,12 @@ class GeneratedSecret:
     value: str
     entropy_bits: float
 
-    def __repr__(self) -> str:  # jamais la valeur dans un repr
+    def __repr__(self) -> str:  # never the value in a repr
         return f"GeneratedSecret(entropy_bits={self.entropy_bits:.1f})"
 
 
 def _shuffle(items: list[str]) -> None:
-    """Mélange de Fisher-Yates, aléa `secrets` uniquement."""
+    """Fisher-Yates shuffle, `secrets` randomness only."""
     for i in range(len(items) - 1, 0, -1):
         j = secrets.randbelow(i + 1)
         items[i], items[j] = items[j], items[i]
@@ -94,39 +93,39 @@ def _character_classes(options: PasswordOptions) -> list[str]:
 
 
 def generate_password(options: PasswordOptions = PasswordOptions()) -> GeneratedSecret:
-    """Mot de passe aléatoire contenant au moins un caractère de chaque classe choisie."""
+    """Random password containing at least one character from each selected class."""
     if not MIN_PASSWORD_LENGTH <= options.length <= MAX_PASSWORD_LENGTH:
         raise GeneratorError(
-            f"La longueur doit être comprise entre {MIN_PASSWORD_LENGTH} "
-            f"et {MAX_PASSWORD_LENGTH} caractères."
+            f"The length must be between {MIN_PASSWORD_LENGTH} "
+            f"and {MAX_PASSWORD_LENGTH} characters."
         )
     classes = _character_classes(options)
     if not classes:
-        raise GeneratorError("Choisissez au moins un type de caractères.")
+        raise GeneratorError("Select at least one character type.")
     alphabet = "".join(classes)
     chars = [secrets.choice(cls) for cls in classes]
     chars += [secrets.choice(alphabet) for _ in range(options.length - len(chars))]
     _shuffle(chars)
-    # Borne basse prudente : on ne compte pas l'aléa du placement des classes imposées.
+    # Conservative lower bound: the randomness of placing the required classes is not counted.
     entropy = options.length * math.log2(len(alphabet))
     return GeneratedSecret("".join(chars), entropy)
 
 
 @lru_cache(maxsize=1)
 def load_passphrase_wordlist() -> tuple[str, ...]:
-    """Mots français de 4 à 8 lettres, sans accent ni majuscule, dédoublonnés."""
+    """French words of 4 to 8 letters, without accents or capitals, deduplicated."""
     try:
         text = FRENCH_WORDLIST_PATH.read_text(encoding="utf-8")
     except OSError as exc:
         raise WordlistUnavailableError(
-            f"Liste de mots introuvable ({FRENCH_WORDLIST_PATH}). Installez le "
-            f"paquet Debian « {FRENCH_WORDLIST_PACKAGE} » : "
+            f"Word list not found ({FRENCH_WORDLIST_PATH}). Install the "
+            f"Debian package \"{FRENCH_WORDLIST_PACKAGE}\": "
             f"sudo apt install {FRENCH_WORDLIST_PACKAGE}"
         ) from exc
     words = sorted({w for w in text.split() if _WORD_PATTERN.match(w)})
     if len(words) < 2048:
         raise WordlistUnavailableError(
-            f"Liste de mots trop courte dans {FRENCH_WORDLIST_PATH} ({len(words)} mots)."
+            f"Word list too short in {FRENCH_WORDLIST_PATH} ({len(words)} words)."
         )
     return tuple(words)
 
@@ -142,8 +141,8 @@ def passphrase_available() -> bool:
 def generate_passphrase(options: PassphraseOptions = PassphraseOptions()) -> GeneratedSecret:
     if not MIN_PASSPHRASE_WORDS <= options.words <= MAX_PASSPHRASE_WORDS:
         raise GeneratorError(
-            f"Le nombre de mots doit être compris entre {MIN_PASSPHRASE_WORDS} "
-            f"et {MAX_PASSPHRASE_WORDS}."
+            f"The number of words must be between {MIN_PASSPHRASE_WORDS} "
+            f"and {MAX_PASSPHRASE_WORDS}."
         )
     wordlist = load_passphrase_wordlist()
     words = [secrets.choice(wordlist) for _ in range(options.words)]

@@ -1,9 +1,8 @@
-"""Palette de commandes (Ctrl+K) : toutes les actions et entrées au clavier.
+"""Command palette (Ctrl+K): every action and entry, from the keyboard.
 
-Fenêtre flottante sans bordure, animée (fondu + glissement), avec recherche
-instantanée insensible à la casse et aux accents. ↑/↓ pour choisir, Entrée
-pour exécuter, Échap pour fermer. N'affiche aucun secret : seulement les
-noms d'actions et d'entrées.
+Borderless floating window, animated (fade + slide), with instant search that
+ignores case and accents. ↑/↓ to choose, Enter to run, Esc to close. Shows no
+secret: only action and entry names.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ _MAX_VISIBLE = 9
 class Command:
     label: str
     callback: Callable[[], None]
-    hint: str = ""        # raccourci ou catégorie affichée à droite
+    hint: str = ""        # shortcut or category shown on the right
     icon: str | None = None
     keywords: str = ""
     group: str = "Actions"
@@ -56,7 +55,7 @@ class CommandPalette(QDialog):
         frame.setObjectName("Palette")
         self.input = QLineEdit()
         self.input.setObjectName("PaletteInput")
-        self.input.setPlaceholderText("Tapez une commande ou le nom d'une entrée…")
+        self.input.setPlaceholderText("Type a command or an entry name…")
         self.input.addAction(lucide.icon("command", theme.TEXT_3), QLineEdit.LeadingPosition)
         self.input.textChanged.connect(self._refresh)
         self.input.installEventFilter(self)
@@ -65,7 +64,7 @@ class CommandPalette(QDialog):
         self.results.setIconSize(QSize(18, 18))
         self.results.itemActivated.connect(lambda item: self._run(item))
         self.results.itemClicked.connect(lambda item: self._run(item))
-        self.footer = QLabel("↑↓ naviguer   ⏎ exécuter   échap fermer")
+        self.footer = QLabel("↑↓ navigate   ⏎ run   esc close")
         self.footer.setObjectName("PaletteFooter")
 
         inner = QVBoxLayout(frame)
@@ -80,7 +79,7 @@ class CommandPalette(QDialog):
         self.setFixedWidth(min(640, max(420, parent.width() - 120)))
         self._refresh("")
 
-    # --- Affichage animé ----------------------------------------------------------------
+    # --- Animated display ----------------------------------------------------------------
 
     def popup(self) -> None:
         parent = self.parentWidget()
@@ -104,7 +103,7 @@ class CommandPalette(QDialog):
             slide.setEasingCurve(QEasingCurve.OutCubic)
             slide.start(QPropertyAnimation.DeleteWhenStopped)
 
-    # --- Filtrage -------------------------------------------------------------------------
+    # --- Filtering -------------------------------------------------------------------------
 
     def matching(self, text: str) -> list[Command]:
         terms = normalize_for_search(text).split()
@@ -128,7 +127,7 @@ class CommandPalette(QDialog):
                 item.setText(f"{label}\t{command.hint}")
             self.results.addItem(item)
         if self.results.count() == 0:
-            empty = QListWidgetItem("Aucun résultat")
+            empty = QListWidgetItem("No results")
             empty.setFlags(Qt.NoItemFlags)
             self.results.addItem(empty)
         self._select_first()
@@ -169,5 +168,5 @@ class CommandPalette(QDialog):
             return
         self.executed = command
         self.accept()
-        # Exécuté après la fermeture (la commande peut ouvrir un dialogue).
+        # Run after closing (the command may open a dialog).
         QTimer.singleShot(0, command.callback)

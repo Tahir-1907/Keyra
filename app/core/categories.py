@@ -1,16 +1,16 @@
-"""Catégories d'entrées (coffre déverrouillé).
+"""Entry categories (unlocked vault).
 
-Schéma v4 : une catégorie intégrée n'est identifiée que par sa clé technique
-(générique, identique dans tous les coffres) ; le nom d'une catégorie
-personnelle est chiffré. La référence d'une entrée à sa catégorie est dans ses
-métadonnées chiffrées : unicité des noms, compteurs et filtres se calculent en
-mémoire (cache `Vault.metadata`).
+Schema v4: a built-in category is identified only by its technical key
+(generic, identical in every vault); the name of a custom category is
+encrypted. An entry's reference to its category lives in its encrypted
+metadata: name uniqueness, counters and filters are computed in memory
+(`Vault.metadata` cache).
 
-Les catégories intégrées (`BUILTIN_CATEGORIES`) sont créées de façon
-idempotente à l'ouverture du coffre — y compris pour les coffres créés en
-la première version, qui n'en avaient pas — et ne peuvent être ni renommées ni
-supprimées. Les catégories personnalisées sont libres ; supprimer une
-catégorie ne supprime aucune entrée (elles passent « sans catégorie »).
+Built-in categories (`BUILTIN_CATEGORIES`) are created idempotently when the
+vault is opened — including for vaults created by the very first version,
+which had none — and can be neither renamed nor deleted. Custom categories
+are free-form; deleting a category deletes no entry (its entries become
+"uncategorized").
 """
 
 from __future__ import annotations
@@ -18,7 +18,11 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 
-from app.core.builtin_categories import BUILTIN_CATEGORY_KEYS, BUILTIN_CATEGORY_NAMES
+from app.core.builtin_categories import (
+    BUILTIN_CATEGORY_KEYS,
+    BUILTIN_CATEGORY_NAMES,
+    builtin_names,
+)
 from app.core.entries import UNCATEGORIZED, normalize_for_search
 from app.core.exceptions import CategoryError
 from app.core.metadata import CategoryMetadata
@@ -26,7 +30,7 @@ from app.core.vault import Vault, _utc_now_iso
 from app.database.repositories import CategoryRepository
 from app.utils.logging import get_logger
 
-# Noms des catégories intégrées, dans l'ordre d'affichage (source : builtin_categories).
+# Display names of the built-in categories, in display order (source: builtin_categories).
 BUILTIN_CATEGORIES: tuple[str, ...] = tuple(BUILTIN_CATEGORY_NAMES.values())
 
 MAX_CATEGORY_NAME_LENGTH = 60
@@ -42,7 +46,7 @@ class Category:
 
 @dataclass(frozen=True, slots=True)
 class CategoryOverview:
-    """Compteurs pour la barre latérale."""
+    """Counters for the sidebar."""
 
     categories: list[Category]
     total: int
@@ -60,24 +64,25 @@ class CategoryService:
 
     @property
     def _store(self):
-        return self._vault.metadata  # VaultLockedError si le coffre est verrouillé
+        return self._vault.metadata  # VaultLockedError if the vault is locked
 
     def ensure_builtin_categories(self) -> None:
-        """Crée les catégories intégrées manquantes. Comme en v1.6, une catégorie
-        personnelle homonyme (ancien coffre) empêche la création de l'intégrée."""
+        """Creates the missing built-in categories. As in v1.6, a custom category
+        with the same name (old vault) prevents the built-in one from being
+        created — under its display name or its legacy name."""
         store = self._store
         taken = {normalize_for_search(c.name) for c in store.categories().values()
                  if not c.is_builtin}
         existing = {c.builtin_key for c in store.categories().values() if c.is_builtin}
         with self._conn:
             for key in BUILTIN_CATEGORY_KEYS:
-                if key not in existing and normalize_for_search(
-                        BUILTIN_CATEGORY_NAMES[key]) not in taken:
+                if key not in existing and not any(
+                        normalize_for_search(name) in taken for name in builtin_names(key)):
                     self._repo.ensure_v4_builtin(key)
         store.invalidate_categories()
 
     def _active_counts(self) -> dict[int | None, int]:
-        """Entrées actives par catégorie (la corbeille n'est pas comptée)."""
+        """Active entries per category (the Trash is not counted)."""
         counts: dict[int | None, int] = {}
         for meta in self._store.entries().values():
             if meta.deleted_at is None:
@@ -88,7 +93,7 @@ class CategoryService:
         counts = self._active_counts()
         cats = [Category(c.id, c.name, c.is_builtin, counts.get(c.id, 0))
                 for c in self._store.categories().values()]
-        # Catégories intégrées d'abord (ordre défini), puis personnalisées (alpha).
+        # Built-in categories first (fixed order), then custom ones (alphabetical).
         order = {name: i for i, name in enumerate(BUILTIN_CATEGORIES)}
         cats.sort(
             key=lambda c: (
@@ -114,7 +119,7 @@ class CategoryService:
     def create_category(self, name: str) -> int:
         store = self._store
         clean = self._validate_name(name)
-        with self._conn:  # identifiant + nom chiffré : tout ou rien
+        with self._conn:  # identifier + encrypted name: all or nothing
             category_id = self._repo.insert_v4_custom_placeholder()
             store.write_category(category_id, CategoryMetadata(clean, _utc_now_iso()))
         self._logger.info("Category created: id=%d", category_id)
@@ -130,7 +135,7 @@ class CategoryService:
         self._logger.info("Category renamed: id=%d", category_id)
 
     def delete_category(self, category_id: int) -> None:
-        """Les entrées concernées (corbeille comprise) passent « sans catégorie »."""
+        """The affected entries (Trash included) become "uncategorized"."""
         self._require_custom(category_id)
         store = self._store
         affected = [(i, m) for i, m in store.entries().items() if m.category_id == category_id]
@@ -141,31 +146,31 @@ class CategoryService:
             store.invalidate_categories()
         self._logger.info("Category deleted: id=%d", category_id)
 
-    # --- Interne ---------------------------------------------------------------
+    # --- Internal ---------------------------------------------------------------
 
     def _require_custom(self, category_id: int):
         if category_id == UNCATEGORIZED:
-            raise CategoryError("Cette vue n'est pas une catégorie modifiable.")
+            raise CategoryError("This view is not an editable category.")
         category = self._store.categories().get(category_id)
         if category is None:
-            raise CategoryError("Catégorie introuvable.")
+            raise CategoryError("Category not found.")
         if category.is_builtin:
-            raise CategoryError("Les catégories intégrées ne peuvent pas être modifiées.")
+            raise CategoryError("Built-in categories cannot be modified.")
         return category
 
     def _validate_name(self, name: str, exclude_id: int | None = None) -> str:
         clean = " ".join(name.split())
         if not clean:
-            raise CategoryError("Le nom de la catégorie est obligatoire.")
+            raise CategoryError("A category name is required.")
         if len(clean) > MAX_CATEGORY_NAME_LENGTH:
             raise CategoryError(
-                f"Le nom de la catégorie ne doit pas dépasser {MAX_CATEGORY_NAME_LENGTH} "
-                "caractères."
+                f"The category name must not exceed {MAX_CATEGORY_NAME_LENGTH} "
+                "characters."
             )
-        # Doublon insensible à la casse et aux accents (« travail » vs « Travail »),
-        # catégories intégrées comprises.
+        # Duplicate check, case- and accent-insensitive ("work" vs "Work"),
+        # built-in categories included.
         wanted = normalize_for_search(clean)
         for other in self._store.categories().values():
             if other.id != exclude_id and normalize_for_search(other.name) == wanted:
-                raise CategoryError(f"La catégorie « {other.name} » existe déjà.")
+                raise CategoryError(f"The category \"{other.name}\" already exists.")
         return clean

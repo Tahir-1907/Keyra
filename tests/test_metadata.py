@@ -1,4 +1,4 @@
-"""Chiffrement des métadonnées d'entrée et des noms de catégories (app.core.metadata)."""
+"""Encryption of entry metadata and category names (app.core.metadata)."""
 
 import json
 import unittest
@@ -47,7 +47,7 @@ class CipherTestCase(unittest.TestCase):
         self.cipher = MetadataCipher(self.dek, UUID_A)
 
     def forge_entry(self, text: str, entry_id: int = 1, pad: bool = True) -> bytes:
-        """Chiffre un texte ARBITRAIRE avec la vraie sous-clé et la vraie AAD."""
+        """Encrypts ARBITRARY text with the real subkey and the real AAD."""
         if pad:
             text += " " * (-len(text.encode("utf-8")) % metadata.PAD_BLOCK)
         key = crypto.derive_subkey(self.dek, metadata.ENTRY_METADATA_INFO)
@@ -101,14 +101,14 @@ class TestPadding(CipherTestCase):
         self.assertEqual(len(short), len(medium))
 
     def test_padding_only_reduces_the_length_leak(self):
-        # Documenté : un contenu nettement plus long reste plus gros.
+        # Documented: clearly longer content stays larger.
         short = self.cipher.encrypt_entry(1, sample(name="A"))
         long = self.cipher.encrypt_entry(1, sample(name="x" * 500))
         self.assertGreater(len(long), len(short))
 
     def test_wrong_total_length_is_rejected(self):
         text = json.dumps(valid_payload())
-        text += " " * ((1 - len(text.encode("utf-8"))) % 64)  # multiple de 64, plus 1
+        text += " " * ((1 - len(text.encode("utf-8"))) % 64)  # multiple of 64, plus 1
         self.assertEqual(len(text.encode("utf-8")) % 64, 1)
         self.assert_corrupted(self.forge_entry(text, pad=False))
 
@@ -175,7 +175,7 @@ class TestSubstitution(CipherTestCase):
         self.assert_corrupted(category_blob, entry_id=3)
 
     def test_secret_field_blob_is_not_metadata(self):
-        # Un champ secret (DEK, AAD entry:<id>:password) ne passe pas pour des métadonnées.
+        # A secret field (DEK, AAD entry:<id>:password) does not pass for metadata.
         secret = crypto.encrypt_field(self.dek, json.dumps(valid_payload()),
                                       b"mon-coffre-fort:entry:1:password")
         self.assert_corrupted(secret, entry_id=1)
@@ -240,14 +240,14 @@ class TestStrictParsing(CipherTestCase):
                 self.assert_corrupted(self.forge_payload(valid_payload(tags=tags)))
 
     def test_forged_valid_payload_is_accepted(self):
-        # Témoin : le même mécanisme accepte un contenu valide (les refus ci-dessus
-        # viennent donc bien de la validation, pas du chiffrement).
+        # Control: the same mechanism accepts valid content (so the rejections above
+        # really come from validation, not from encryption).
         meta = self.cipher.decrypt_entry(1, self.forge_payload(valid_payload(tags=["Linux"])))
         self.assertEqual(meta.tags, ("Linux",))
 
 
 class TestWriteValidation(CipherTestCase):
-    """On n'écrit jamais ce qu'on ne saurait pas relire."""
+    """Never write what could not be read back."""
 
     def test_invalid_metadata_is_refused_before_encryption(self):
         for changes in ({"name": ""}, {"entry_type": "admin"}, {"created_at": "hier"},
@@ -280,7 +280,7 @@ class TestTags(unittest.TestCase):
     def test_canonical_form(self):
         self.assertEqual(normalize_tags(["  #Travail ", "Serveurs   maison"]),
                          ("Travail", "Serveurs maison"))
-        decomposed = "École"  # É en deux points de code
+        decomposed = "École"  # É as two code points
         self.assertEqual(normalize_tags([decomposed]), ("École",))
         with self.assertRaises(EntryValidationError):
             normalize_tags(["École", decomposed])
@@ -299,7 +299,7 @@ class TestTags(unittest.TestCase):
                 normalize_tags(tags)
 
     def test_whitespace_is_normalized(self):
-        # Tabulation ou retour à la ligne (tag collé) : ramenés à une espace.
+        # Tab or line break (pasted tag): turned into a single space.
         self.assertEqual(normalize_tags(["tab\tulation", "ligne\nnouvelle"]),
                          ("tab ulation", "ligne nouvelle"))
 

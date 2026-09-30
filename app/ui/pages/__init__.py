@@ -1,1 +1,1 @@
-"""Vues de l'application déverrouillée (tableau de bord, coffre, sécurité…)."""
+"""Views of the unlocked application (overview, vault, security…)."""

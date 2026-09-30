@@ -1,29 +1,29 @@
-"""Chiffrement des métadonnées d'entrée et des noms de catégories (schéma v4).
+"""Encryption of entry metadata and category names (schema v4).
 
-Tout ce qui décrit le contenu ou l'organisation du coffre (nom, URL,
-identifiant, type, catégorie, favori, tags, dates) est regroupé dans un JSON
-chiffré et authentifié par entrée ; le nom d'une catégorie personnelle l'est
-de même. Ce module ne fait qu'assembler des primitives existantes de
-app.core.crypto (derive_subkey, encrypt_field, decrypt_field) :
+Everything that describes the content or organization of the vault (name,
+URL, username, type, category, favorite, tags, dates) is grouped into one
+encrypted, authenticated JSON document per entry; the name of a custom
+category is handled the same way. This module only assembles existing
+primitives from app.core.crypto (derive_subkey, encrypt_field, decrypt_field):
 
-    sous-clé métadonnées = HKDF-SHA256(DEK, "mon-coffre-fort:entry-metadata:v1")
-    sous-clé catégories  = HKDF-SHA256(DEK, "mon-coffre-fort:category:v1")
-    AAD entrée    = "mon-coffre-fort:entry-metadata:<vault_uuid hex>:<entry_id>"
-    AAD catégorie = "mon-coffre-fort:category:<vault_uuid hex>:<category_id>"
+    metadata subkey = HKDF-SHA256(DEK, "mon-coffre-fort:entry-metadata:v1")
+    category subkey = HKDF-SHA256(DEK, "mon-coffre-fort:category:v1")
+    entry AAD    = "mon-coffre-fort:entry-metadata:<vault_uuid hex>:<entry_id>"
+    category AAD = "mon-coffre-fort:category:<vault_uuid hex>:<category_id>"
 
-Un blob ne peut donc être ni modifié, ni déplacé vers une autre entrée ou
-catégorie, ni vers un autre coffre, ni pris pour l'autre usage (sous-clé ET
-AAD différentes). Les secrets (mot de passe, notes…) restent chiffrés comme
-avant, directement sous la DEK : ce module ne les touche pas.
+A blob can therefore be neither modified, nor moved to another entry or
+category, nor to another vault, nor mistaken for the other use (different
+subkey AND AAD). Secrets (password, notes…) stay encrypted as before,
+directly under the DEK: this module does not touch them.
 
-JSON versionné ("v": 1), validé strictement à la lecture : clés exactes,
-types, dates ISO 8601 avec fuseau, tags canoniques. Toute anomalie lève une
-erreur de corruption — jamais de valeur par défaut silencieuse.
+Versioned JSON ("v": 1), strictly validated when read: exact keys, types,
+ISO 8601 dates with time zone, canonical tags. Any anomaly raises a
+corruption error — never a silent default value.
 
-Remplissage (« pad ») : le texte chiffré a une longueur multiple de 64 octets.
-Cela RÉDUIT la fuite de la longueur (un nom court et un nom moyen donnent la
-même taille) sans la supprimer : un contenu très long reste plus gros, et le
-nombre d'entrées, de catégories et de versions reste visible dans SQLite.
+Padding: the plaintext is padded to a multiple of 64 bytes before encryption.
+This REDUCES the length leak (a short name and a medium name give the same
+size) without removing it: very long content is still larger, and the number
+of entries, categories and versions remains visible in SQLite.
 """
 
 from __future__ import annotations
@@ -51,8 +51,8 @@ VAULT_UUID_SIZE = 16
 
 MAX_TAGS = 20
 MAX_TAG_LENGTH = 32
-# Doit rester identique aux clés de app.core.entries.ENTRY_TYPES (vérifié par un test ;
-# pas d'import direct : entries dépendra de ce module).
+# Must stay identical to the keys of app.core.entries.ENTRY_TYPES (checked by a test;
+# no direct import: entries depends on this module).
 ENTRY_TYPE_KEYS = frozenset({"login", "secure_note", "card", "identity", "wifi", "server"})
 
 _ENTRY_KEYS = frozenset({
@@ -62,12 +62,12 @@ _ENTRY_KEYS = frozenset({
 _CATEGORY_KEYS = frozenset({"v", "name", "created_at", "pad"})
 
 
-# --- Objets déchiffrés ------------------------------------------------------------------
+# --- Decrypted objects ------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class EntryMetadata:
-    """Métadonnées d'une entrée, déchiffrées (n'existent qu'en mémoire)."""
+    """Decrypted metadata of an entry (exists only in memory)."""
 
     name: str
     url: str
@@ -79,16 +79,16 @@ class EntryMetadata:
     created_at: str
     updated_at: str
     password_changed_at: str
-    deleted_at: str | None = None  # non nul = dans la corbeille
+    deleted_at: str | None = None  # not null = in the Trash
 
-    def __repr__(self) -> str:  # jamais de contenu dans un repr (journaux, traces)
+    def __repr__(self) -> str:  # never any content in a repr (logs, tracebacks)
         return (f"EntryMetadata(entry_type={self.entry_type!r}, tags={len(self.tags)}, "
                 f"in_trash={self.deleted_at is not None})")
 
 
 @dataclass(frozen=True, slots=True)
 class CategoryMetadata:
-    """Nom d'une catégorie personnelle, déchiffré."""
+    """Decrypted name of a custom category."""
 
     name: str
     created_at: str
@@ -101,43 +101,43 @@ class CategoryMetadata:
 
 
 def tag_key(tag: str) -> str:
-    """Clé de comparaison : « Linux », « linux » et « LINUX » sont le même tag, « Écoles »
-    et « ecoles » aussi (casse et accents ignorés). La forme affichée est conservée."""
+    """Comparison key: "Linux", "linux" and "LINUX" are the same tag, and so are "Écoles"
+    and "ecoles" (case and accents ignored). The displayed form is kept."""
     decomposed = unicodedata.normalize("NFKD", tag)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
 def normalize_tags(raw: Iterable[str]) -> tuple[str, ...]:
-    """Tags saisis -> forme canonique (ordre conservé). Lève EntryValidationError.
+    """Entered tags -> canonical form (order kept). Raises EntryValidationError.
 
-    Forme canonique : Unicode NFC, espaces superflus retirés, « # » initial retiré,
-    casse d'origine conservée. Refusés : tag vide, plus de MAX_TAG_LENGTH caractères,
-    caractère de contrôle ou virgule, doublon logique, plus de MAX_TAGS tags.
+    Canonical form: Unicode NFC, extra whitespace removed, leading "#" removed,
+    original case kept. Rejected: empty tag, more than MAX_TAG_LENGTH characters,
+    control character or comma, logical duplicate, more than MAX_TAGS tags.
     """
     result: list[str] = []
     seen: set[str] = set()
     for value in raw:
         if not isinstance(value, str):
-            raise EntryValidationError("Un tag doit être du texte.")
+            raise EntryValidationError("A tag must be text.")
         tag = " ".join(unicodedata.normalize("NFC", value).split()).lstrip("#").strip()
         if not tag:
-            raise EntryValidationError("Un tag ne peut pas être vide.")
+            raise EntryValidationError("A tag cannot be empty.")
         if len(tag) > MAX_TAG_LENGTH:
             raise EntryValidationError(
-                f"Un tag ne doit pas dépasser {MAX_TAG_LENGTH} caractères.")
+                f"A tag must not exceed {MAX_TAG_LENGTH} characters.")
         if "," in tag or any(unicodedata.category(c).startswith("C") for c in tag):
-            raise EntryValidationError("Un tag ne peut contenir ni virgule ni caractère spécial.")
+            raise EntryValidationError("A tag cannot contain a comma or a special character.")
         key = tag_key(tag)
         if key in seen:
-            raise EntryValidationError(f"Tag en double : « {tag} ».")
+            raise EntryValidationError(f"Duplicate tag: \"{tag}\".")
         seen.add(key)
         result.append(tag)
     if len(result) > MAX_TAGS:
-        raise EntryValidationError(f"Une entrée ne peut pas avoir plus de {MAX_TAGS} tags.")
+        raise EntryValidationError(f"An entry cannot have more than {MAX_TAGS} tags.")
     return tuple(result)
 
 
-# --- Validation commune (écriture : erreur de saisie ; lecture : corruption) --------------
+# --- Shared validation (write: input error; read: corruption) --------------
 
 
 def _is_int(value: object) -> bool:
@@ -146,36 +146,36 @@ def _is_int(value: object) -> bool:
 
 def _check_timestamp(value: object, error: type[Exception], what: str) -> str:
     if not isinstance(value, str):
-        raise error(f"Date invalide : {what}.")
+        raise error(f"Invalid date: {what}.")
     try:
         moment = datetime.fromisoformat(value)
     except ValueError as exc:
-        raise error(f"Date invalide : {what}.") from exc
+        raise error(f"Invalid date: {what}.") from exc
     if moment.tzinfo is None:
-        raise error(f"Date sans fuseau horaire : {what}.")
+        raise error(f"Date without a time zone: {what}.")
     return value
 
 
 def _check_entry(meta: EntryMetadata, error: type[Exception]) -> None:
     if not isinstance(meta.name, str) or not meta.name.strip():
-        raise error("Nom d'entrée absent ou invalide.")
+        raise error("Missing or invalid entry name.")
     for what, value in (("URL", meta.url), ("identifiant", meta.username)):
         if not isinstance(value, str):
-            raise error(f"Champ invalide : {what}.")
+            raise error(f"Invalid field: {what}.")
     if meta.entry_type not in ENTRY_TYPE_KEYS:
-        raise error("Type d'entrée inconnu.")
+        raise error("Unknown entry type.")
     if meta.category_id is not None and not (_is_int(meta.category_id) and meta.category_id > 0):
-        raise error("Référence de catégorie invalide.")
+        raise error("Invalid category reference.")
     if not isinstance(meta.is_favorite, bool):
-        raise error("Indicateur « favori » invalide.")
+        raise error("Invalid \"favorite\" flag.")
     if not isinstance(meta.tags, tuple):
-        raise error("Liste de tags invalide.")
+        raise error("Invalid tag list.")
     try:
         canonical = normalize_tags(meta.tags)
     except EntryValidationError as exc:
-        raise error("Liste de tags invalide.") from exc
+        raise error("Invalid tag list.") from exc
     if canonical != meta.tags:
-        raise error("Liste de tags non canonique.")
+        raise error("Non-canonical tag list.")
     for what in ("created_at", "updated_at", "password_changed_at"):
         _check_timestamp(getattr(meta, what), error, what)
     if meta.deleted_at is not None:
@@ -184,15 +184,15 @@ def _check_entry(meta: EntryMetadata, error: type[Exception]) -> None:
 
 def _check_category(meta: CategoryMetadata, error: type[Exception]) -> None:
     if not isinstance(meta.name, str) or not meta.name.strip():
-        raise error("Nom de catégorie absent ou invalide.")
+        raise error("Missing or invalid category name.")
     _check_timestamp(meta.created_at, error, "created_at")
 
 
-# --- Sérialisation (JSON versionné + remplissage) ----------------------------------------
+# --- Serialization (versioned JSON + padding) ----------------------------------------
 
 
 def _serialize(payload: dict) -> str:
-    """JSON compact dont l'encodage UTF-8 a une longueur multiple de PAD_BLOCK."""
+    """Compact JSON whose UTF-8 encoding has a length that is a multiple of PAD_BLOCK."""
     payload = {**payload, "v": METADATA_VERSION, "pad": ""}
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     payload["pad"] = " " * (-len(text.encode("utf-8")) % PAD_BLOCK)
@@ -204,53 +204,53 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("clé JSON en double")
+            raise ValueError("duplicate JSON key")
         result[key] = value
     return result
 
 
 def _parse(text: str, keys: frozenset[str], error: type[Exception]) -> dict:
-    """JSON lu après déchiffrement : longueur, structure, version, remplissage."""
+    """JSON read after decryption: length, structure, version, padding."""
     if len(text.encode("utf-8")) % PAD_BLOCK:
-        raise error("Longueur des métadonnées incohérente.")
+        raise error("Inconsistent metadata length.")
     try:
         data = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
-    except ValueError as exc:  # JSONDecodeError en hérite
-        raise error("Métadonnées illisibles.") from exc
+    except ValueError as exc:  # JSONDecodeError inherits from it
+        raise error("Unreadable metadata.") from exc
     if not isinstance(data, dict) or set(data) != keys:
-        raise error("Structure des métadonnées invalide.")
+        raise error("Invalid metadata structure.")
     if not _is_int(data["v"]):
-        raise error("Version des métadonnées invalide.")
+        raise error("Invalid metadata version.")
     if data["v"] != METADATA_VERSION:
-        raise error("Version des métadonnées non prise en charge.")
+        raise error("Unsupported metadata version.")
     pad = data["pad"]
     if not isinstance(pad, str) or pad.strip(" "):
-        raise error("Remplissage des métadonnées invalide.")
+        raise error("Invalid metadata padding.")
     return data
 
 
-# --- Chiffrement ------------------------------------------------------------------------
+# --- Encryption ------------------------------------------------------------------------
 
 
 def new_vault_uuid() -> bytes:
-    """Identité aléatoire et immuable d'un coffre (entre dans les AAD)."""
+    """Random, immutable identity of a vault (part of the AAD)."""
     return secrets.token_bytes(VAULT_UUID_SIZE)
 
 
 def _check_id(value: object, what: str) -> int:
     if not (_is_int(value) and value > 0):
-        raise ValueError(f"Identifiant de {what} invalide.")
+        raise ValueError(f"Invalid {what} identifier.")
     return value
 
 
 class MetadataCipher:
-    """Chiffre et déchiffre les métadonnées d'UN coffre (sous-clés dérivées une fois)."""
+    """Encrypts and decrypts the metadata of ONE vault (subkeys derived once)."""
 
     __slots__ = ("_category_key", "_entry_key", "_uuid_hex")
 
     def __init__(self, dek: bytes, vault_uuid: bytes) -> None:
         if not isinstance(vault_uuid, bytes) or len(vault_uuid) != VAULT_UUID_SIZE:
-            raise ValueError("Identité de coffre (vault_uuid) invalide.")
+            raise ValueError("Invalid vault identity (vault_uuid).")
         self._uuid_hex = vault_uuid.hex()
         self._entry_key = crypto.derive_subkey(dek, ENTRY_METADATA_INFO)
         self._category_key = crypto.derive_subkey(dek, CATEGORY_INFO)
@@ -259,17 +259,17 @@ class MetadataCipher:
         return "MetadataCipher(…)"
 
     def entry_aad(self, entry_id: int) -> bytes:
-        entry_id = _check_id(entry_id, "l'entrée")
+        entry_id = _check_id(entry_id, "entry")
         return f"mon-coffre-fort:entry-metadata:{self._uuid_hex}:{entry_id}".encode("ascii")
 
     def category_aad(self, category_id: int) -> bytes:
-        category_id = _check_id(category_id, "la catégorie")
+        category_id = _check_id(category_id, "category")
         return f"mon-coffre-fort:category:{self._uuid_hex}:{category_id}".encode("ascii")
 
-    # --- Entrées -------------------------------------------------------------------
+    # --- Entries -------------------------------------------------------------------
 
     def encrypt_entry(self, entry_id: int, meta: EntryMetadata) -> bytes:
-        """Lève EntryValidationError si `meta` ne pourrait pas être relu tel quel."""
+        """Raises EntryValidationError if `meta` could not be read back as is."""
         _check_entry(meta, EntryValidationError)
         text = _serialize({
             "name": meta.name, "url": meta.url, "username": meta.username,
@@ -281,21 +281,21 @@ class MetadataCipher:
         return crypto.encrypt_field(self._entry_key, text, self.entry_aad(entry_id))
 
     def decrypt_entry(self, entry_id: int, blob: object) -> EntryMetadata:
-        """Lève EntryDecryptionError en cas d'altération, de substitution ou d'incohérence."""
+        """Raises EntryDecryptionError on tampering, substitution or inconsistency."""
         aad = self.entry_aad(entry_id)
         error = EntryDecryptionError
         try:
             if not isinstance(blob, bytes):
-                raise ValueError("métadonnées absentes")
+                raise ValueError("missing metadata")
             text = crypto.decrypt_field(self._entry_key, blob, aad)
         except (ValueError, crypto.AuthenticationFailed) as exc:
             raise error(
-                f"Les métadonnées chiffrées de l'entrée {entry_id} sont corrompues "
-                "ou ont été altérées.") from exc
+                f"The encrypted metadata of entry {entry_id} is corrupted "
+                "or has been tampered with.") from exc
         data = _parse(text, _ENTRY_KEYS, error)
         tags = data["tags"]
         if not isinstance(tags, list):
-            raise error("Liste de tags invalide.")
+            raise error("Invalid tag list.")
         meta = EntryMetadata(
             name=data["name"], url=data["url"], username=data["username"],
             entry_type=data["entry_type"], category_id=data["category_id"],
@@ -306,7 +306,7 @@ class MetadataCipher:
         _check_entry(meta, error)
         return meta
 
-    # --- Catégories ----------------------------------------------------------------
+    # --- Categories ----------------------------------------------------------------
 
     def encrypt_category(self, category_id: int, meta: CategoryMetadata) -> bytes:
         _check_category(meta, CategoryError)
@@ -314,17 +314,17 @@ class MetadataCipher:
         return crypto.encrypt_field(self._category_key, text, self.category_aad(category_id))
 
     def decrypt_category(self, category_id: int, blob: object) -> CategoryMetadata:
-        """Lève CategoryDecryptionError en cas d'altération, de substitution ou d'incohérence."""
+        """Raises CategoryDecryptionError on tampering, substitution or inconsistency."""
         aad = self.category_aad(category_id)
         error = CategoryDecryptionError
         try:
             if not isinstance(blob, bytes):
-                raise ValueError("nom absent")
+                raise ValueError("missing name")
             text = crypto.decrypt_field(self._category_key, blob, aad)
         except (ValueError, crypto.AuthenticationFailed) as exc:
             raise error(
-                f"Le nom chiffré de la catégorie {category_id} est corrompu "
-                "ou a été altéré.") from exc
+                f"The encrypted name of category {category_id} is corrupted "
+                "or has been tampered with.") from exc
         data = _parse(text, _CATEGORY_KEYS, error)
         meta = CategoryMetadata(name=data["name"], created_at=data["created_at"])
         _check_category(meta, error)

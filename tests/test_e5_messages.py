@@ -1,8 +1,8 @@
-"""E5.2 et E5.3 : messages exacts (clé de récupération orpheline, mise à niveau).
+"""E5.2 and E5.3: exact messages (orphaned recovery key, upgrade).
 
-Les textes suivent le comportement réel, qui n'est pas modifié : les tests vérifient
-d'abord le comportement (clé valide ou non, coffre modifié ou non), puis que le texte
-le décrit. Copies de fixtures dans des répertoires XDG temporaires uniquement.
+The texts follow the real behavior, which is not modified: the tests first check the
+behavior (key valid or not, vault modified or not), then that the text describes it.
+Fixture copies in temporary XDG directories only.
 """
 
 import os
@@ -24,13 +24,13 @@ def texts(widget) -> str:
     return " ".join(label.text() for label in widget.findChildren(QLabel))
 
 
-# --- E5.2 : clé de récupération orpheline -----------------------------------------------------
+# --- E5.2: orphaned recovery key -----------------------------------------------------
 
 
 class TestOrphanRecoveryKey(UpgradeUiTestCase):
-    """Récupération réussie (nouveau mot de passe, nouvelle clé) puis mise à niveau en
-    échec : la nouvelle clé est déjà enregistrée et reste valide si l'utilisateur ferme
-    sa fenêtre sans l'avoir notée."""
+    """Recovery succeeded (new password, new key), then the upgrade failed: the new key
+    is already saved and stays valid if the user closes its window without writing it
+    down."""
 
     def recover_with_failing_upgrade(self, on_key_dialog):
         from PySide6.QtCore import QTimer
@@ -58,7 +58,7 @@ class TestOrphanRecoveryKey(UpgradeUiTestCase):
             QTimer.singleShot(0, lambda: self.later(key_dialog, errors))
 
         with unittest.mock.patch.object(vault_upgrade, "migrate_to_v4",
-                                        side_effect=MigrationError("panne simulée")), \
+                                        side_effect=MigrationError("simulated failure")), \
                 unittest.mock.patch("app.ui.dialogs.alert"):
             self.later(confirm, errors)
             self.window._unlock_screen.forgot.click()
@@ -69,20 +69,20 @@ class TestOrphanRecoveryKey(UpgradeUiTestCase):
     def test_abandon_message_says_the_key_stays_valid_and_it_does(self):
         def abandon(dialog, seen):
             with unittest.mock.patch("app.ui.dialogs.confirm", return_value=True) as ask:
-                dialog.reject()  # fermer sans avoir confirmé avoir noté la clé
+                dialog.reject()  # close without confirming the key was written down
             seen["message"] = " ".join(str(a) for a in ask.call_args.args[1:3])
 
         manifest, seen = self.recover_with_failing_upgrade(abandon)
         message = seen["message"].lower()
-        self.assertIn("reste valide", message)
-        self.assertIn("ne sera pas supprimée", message)
-        self.assertIn("remplacez-la", message)
-        self.assertNotIn("sera supprimée du coffre", message)
-        # Comportement réel, que le texte décrit : clé toujours enregistrée et valide.
+        self.assertIn("stays valid", message)
+        self.assertIn("will not be removed", message)
+        self.assertIn("replace it", message)
+        self.assertNotIn("will be removed from the vault", message)
+        # Real behavior, which the text describes: key still saved and valid.
         vault_id = manifest["vault_id"]
         self.assertTrue(vault_has_recovery_key(vault_id))
-        self.assertEqual(schema_of(self.path), 3)  # mise à niveau non faite
-        with self.assertRaises(RecoveryKeyError):  # l'ancienne clé est invalidée
+        self.assertEqual(schema_of(self.path), 3)  # upgrade not done
+        with self.assertRaises(RecoveryKeyError):  # the old key is invalidated
             Vault.recover(vault_id, manifest["recovery_key"], "x-mot-de-passe-de-test-1",
                           allow_legacy=True)
         vault, _ = Vault.recover(vault_id, seen["key"], NEW_MASTER, allow_legacy=True)
@@ -95,15 +95,15 @@ class TestOrphanRecoveryKey(UpgradeUiTestCase):
 
         manifest, seen = self.recover_with_failing_upgrade(acknowledge)
         orphan = seen["key"]
-        # Ouverture avec le NOUVEAU mot de passe : mise à niveau proposée puis faite.
+        # Opening with the NEW password: upgrade offered, then done.
         errors = self.later(lambda: self.migration_dialog().start())
         self.unlock_with(NEW_MASTER)
         self.assertEqual(errors, [])
         shell = self.window._shell
         self.assertIsNotNone(shell)
         self.assertEqual(schema_of(self.path), 4)
-        # Remplacement ultérieur (Paramètres -> Ce coffre) : la clé orpheline cesse de
-        # fonctionner, la nouvelle fonctionne. Logique existante, non modifiée.
+        # Later replacement (Settings -> This vault): the orphaned key stops working,
+        # the new one works. Existing logic, not modified.
         replacement = shell.ctx.vault.create_recovery_key(NEW_MASTER)
         self.assertNotEqual(replacement, orphan)
         self.window.lock()
@@ -123,11 +123,11 @@ class TestOrphanRecoveryKey(UpgradeUiTestCase):
         self.addCleanup(dialog.deleteLater)
         with unittest.mock.patch("app.ui.dialogs.confirm", return_value=False) as ask:
             dialog.reject()
-        self.assertIn("sera supprimée du coffre", ask.call_args.args[2])
+        self.assertIn("will be removed from the vault", ask.call_args.args[2])
         self.assertEqual(abandoned, [])
 
 
-# --- E5.3 : messages de mise à niveau -----------------------------------------------------------
+# --- E5.3: upgrade messages -----------------------------------------------------------
 
 
 class TestUpgradeMessages(UpgradeUiTestCase):
@@ -144,12 +144,12 @@ class TestUpgradeMessages(UpgradeUiTestCase):
         self.unlock_with(manifest["master_password"])
         self.assertEqual(errors, [])
         text = seen["text"]
-        for fragment in ("avant toute modification", "sauvegarde chiffrée", "format actuel",
-                         "mot de passe maître actuel", "1.6 ne pourra plus ouvrir",
-                         "Restaurer une sauvegarde", "nouveau coffre", "remplacer la 1.6",
-                         "historique reste lisible"):
+        for fragment in ("before any modification", "encrypted backup", "current format",
+                         "current master password", "1.6 will no longer be able to open",
+                         "Restore a backup", "new vault", "may replace 1.6",
+                         "stays readable"):
             self.assertIn(fragment, text)
-        self.assertNotIn("sauvegarde, elle, reste utilisable par la 1.6", text)
+        self.assertNotIn("remains usable by 1.6", text)
 
     def test_backup_failure_names_the_folder_and_the_cause(self):
         manifest = self.install()
@@ -170,12 +170,12 @@ class TestUpgradeMessages(UpgradeUiTestCase):
         self.unlock_with(manifest["master_password"])
         self.assertEqual(errors, [])
         error = seen["error"]
-        self.assertIn("n'a pas abouti", error)
-        self.assertIn("Sauvegarde préalable impossible", error)
-        self.assertIn("pas été modifié", error)
-        self.assertIn(f"Chemin : {not_a_folder}", error)
-        self.assertIn("Cause :", error)
-        self.assertEqual(seen["retry"], "Réessayer")
+        self.assertIn("did not complete", error)
+        self.assertIn("Preliminary backup impossible", error)
+        self.assertIn("has not been modified", error)
+        self.assertIn(f"Path: {not_a_folder}", error)
+        self.assertIn("Cause:", error)
+        self.assertEqual(seen["retry"], "Retry")
         self.assertNotIn(manifest["master_password"], error)
         self.assertEqual(schema_of(self.path), 3)
 
@@ -187,9 +187,9 @@ class TestUpgradeMessages(UpgradeUiTestCase):
         conn.close()
         self.unlock_with(manifest["master_password"])
         message = self.window._unlock_screen.error.text()
-        self.assertIn("n'a pas créés", message)
-        self.assertIn("intrus", message)  # détail de diagnostic conservé
-        self.assertIn("pas été modifié", message)
+        self.assertIn("did not create", message)
+        self.assertIn("intrus", message)  # diagnostic detail kept
+        self.assertIn("has not been modified", message)
         self.assertIn("1.6", message)
         self.assertNotIn("structure", message.lower())
 
@@ -200,9 +200,9 @@ class TestUpgradeMessages(UpgradeUiTestCase):
         self.assertEqual(errors, [])
         self.window._shell.navigate("security")
         text = texts(self.window._shell.pages["security"])
-        self.assertNotIn("La corbeille n'est pas analysée", text)
-        self.assertIn("corbeille", text)
-        self.assertIn("illisibles sont signalées", text)
+        self.assertNotIn("The Trash is not analyzed", text)
+        self.assertIn("Trash", text)
+        self.assertIn("is unreadable are reported", text)
 
 
 class TestFailureDetails(unittest.TestCase):
@@ -211,23 +211,23 @@ class TestFailureDetails(unittest.TestCase):
             try:
                 raise PermissionError(13, "Permission denied", "/chemin/inexistant/fichier")
             except OSError as exc:
-                raise MigrationError("Sauvegarde préalable impossible") from exc
+                raise MigrationError("Preliminary backup impossible") from exc
         except MigrationError as error:
             details = vault_upgrade.failure_details(error)
-        # Fichier jamais créé et dossier absent : le chemin donné est affiché tel quel.
-        self.assertEqual(details, ["Chemin : /chemin/inexistant/fichier",
-                                   "Cause : Permission denied"])
+        # File never created and folder missing: the given path is shown as is.
+        self.assertEqual(details, ["Path: /chemin/inexistant/fichier",
+                                   "Cause: Permission denied"])
 
     def test_application_error_in_the_chain(self):
         try:
             try:
-                raise VaultError("La sauvegarde ne se déchiffre pas avec la clé de ce coffre.")
+                raise VaultError("The backup does not decrypt with the key of this vault.")
             except VaultError as exc:
-                raise MigrationError("Sauvegarde préalable impossible") from exc
+                raise MigrationError("Preliminary backup impossible") from exc
         except MigrationError as error:
             details = vault_upgrade.failure_details(error)
-        self.assertEqual(details, ["Cause : La sauvegarde ne se déchiffre pas avec la clé "
-                                   "de ce coffre."])
+        self.assertEqual(details, ["Cause: The backup does not decrypt with the key "
+                                   "of this vault."])
 
     def test_no_detail_for_an_error_without_cause(self):
         self.assertEqual(vault_upgrade.failure_details(MigrationError("x")), [])

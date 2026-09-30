@@ -1,4 +1,4 @@
-"""Vue « Vue générale » : état du coffre, statistiques, comptes récents, sauvegardes."""
+"""The "Overview" view: vault state, statistics, recent entries, backups."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _first_name() -> str:
 
 
 class _RecentRow(QPushButton):
-    """Ligne cliquable : avatar, nom, identifiant, date relative."""
+    """Clickable row: avatar, name, username, relative date."""
 
     def __init__(self, summary, on_click) -> None:
         super().__init__()
@@ -52,15 +52,15 @@ class _RecentRow(QPushButton):
 
 class DashboardPage(Page):
     key = "dashboard"
-    title = "Vue générale"
-    subtitle = "L'essentiel de votre coffre"
+    title = "Overview"
+    subtitle = "Your vault at a glance"
     icon = "layout-dashboard"
 
     def __init__(self, ctx: AppContext) -> None:
         super().__init__(ctx)
         layout = scrolling(self)
 
-        # --- Accueil ----------------------------------------------------------------------
+        # --- Welcome ----------------------------------------------------------------------
         self.greeting = ui.label("", "H1")
         self.status = ui.label("", "Muted")
         self.status.setFont(theme.font(15))
@@ -73,12 +73,12 @@ class DashboardPage(Page):
         layout.addLayout(hero)
         layout.addSpacing(4)
 
-        # --- Statistiques ----------------------------------------------------------------------
+        # --- Statistics ----------------------------------------------------------------------
         self.cards = {
-            "total": ui.StatCard("Comptes", "key-round", theme.TEXT_2),
-            "secure": ui.StatCard("Sécurisés", "shield-check", theme.ACCENT_2),
-            "review": ui.StatCard("À vérifier", "shield-alert", theme.WARNING),
-            "old": ui.StatCard("Anciens", "clock", theme.INFO),
+            "total": ui.StatCard("Entries", "key-round", theme.TEXT_2),
+            "secure": ui.StatCard("Secure", "shield-check", theme.ACCENT_2),
+            "review": ui.StatCard("To review", "shield-alert", theme.WARNING),
+            "old": ui.StatCard("Old", "clock", theme.INFO),
         }
         self.cards["total"].clicked.connect(lambda: self.ctx.navigate("vault"))
         for key in ("secure", "review", "old"):
@@ -91,15 +91,15 @@ class DashboardPage(Page):
         self.skeleton = ui.Skeleton((0.35, 0.6, 0.5))
         layout.addWidget(self.skeleton)
 
-        # --- Récents + colonne latérale ---------------------------------------------------------
+        # --- Recent + side column ---------------------------------------------------------
         lower = QHBoxLayout()
         lower.setSpacing(14)
         self.recent_card = ui.card()
         recent_layout = QVBoxLayout(self.recent_card)
         recent_layout.setContentsMargins(18, 16, 18, 12)
         recent_layout.setSpacing(4)
-        recent_layout.addWidget(ui.section("Comptes récents", "Dernières modifications",
-                                           ui.button("Tout voir", "chevron-right", "Ghost",
+        recent_layout.addWidget(ui.section("Recent entries", "Latest changes",
+                                           ui.button("View all", "chevron-right", "Ghost",
                                                      on_click=lambda: self.ctx.navigate("vault"))))
         self.recent_rows = QVBoxLayout()
         self.recent_rows.setSpacing(2)
@@ -114,7 +114,7 @@ class DashboardPage(Page):
         backup_layout.setContentsMargins(18, 16, 18, 16)
         backup_layout.setSpacing(8)
         top = QHBoxLayout()
-        top.addWidget(ui.label("SAUVEGARDE", "Overline"))
+        top.addWidget(ui.label("BACKUP", "Overline"))
         top.addStretch(1)
         top.addWidget(ui.icon_label("database-backup", theme.TEXT_2))
         backup_layout.addLayout(top)
@@ -122,7 +122,7 @@ class DashboardPage(Page):
         self.backup_hint = ui.label("", "Faint", wrap=True)
         backup_layout.addWidget(self.backup_value)
         backup_layout.addWidget(self.backup_hint)
-        backup_layout.addWidget(ui.button("Gérer les sauvegardes", "chevron-right",
+        backup_layout.addWidget(ui.button("Manage backups", "chevron-right",
                                           on_click=lambda: self.ctx.navigate("backups")))
         side.addWidget(self.backup_card)
 
@@ -130,10 +130,10 @@ class DashboardPage(Page):
         actions_layout = QVBoxLayout(actions)
         actions_layout.setContentsMargins(18, 16, 18, 16)
         actions_layout.setSpacing(8)
-        actions_layout.addWidget(ui.label("ACTIONS RAPIDES", "Overline"))
-        for text, icon, target in (("Ajouter un compte", "plus", "new_entry"),
-                                   ("Générer un mot de passe", "wand-sparkles", "generator"),
-                                   ("Analyser la sécurité", "shield-check", "security")):
+        actions_layout.addWidget(ui.label("QUICK ACTIONS", "Overline"))
+        for text, icon, target in (("Add an entry", "plus", "new_entry"),
+                                   ("Generate a password", "wand-sparkles", "generator"),
+                                   ("Analyze security", "shield-check", "security")):
             button = ui.button(text, icon, on_click=lambda t=target: self.ctx.navigate(t))
             button.setStyleSheet("text-align: left;")
             actions_layout.addWidget(button)
@@ -146,11 +146,11 @@ class DashboardPage(Page):
     def on_show(self, **kwargs) -> None:
         hour = datetime.now().astimezone().hour
         name = _first_name()
-        salutation = "Bonsoir" if hour >= 18 or hour < 5 else "Bonjour"
+        salutation = "Good evening" if hour >= 18 or hour < 5 else "Hello"
         self.greeting.setText(f"{salutation}{', ' + name if name else ''}")
-        self.status.setText("Analyse du coffre…")
+        self.status.setText("Analyzing the vault…")
         self.skeleton.show()
-        # L'audit déchiffre les entrées : on laisse d'abord la vue s'afficher.
+        # The audit decrypts the entries: let the view show first.
         QTimer.singleShot(0, self.refresh)
 
     def refresh(self) -> None:
@@ -162,24 +162,24 @@ class DashboardPage(Page):
         review = {f.entry_id for f in report.findings if f.kind != KIND_OLD}
         total = report.checked_entries
         self.skeleton.hide()
-        self.cards["total"].set_value(total, "dans ce coffre")
-        self.cards["secure"].set_value(total - len(flagged), "aucun problème détecté")
-        self.cards["review"].set_value(len(review), "faibles, réutilisés, manquants…")
-        self.cards["old"].set_value(len(old), "mot de passe de plus d'un an")
+        self.cards["total"].set_value(total, "in this vault")
+        self.cards["secure"].set_value(total - len(flagged), "no issue found")
+        self.cards["review"].set_value(len(review), "weak, reused, missing…")
+        self.cards["old"].set_value(len(old), "password older than one year")
         if total == 0:
-            self.status.setText("Votre coffre est prêt. Ajoutez votre premier compte.")
+            self.status.setText("Your vault is ready. Add your first entry.")
             self.status.setStyleSheet(f"color: {theme.TEXT_2};")
         elif not review:
-            self.status.setText("Votre coffre est sécurisé.")
+            self.status.setText("Your vault is secure.")
             self.status.setStyleSheet(f"color: {theme.ACCENT_2};")
         else:
             count = len(review)
-            self.status.setText(f"{count} compte{'s' if count > 1 else ''} "
-                                f"mérite{'nt' if count > 1 else ''} votre attention.")
+            self.status.setText(f"{count} entr{'ies' if count > 1 else 'y'} "
+                                f"need{'' if count > 1 else 's'} your attention.")
             self.status.setStyleSheet(f"color: {theme.WARNING};")
         latest = last_activity(self.ctx.vault)
-        self.activity.setText(f"Dernière activité : {relative_date(latest)}" if latest
-                              else "Aucune activité pour l'instant.")
+        self.activity.setText(f"Last activity: {relative_date(latest)}" if latest
+                              else "No activity yet.")
         self._fill_recent()
         self._fill_backup()
         effects.stagger(list(self.cards.values()))
@@ -191,9 +191,9 @@ class DashboardPage(Page):
                 item.widget().deleteLater()
         rows = sorted(self.ctx.entries.list_entries(), key=lambda s: s.updated_at, reverse=True)[:5]
         if not rows:
-            empty = ui.EmptyState("key-round", "Aucun compte",
-                                  "Vos comptes récents apparaîtront ici.",
-                                  "Ajouter un compte", lambda: self.ctx.navigate("new_entry"))
+            empty = ui.EmptyState("key-round", "No entries",
+                                  "Your recent entries will appear here.",
+                                  "Add an entry", lambda: self.ctx.navigate("new_entry"))
             self.recent_rows.addWidget(empty)
             return
         widgets = [_RecentRow(s, lambda i: self.ctx.navigate("vault", entry_id=i)) for s in rows]
@@ -209,12 +209,12 @@ class DashboardPage(Page):
             infos = []
         if infos:
             self.backup_value.setText(relative_date(infos[0].created_at).capitalize())
-            self.backup_hint.setText(f"Sauvegarde chiffrée ({infos[0].kind}) · "
-                                     f"{len(infos)} disponible{'s' if len(infos) > 1 else ''}")
+            self.backup_hint.setText(f"Encrypted backup ({backup.kind_label(infos[0].kind)}) · "
+                                     f"{len(infos)} available")
         else:
-            self.backup_value.setText("Aucune sauvegarde")
-            self.backup_hint.setText("Une sauvegarde chiffrée est créée automatiquement au "
-                                     "verrouillage après une modification.")
+            self.backup_value.setText("No backup")
+            self.backup_hint.setText("An encrypted backup is created automatically on "
+                                     "locking after a change.")
 
     def wipe(self) -> None:
         while self.recent_rows.count():

@@ -27,10 +27,10 @@ class TestArgon2idDerivation(unittest.TestCase):
 
 
 class TestArgon2idReferenceVectors(unittest.TestCase):
-    """Vecteurs officiels : chaque implémentation disponible doit les reproduire."""
+    """Official vectors: every available implementation must reproduce them."""
 
     # libargon2 (phc-winner-argon2, src/test.c) : argon2id v=19 m=65536 t=2 p=1,
-    # mot de passe « password », sel « somesalt ».
+    # password "password", salt "somesalt".
     LIBARGON2_ID = bytes.fromhex(
         "09316115d5cf24ed5a15a31a3ba326e5cf32edc24702987c02b6566f61913cf7")
 
@@ -51,9 +51,9 @@ class TestArgon2idReferenceVectors(unittest.TestCase):
 
 
 @unittest.skipUnless(len(crypto.ARGON2_BACKENDS) == 2,
-                     "une seule implémentation Argon2id installée (pip install argon2-cffi)")
+                     "only one Argon2id implementation installed (pip install argon2-cffi)")
 class TestArgon2idBackendsEquivalence(unittest.TestCase):
-    """cryptography et argon2-cffi (python3-argon2 sous Debian) doivent être interchangeables."""
+    """cryptography and argon2-cffi (python3-argon2 on Debian) must be interchangeable."""
 
     def test_same_key_for_same_inputs(self):
         cases = [

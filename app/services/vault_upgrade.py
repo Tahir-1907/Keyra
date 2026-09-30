@@ -1,24 +1,24 @@
-"""Mise à niveau d'un coffre v1/v2/v3 vers v4 : préflight, migration, vérification.
+"""Upgrade of a v1/v2/v3 vault to v4: preflight, migration, verification.
 
-Orchestration autour du moteur app.services.migration_v4 (tout ou rien), qui
-n'est pas modifié :
+Orchestration around the app.services.migration_v4 engine (all or nothing),
+which is not modified:
 
-1. `inspect` (lecture seule, sans mot de passe) : version du schéma, anciennes
-   copies `.bak` en clair (signalées, jamais supprimées) et préflight STRICT.
-2. Préflight : toute structure SQLite inattendue (table, vue, déclencheur, index,
-   colonne) REFUSE la mise à niveau, coffre intact. Rien d'inconnu n'est ignoré
-   ni supprimé : le moteur reconstruit les tables connues et laisserait une table
-   inconnue telle quelle (contenu éventuellement en clair) ou effacerait en
-   silence une colonne inconnue. Référence : les définitions de
-   app.database.database (legacy_structure, LEGACY_INDEXES), pas une copie.
-3. `migrate_to_v4` : sauvegarde chiffrée vérifiée, transaction unique, VACUUM.
-4. Vérification complète APRÈS migration, par une ouverture normale (Vault.unlock) :
-   structure v4 exacte, intégrité SQLite, toutes les métadonnées, catégories,
-   secrets et versions d'historique relus, sauvegarde de migration revérifiée.
-   La session v4 ne s'ouvre qu'ensuite.
+1. `inspect` (read-only, no password): schema version, old plaintext `.bak`
+   copies (reported, never deleted) and STRICT preflight.
+2. Preflight: any unexpected SQLite structure (table, view, trigger, index,
+   column) REFUSES the upgrade, vault intact. Nothing unknown is ignored or
+   deleted: the engine rebuilds the known tables and would leave an unknown
+   table as is (possibly with plaintext content) or silently drop an unknown
+   column. Reference: the definitions in app.database.database
+   (legacy_structure, LEGACY_INDEXES), not a copy.
+3. `migrate_to_v4`: verified encrypted backup, single transaction, VACUUM.
+4. Full verification AFTER the migration, through a normal opening
+   (Vault.unlock): exact v4 structure, SQLite integrity, every metadata record,
+   category, secret and history version read back, migration backup verified
+   again. Only then is the v4 session opened.
 
-Ce module ne décide jamais seul : l'interface demande une confirmation
-explicite avant d'appeler `upgrade` ou `recover_and_upgrade`.
+This module never decides on its own: the interface asks for explicit
+confirmation before calling `upgrade` or `recover_and_upgrade`.
 """
 
 from __future__ import annotations
@@ -42,29 +42,29 @@ _DB_FILENAME = "vault.db"
 
 
 class UpgradeRefusedError(VaultError):
-    """Mise à niveau refusée AVANT toute modification (structure inattendue, format)."""
+    """Upgrade refused BEFORE any modification (unexpected structure, format)."""
 
 
 class UpgradeVerificationError(VaultError):
-    """La migration a été validée mais la vérification finale a échoué.
+    """The migration was committed but the final verification failed.
 
-    Le coffre est au format v4 et n'a pas été ouvert ; la sauvegarde de migration
-    (format d'origine, restaurable par la 1.6) est conservée.
+    The vault is in the v4 format and was not opened; the migration backup
+    (original format, restorable by 1.6) is kept.
     """
 
     def __init__(self, message: str, backup_path: Path | None = None) -> None:
         super().__init__(message)
         self.backup_path = backup_path
-        self.new_recovery_key = ""  # renseignée dans le chemin « récupération »
+        self.new_recovery_key = ""  # filled in on the "recovery" path
 
 
 class RecoveredNotUpgradedError(VaultError):
-    """Récupération réussie (nouveau mot de passe, NOUVELLE clé) mais migration échouée.
+    """Recovery succeeded (new password, NEW key) but the migration failed.
 
-    Le coffre est resté à son format d'origine, intact, avec le nouveau mot de passe
-    maître et la nouvelle clé de récupération (l'ancienne ne fonctionne plus) : la
-    nouvelle clé DOIT être montrée à l'utilisateur. Nouvel essai : déverrouiller avec
-    le nouveau mot de passe, la mise à niveau est proposée de nouveau.
+    The vault stayed in its original format, intact, with the new master password
+    and the new recovery key (the old one no longer works): the new key MUST be
+    shown to the user. To retry: unlock with the new password, and the upgrade is
+    offered again.
     """
 
     def __init__(self, message: str, new_recovery_key: str) -> None:
@@ -74,7 +74,7 @@ class RecoveredNotUpgradedError(VaultError):
 
 @dataclass(frozen=True, slots=True)
 class UpgradeCheck:
-    """État d'un coffre avant mise à niveau (lu sans mot de passe, sans modification)."""
+    """State of a vault before the upgrade (read without password, without modification)."""
 
     vault_id: str
     schema_version: int
@@ -92,20 +92,20 @@ class UpgradeCheck:
 
 @dataclass(slots=True)
 class UpgradeResult:
-    vault: Vault  # coffre v4 déverrouillé ET vérifié
+    vault: Vault  # v4 vault unlocked AND verified
     report: MigrationReport
     legacy_plaintext_copies: tuple[Path, ...] = ()
     warnings: list[str] = field(default_factory=list)
 
 
-# --- Préflight ---------------------------------------------------------------------------
+# --- Preflight ---------------------------------------------------------------------------
 
 
 def unexpected_structures(conn: sqlite3.Connection, schema_version: int) -> list[str]:
-    """Écarts STRICTS avec la structure attendue (liste vide : rien d'inattendu).
+    """STRICT differences with the expected structure (empty list: nothing unexpected).
 
-    v1 à v3 : tables et colonnes de legacy_structure, index de LEGACY_INDEXES, aucune
-    vue ni aucun déclencheur. v4 : exactement un coffre neuf (v4_reference_structure).
+    v1 to v3: tables and columns of legacy_structure, indexes of LEGACY_INDEXES, no
+    view and no trigger. v4: exactly a new vault (v4_reference_structure).
     """
     objects = {tuple(row) for row in conn.execute(
         "SELECT type, name, tbl_name FROM sqlite_master;")}
@@ -118,59 +118,59 @@ def unexpected_structures(conn: sqlite3.Connection, schema_version: int) -> list
         expected_objects |= {("index", name, table)
                              for name, (since, table) in database.LEGACY_INDEXES.items()
                              if since <= schema_version and table in expected_columns}
-    labels = {"table": "table inconnue", "view": "vue inconnue",
-              "trigger": "déclencheur inconnu", "index": "index inattendu"}
+    labels = {"table": "unknown table", "view": "unknown view",
+              "trigger": "unknown trigger", "index": "unexpected index"}
     problems = []
     for kind, name, table in sorted(objects - expected_objects):
-        problems.append(f"{labels.get(kind, kind + ' inconnu')} : {name}"
-                        + (f" (sur {table})" if kind in ("index", "trigger") else ""))
+        problems.append(f"{labels.get(kind, 'unknown ' + kind)}: {name}"
+                        + (f" (on {table})" if kind in ("index", "trigger") else ""))
     for kind, name, _table in sorted(expected_objects - objects):
         if kind in ("index", "trigger"):
-            problems.append(f"{'index' if kind == 'index' else 'déclencheur'} absent : {name}")
+            problems.append(f"missing {'index' if kind == 'index' else 'trigger'}: {name}")
     for table, expected in sorted(expected_columns.items()):
         if ("table", table, table) not in objects:
             continue
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table});")}
-        problems += [f"colonne inattendue : {table}.{c}" for c in sorted(present - expected)]
-    # Tables manquantes, colonnes absentes et intégrité : contrôle déjà utilisé à l'ouverture.
+        problems += [f"unexpected column: {table}.{c}" for c in sorted(present - expected)]
+    # Missing tables, missing columns and integrity: check already used when opening.
     problems += database.structure_problems(conn, schema_version)
     return problems
 
 
 def inspect(vault_id: str) -> UpgradeCheck:
-    """Lecture seule (aucun verrou d'écriture, aucun fichier créé) ; sans mot de passe."""
+    """Read-only (no write lock, no file created); no password."""
     db_path = vault_path(vault_id) / _DB_FILENAME
     if not db_path.is_file():
-        raise VaultNotFoundError(f"Le coffre « {vault_id} » est introuvable.")
+        raise VaultNotFoundError(f"The vault \"{vault_id}\" cannot be found.")
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row  # attendu par les repositories
+        conn.row_factory = sqlite3.Row  # expected by the repositories
         try:
             meta = VaultMetaRepository(conn).get()
             if meta is None:
-                raise VaultCorruptedError("Métadonnées du coffre absentes ou corrompues.")
+                raise VaultCorruptedError("Vault metadata missing or corrupted.")
             problems = (unexpected_structures(conn, meta.schema_version)
                         if meta.schema_version <= database.V4_SCHEMA_VERSION
-                        else ["format plus récent que l'application"])
+                        else ["format newer than the application"])
         finally:
             conn.close()
     except (sqlite3.DatabaseError, ValueError, KeyError, TypeError) as exc:
-        raise VaultCorruptedError("Le fichier du coffre est illisible ou corrompu.") from exc
+        raise VaultCorruptedError("The vault file is unreadable or corrupted.") from exc
     copies = tuple(sorted(db_path.parent.glob("vault.db.avant-schema-v*.bak")))
     return UpgradeCheck(vault_id, meta.schema_version, tuple(problems), copies)
 
 
 def _refusal_message(problems: list[str] | tuple[str, ...]) -> str:
-    return ("Mise à niveau impossible : le fichier du coffre contient des éléments que Mon "
-            "Coffre-Fort n'a pas créés (détail : " + "; ".join(problems[:5])
-            + ("…" if len(problems) > 5 else "") + "). Le coffre n'a pas été modifié.")
+    return ("Upgrade impossible: the vault file contains items that the application "
+            "did not create (details: " + "; ".join(problems[:5])
+            + ("…" if len(problems) > 5 else "") + "). The vault has not been modified.")
 
 
 def failure_details(exc: BaseException) -> list[str]:
-    """Chemin et cause d'un échec, tirés de la chaîne d'exceptions (`__cause__`,
-    `__context__`) : ce que le moteur de migration attache à « Sauvegarde préalable
-    impossible », par exemple. Seuls des chemins et des messages d'erreur du système ou
-    de l'application sont repris, jamais une donnée du coffre."""
+    """Path and cause of a failure, taken from the exception chain (`__cause__`,
+    `__context__`): what the migration engine attaches to "Preliminary backup
+    impossible", for example. Only paths and error messages from the system or the
+    application are reused, never vault data."""
     seen: set[int] = set()
     pending: list[BaseException | None] = [exc.__cause__, exc.__context__]
     while pending:
@@ -181,14 +181,14 @@ def failure_details(exc: BaseException) -> list[str]:
         if isinstance(current, OSError):
             details = []
             if current.filename:
-                # Fichier jamais créé (temporaire d'écriture refusé) : son dossier est le
-                # chemin utile à l'utilisateur.
+                # File never created (write temporary refused): its folder is the path that
+                # is useful to the user.
                 path = Path(current.filename)
                 shown = path if path.exists() or not path.parent.exists() else path.parent
-                details.append(f"Chemin : {shown}")
-            return [*details, f"Cause : {current.strerror or type(current).__name__}"]
+                details.append(f"Path: {shown}")
+            return [*details, f"Cause: {current.strerror or type(current).__name__}"]
         if isinstance(current, VaultError):
-            return [f"Cause : {current}"]
+            return [f"Cause: {current}"]
         pending += [current.__cause__, current.__context__]
     return []
 
@@ -202,64 +202,64 @@ def _refuse_if_unexpected(vault: Vault) -> None:
         raise UpgradeRefusedError(_refusal_message(problems))
 
 
-# --- Vérification après migration ------------------------------------------------------
+# --- Verification after the migration ------------------------------------------------------
 
 
 def verify_upgraded(vault: Vault, report: MigrationReport) -> list[str]:
-    """Relit TOUT le coffre migré ; lève une exception au moindre écart.
+    """Reads back the WHOLE migrated vault; raises an exception on any discrepancy.
 
-    Retourne des avertissements non bloquants (ex. VACUUM à refaire).
+    Returns non-blocking warnings (e.g. VACUUM to be redone).
     """
     conn = vault.connection
     meta = VaultMetaRepository(conn).get()
     if meta.schema_version != database.V4_SCHEMA_VERSION or meta.vault_uuid is None:
-        raise VaultError("format v4 non enregistré")
+        raise VaultError("v4 format not saved")
     problems = unexpected_structures(conn, database.V4_SCHEMA_VERSION)
     if problems:
-        raise VaultError("structure v4 inattendue : " + "; ".join(problems))
+        raise VaultError("unexpected v4 structure: " + "; ".join(problems))
     if conn.execute("PRAGMA integrity_check;").fetchone()[0] != "ok":
-        raise VaultError("contrôle d'intégrité SQLite en échec")
+        raise VaultError("SQLite integrity check failed")
     if conn.execute("PRAGMA foreign_key_check;").fetchall():
-        raise VaultError("références incohérentes entre les tables")
+        raise VaultError("inconsistent references between the tables")
     store = vault.metadata
     entries = store.entries()
     if store.unreadable():
-        raise VaultError(f"{len(store.unreadable())} entrée(s) illisible(s)")
+        raise VaultError(f"{len(store.unreadable())} unreadable entry(ies)")
     if len(entries) != report.entries:
-        raise VaultError("nombre d'entrées différent")
-    store.categories()  # CategoryDecryptionError si un nom est illisible
+        raise VaultError("different number of entries")
+    store.categories()  # CategoryDecryptionError if a name is unreadable
     service = EntryService(vault)
     versions = 0
     for entry_id in entries:
-        service.get_entry(entry_id, include_deleted=True)  # secrets déchiffrés
-        versions += len(service.list_history(entry_id))  # versions déchiffrées
+        service.get_entry(entry_id, include_deleted=True)  # secrets decrypted
+        versions += len(service.list_history(entry_id))  # versions decrypted
     if versions != report.history_versions:
-        raise VaultError("nombre de versions d'historique différent")
+        raise VaultError("different number of history versions")
     backup.verify_backup(report.backup_path, vault._require_unlocked_key())
     warnings = []
     if not report.vacuumed:
-        try:  # anciennes pages : nouvel essai de réécriture du fichier
+        try:  # old pages: new attempt at rewriting the file
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
             conn.execute("VACUUM;")
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
             report.vacuumed = True
         except sqlite3.Error:
             get_logger().error("VACUUM after upgrade failed twice: %s", vault.vault_id)
-            warnings.append("Le compactage final du fichier a échoué (espace disque ?) : "
-                            "d'anciennes données non chiffrées peuvent subsister dans ses "
-                            "pages libres. Le coffre est utilisable et vérifié.")
+            warnings.append("The final compaction of the file failed (disk space?): "
+                            "old unencrypted data may remain in its free pages. "
+                            "The vault is usable and verified.")
     return warnings
 
 
 def _open_verified(vault_id: str, master_password: str,
                    report: MigrationReport) -> UpgradeResult:
-    """Ouverture NORMALE du coffre migré, puis vérification complète."""
+    """NORMAL opening of the migrated vault, then full verification."""
     try:
         vault = Vault.unlock(vault_id, master_password)
     except VaultError as exc:
         raise UpgradeVerificationError(
-            f"La mise à niveau a été appliquée mais le coffre ne s'ouvre pas ({exc}). "
-            f"La sauvegarde {report.backup_path.name} est conservée.",
+            f"The upgrade was applied but the vault does not open ({exc}). "
+            f"The backup {report.backup_path.name} is kept.",
             report.backup_path) from exc
     try:
         warnings = verify_upgraded(vault, report)
@@ -268,22 +268,22 @@ def _open_verified(vault_id: str, master_password: str,
         get_logger().error("Upgrade verification failed: %s (%s)", vault_id,
                            type(exc).__name__)
         raise UpgradeVerificationError(
-            "La mise à niveau a été appliquée mais sa vérification a échoué ; le coffre "
-            f"n'a pas été ouvert. La sauvegarde {report.backup_path.name} (format "
-            "d'origine) est conservée pour le restaurer.", report.backup_path) from exc
+            "The upgrade was applied but its verification failed; the vault "
+            f"was not opened. The backup {report.backup_path.name} (original "
+            "format) is kept to restore it.", report.backup_path) from exc
     return UpgradeResult(vault, report, warnings=warnings)
 
 
-# --- Points d'entrée -----------------------------------------------------------------------
+# --- Entry points -----------------------------------------------------------------------
 
 
 def upgrade(vault_id: str, master_password: str, backup_dir: Path,
             _fault: Callable[[str], None] | None = None) -> UpgradeResult:
-    """Mot de passe maître -> préflight -> migration -> vérification -> coffre v4 ouvert.
+    """Master password -> preflight -> migration -> verification -> v4 vault open.
 
-    Lève WrongMasterPasswordError, VaultCorruptedError, UpgradeRefusedError,
-    MigrationError (coffre intact dans ces quatre cas) ou UpgradeVerificationError.
-    `_fault` : réservé aux tests (transmis au moteur).
+    Raises WrongMasterPasswordError, VaultCorruptedError, UpgradeRefusedError,
+    MigrationError (vault intact in these four cases) or UpgradeVerificationError.
+    `_fault`: reserved for tests (passed on to the engine).
     """
     vault = Vault.open_for_migration(vault_id, master_password)
     try:
@@ -301,16 +301,16 @@ def upgrade(vault_id: str, master_password: str, backup_dir: Path,
 def recover_and_upgrade(vault_id: str, recovery_key: str, new_master_password: str,
                         backup_dir: Path, _fault: Callable[[str], None] | None = None,
                         ) -> tuple[UpgradeResult, str]:
-    """Coffre v1 à v3, mot de passe oublié : récupération -> migration -> vérification.
+    """v1 to v3 vault, forgotten password: recovery -> migration -> verification.
 
-    Le préflight a lieu AVANT la récupération : un coffre qui ne peut pas être mis à
-    niveau n'est pas modifié du tout. La récupération précède la migration pour que
-    la sauvegarde de migration s'ouvre avec le NOUVEAU mot de passe.
-    Retourne (résultat, nouvelle clé de récupération).
+    The preflight happens BEFORE the recovery: a vault that cannot be upgraded is
+    not modified at all. The recovery comes before the migration so that the
+    migration backup opens with the NEW password.
+    Returns (result, new recovery key).
     """
     check = inspect(vault_id)
     if not check.needs_upgrade:
-        raise UpgradeRefusedError("Ce coffre est déjà au format actuel.")
+        raise UpgradeRefusedError("This vault is already in the current format.")
     if check.problems:
         raise UpgradeRefusedError(_refusal_message(check.problems))
     vault, new_key = Vault.recover(vault_id, recovery_key, new_master_password,
@@ -322,10 +322,10 @@ def recover_and_upgrade(vault_id: str, recovery_key: str, new_master_password: s
         get_logger().error("Recovered vault not upgraded: %s (%s)", vault_id,
                            type(exc).__name__)
         raise RecoveredNotUpgradedError(
-            "Le nouveau mot de passe maître est enregistré, mais la mise à niveau a échoué"
-            f" ({exc}). Le coffre n'a pas été modifié autrement. Notez la nouvelle clé de "
-            "récupération, puis déverrouillez le coffre avec le nouveau mot de passe pour "
-            "réessayer.", new_key) from exc
+            "The new master password is saved, but the upgrade failed"
+            f" ({exc}). The vault was not modified otherwise. Write down the new recovery "
+            "key, then unlock the vault with the new password to "
+            "try again.", new_key) from exc
     finally:
         vault.close()
     try:

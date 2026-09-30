@@ -1,9 +1,8 @@
-"""Générateur de mots de passe / phrases de passe (modale premium).
+"""Password / passphrase generator (premium modal).
 
-Toute la génération est faite par app.core.generator (aléa `secrets`). À
-chaque génération, la nouvelle valeur apparaît par une micro-animation
-(glissement de 6 px + fondu, 150 ms). Deux usages : autonome (copier) ou
-depuis le formulaire d'un compte (« Utiliser »).
+All generation is done by app.core.generator (`secrets` randomness). On each
+generation, the new value appears with a micro-animation (6 px slide + fade,
+150 ms). Two uses: standalone (copy) or from an entry form ("Use").
 """
 
 from __future__ import annotations
@@ -42,16 +41,16 @@ from app.ui import effects, theme
 from app.ui.dialogs import PremiumDialog
 from app.ui.secure_clipboard import SecureClipboard
 
-_SEPARATORS = (("Tiret  -", "-"), ("Espace", " "), ("Point  .", "."), ("Souligné  _", "_"),
-               ("Aucun", ""))
+_SEPARATORS = (("Dash  -", "-"), ("Space", " "), ("Dot  .", "."), ("Underscore  _", "_"),
+               ("None", ""))
 
 
 class _GeneratedValue(QLabel):
-    """Valeur générée, affichée EN ENTIER (128 caractères, 12 mots…).
+    """Generated value, shown IN FULL (128 characters, 12 words…).
 
-    Elle passe à la ligne n'importe où et sa police rétrécit si nécessaire ; la
-    hauteur est fixe, pour que la fenêtre ne saute pas pendant que le curseur
-    bouge. `text()` rend la valeur exacte (sans les points de coupure).
+    It wraps anywhere and its font shrinks if needed; the height is fixed, so
+    that the window does not jump while the slider moves. `text()` returns the
+    exact value (without the break points).
     """
 
     LINES = 3
@@ -67,11 +66,11 @@ class _GeneratedValue(QLabel):
         self.setMinimumWidth(40)
         self.setFixedHeight(self.LINES * QFontMetrics(theme.mono_font(self.SIZES[1])).lineSpacing())
 
-    def text(self) -> str:  # la valeur réelle, pas son affichage
+    def text(self) -> str:  # the real value, not its display
         return self._value
 
-    def setText(self, value: str, separator: str | None = None) -> None:  # nom imposé par l'API Qt
-        """`separator` (phrase de passe) : passage à la ligne entre les mots seulement."""
+    def setText(self, value: str, separator: str | None = None) -> None:  # name set by the Qt API
+        """`separator` (passphrase): line breaks between words only."""
         self._value = value
         self._by_words = bool(separator)
         if self._by_words:
@@ -103,16 +102,16 @@ class _GeneratedValue(QLabel):
 class GeneratorDialog(PremiumDialog):
     def __init__(self, clipboard: SecureClipboard, use_mode: bool = False,
                  parent: QWidget | None = None, settings: Settings | None = None) -> None:
-        super().__init__(parent, "Générateur", "Aléa cryptographique du système (secrets).",
+        super().__init__(parent, "Generator", "System cryptographic randomness (secrets).",
                          icon="wand-sparkles", width=520)
         settings = settings or Settings()
         self._clipboard = clipboard
         self.chosen_value: str | None = None
         self._ready = False
 
-        # --- Résultat ---------------------------------------------------------------------
+        # --- Result ---------------------------------------------------------------------
         self.result = _GeneratedValue()
-        self.copy_button = ui.CopyButton("Copier le mot de passe")
+        self.copy_button = ui.CopyButton("Copy the password")
         self.copy_button.clicked.connect(self._copy)
         result_host = QFrame()
         result_host.setObjectName("Generated")
@@ -129,8 +128,8 @@ class GeneratorDialog(PremiumDialog):
         self.body.addWidget(self.strength_label)
 
         # --- Mode ---------------------------------------------------------------------------
-        self.password_chip = ui.button("Mot de passe", "key-round", "Chip")
-        self.passphrase_chip = ui.button("Phrase de passe", "sticky-note", "Chip")
+        self.password_chip = ui.button("Password", "key-round", "Chip")
+        self.passphrase_chip = ui.button("Passphrase", "sticky-note", "Chip")
         modes = QButtonGroup(self)
         for chip in (self.password_chip, self.passphrase_chip):
             chip.setCheckable(True)
@@ -142,17 +141,17 @@ class GeneratorDialog(PremiumDialog):
         mode_row.addStretch(1)
         self.body.addSpacing(4)
         self.body.addLayout(mode_row)
-        # Deux jeux d'options affichés tour à tour (pas de pile : pas de vide résiduel).
+        # Two option sets shown in turn (no stack: no leftover gap).
         self._mode = 0
         self._option_pages: list[QWidget] = []
 
-        # --- Options « mot de passe » ------------------------------------------------------------
+        # --- "Password" options ------------------------------------------------------------
         pw = QWidget()
         pw_layout = QVBoxLayout(pw)
         pw_layout.setContentsMargins(0, 6, 0, 0)
         pw_layout.setSpacing(12)
         length_row = QHBoxLayout()
-        length_row.addWidget(ui.label("Longueur", "FieldLabel"))
+        length_row.addWidget(ui.label("Length", "FieldLabel"))
         length_row.addStretch(1)
         self.length_value = ui.label("", "H2")
         length_row.addWidget(self.length_value)
@@ -165,11 +164,11 @@ class GeneratorDialog(PremiumDialog):
         toggles = QGridLayout()
         toggles.setHorizontalSpacing(24)
         toggles.setVerticalSpacing(10)
-        self.uppercase = ui.ToggleSwitch("Majuscules")
-        self.lowercase = ui.ToggleSwitch("Minuscules")
-        self.digits = ui.ToggleSwitch("Chiffres")
-        self.symbols = ui.ToggleSwitch("Symboles")
-        self.exclude_ambiguous = ui.ToggleSwitch("Sans caractères ambigus (I l 1 O 0)")
+        self.uppercase = ui.ToggleSwitch("Uppercase")
+        self.lowercase = ui.ToggleSwitch("Lowercase")
+        self.digits = ui.ToggleSwitch("Digits")
+        self.symbols = ui.ToggleSwitch("Symbols")
+        self.exclude_ambiguous = ui.ToggleSwitch("No ambiguous characters (I l 1 O 0)")
         for toggle, value in ((self.uppercase, settings.generator_uppercase),
                               (self.lowercase, settings.generator_lowercase),
                               (self.digits, settings.generator_digits),
@@ -185,13 +184,13 @@ class GeneratorDialog(PremiumDialog):
         self._option_pages.append(pw)
         self.body.addWidget(pw)
 
-        # --- Options « phrase de passe » ----------------------------------------------------------
+        # --- "Passphrase" options ----------------------------------------------------------
         pp = QWidget()
         pp_layout = QVBoxLayout(pp)
         pp_layout.setContentsMargins(0, 6, 0, 0)
         pp_layout.setSpacing(12)
         words_row = QHBoxLayout()
-        words_row.addWidget(ui.label("Nombre de mots", "FieldLabel"))
+        words_row.addWidget(ui.label("Number of words", "FieldLabel"))
         words_row.addStretch(1)
         self.words_value = ui.label("", "H2")
         words_row.addWidget(self.words_value)
@@ -202,7 +201,7 @@ class GeneratorDialog(PremiumDialog):
         self.words_value.setText(str(self.words_slider.value()))
         pp_layout.addWidget(self.words_slider)
         sep_row = QHBoxLayout()
-        sep_row.addWidget(ui.label("Séparateur", "FieldLabel"))
+        sep_row.addWidget(ui.label("Separator", "FieldLabel"))
         sep_row.addStretch(1)
         self.separator = QComboBox()
         for text, value in _SEPARATORS:
@@ -211,9 +210,9 @@ class GeneratorDialog(PremiumDialog):
         self.separator.setCurrentIndex(max(separator_index, 0))
         sep_row.addWidget(self.separator)
         pp_layout.addLayout(sep_row)
-        self.capitalize = ui.ToggleSwitch("Majuscule à chaque mot")
+        self.capitalize = ui.ToggleSwitch("Capitalize each word")
         self.capitalize.setChecked(settings.passphrase_capitalize)
-        self.add_number = ui.ToggleSwitch("Ajouter un chiffre")
+        self.add_number = ui.ToggleSwitch("Add a digit")
         self.add_number.setChecked(settings.passphrase_add_number)
         pp_layout.addWidget(self.capitalize)
         pp_layout.addWidget(self.add_number)
@@ -224,7 +223,7 @@ class GeneratorDialog(PremiumDialog):
         try:
             count = len(load_passphrase_wordlist())
             self.wordlist_info.setText(
-                f"Mots tirés d'un dictionnaire français de {count:,} mots.".replace(",", " "))
+                f"Words drawn from a French dictionary of {count:,} words.".replace(",", " "))
         except GeneratorError as exc:
             self.passphrase_chip.setEnabled(False)
             self.passphrase_chip.setToolTip(str(exc))
@@ -233,22 +232,22 @@ class GeneratorDialog(PremiumDialog):
         self.error.hide()
         self.body.addWidget(self.error)
 
-        # --- Boutons -----------------------------------------------------------------------------
+        # --- Buttons -----------------------------------------------------------------------------
         row = QHBoxLayout()
         row.setSpacing(10)
-        row.addWidget(ui.button("Générer à nouveau", "refresh-cw", on_click=self.regenerate))
+        row.addWidget(ui.button("Generate again", "refresh-cw", on_click=self.regenerate))
         row.addStretch(1)
         if use_mode:
-            row.addWidget(ui.button("Annuler", kind="Ghost", on_click=self.reject))
-            use = ui.button("Utiliser", "check", "Primary", on_click=self._use)
+            row.addWidget(ui.button("Cancel", kind="Ghost", on_click=self.reject))
+            use = ui.button("Use", "check", "Primary", on_click=self._use)
             use.setDefault(True)
             row.addWidget(use)
         else:
-            row.addWidget(ui.button("Fermer", kind="Ghost", on_click=self.reject))
+            row.addWidget(ui.button("Close", kind="Ghost", on_click=self.reject))
         self.card_layout.addSpacing(4)
         self.card_layout.addLayout(row)
 
-        # --- Connexions (après l'état initial, pour ne générer qu'une fois) -----------------------
+        # --- Connections (after the initial state, so that generation happens only once) ----------
         passphrase = settings.generator_mode == "passphrase" and self.passphrase_chip.isEnabled()
         (self.passphrase_chip if passphrase else self.password_chip).setChecked(True)
         self._show_options(1 if passphrase else 0)
@@ -305,15 +304,15 @@ class GeneratorDialog(PremiumDialog):
         self.result.setText(generated.value,
                             self.separator.currentData() if self.passphrase_mode else None)
         effects.slide_in(self.result, 0, 6, theme.DURATION_FAST)
-        # Entropie EXACTE du tirage (pas une estimation) : la valeur est aléatoire.
+        # EXACT entropy of the draw (not an estimate): the value is random.
         score = score_for_bits(generated.entropy_bits)
         self.strength.set_score(score, generated.entropy_bits)
         self.strength_label.setText(
-            f"{LABELS[score]} · {generated.entropy_bits:.0f} bits d'entropie")
+            f"{LABELS[score]} · {generated.entropy_bits:.0f} bits of entropy")
 
     def _copy(self) -> None:
         if self.result.text():
-            self._clipboard.copy(self.result.text(), "Mot de passe généré")
+            self._clipboard.copy(self.result.text(), "Generated password")
             self.copy_button.confirm()
 
     def _use(self) -> None:

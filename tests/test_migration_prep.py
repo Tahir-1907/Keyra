@@ -1,8 +1,8 @@
-"""Préparation de la migration v4 (C1) : rien n'est encore migré.
+"""Preparation of the v4 migration (C1): nothing is migrated yet.
 
-Étapes v1/v2 -> v3 réutilisables, ouverture sans mise à niveau (donc sans .bak
-en clair), sauvegarde de migration vérifiée, schéma v4 définitif et son
-contrôle de structure, format des versions d'historique v1/v2.
+Reusable v1/v2 -> v3 steps, opening without upgrade (hence without a plaintext
+.bak), verified migration backup, final v4 schema and its structure check,
+format of the v1/v2 history versions.
 """
 
 import hashlib
@@ -48,8 +48,8 @@ class TestOpenForMigration(FixtureVaultTestCase):
                     self.assertFalse(vault.is_locked)
                 finally:
                     vault.close()
-                self.assertEqual(sha256(db_path), before)  # fichier inchangé
-                self.assertEqual(list(db_path.parent.glob("*.bak")), [])  # aucun .bak
+                self.assertEqual(sha256(db_path), before)  # file unchanged
+                self.assertEqual(list(db_path.parent.glob("*.bak")), [])  # no .bak
 
     def test_wrong_password(self):
         manifest = self.install("v3-app-1.6.0")
@@ -57,7 +57,7 @@ class TestOpenForMigration(FixtureVaultTestCase):
             Vault.open_for_migration(manifest["vault_id"], "mauvais-mot-de-passe")
 
     def test_unlock_refuses_old_vaults_without_touching_them(self):
-        # v1.7 : plus de mise à niveau implicite au déverrouillage (ni copie .bak en clair).
+        # v1.7: no implicit upgrade on unlock anymore (and no plaintext .bak copy).
         from app.core.exceptions import VaultMigrationRequiredError
         from tests.test_fixtures import logical_dump
 
@@ -68,7 +68,7 @@ class TestOpenForMigration(FixtureVaultTestCase):
                 before = logical_dump(db_path)
                 with self.assertRaises(VaultMigrationRequiredError):
                     Vault.unlock(manifest["vault_id"], manifest["master_password"])
-                with self.assertRaises(WrongMasterPasswordError):  # mot de passe vérifié d'abord
+                with self.assertRaises(WrongMasterPasswordError):  # password checked first
                     Vault.unlock(manifest["vault_id"], "mauvais-mot-de-passe")
                 self.assertEqual(logical_dump(db_path), before)
                 self.assertEqual(list(db_path.parent.glob("*.bak")), [])
@@ -105,7 +105,7 @@ class TestMigrationBackup(EntryTestCase):
 
 
 class V4SchemaTestCase(unittest.TestCase):
-    """Base v4 définitive, en mémoire."""
+    """Final v4 database, in memory."""
 
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
@@ -133,10 +133,10 @@ class TestV4Schema(V4SchemaTestCase):
 
     def test_plaintext_v3_columns_or_entry_tags_are_structure_problems(self):
         self.conn.execute("ALTER TABLE entries ADD COLUMN service_name TEXT")
-        self.assertIn("colonnes v3 en clair présentes dans entries",
+        self.assertIn("plaintext v3 columns present in entries",
                       database.structure_problems(self.conn, 4))
         self.conn.execute("CREATE TABLE entry_tags (entry_id INTEGER, tag TEXT)")
-        self.assertIn("table entry_tags (v3) présente", database.structure_problems(self.conn, 4))
+        self.assertIn("entry_tags table (v3) present", database.structure_problems(self.conn, 4))
 
     def test_entries_require_every_blob(self):
         self.assert_refused("INSERT INTO entries (metadata_enc, email_enc, password_enc, "
@@ -171,8 +171,8 @@ class TestV4Schema(V4SchemaTestCase):
 
 class TestForgedSchemaNumber(EntryTestCase):
     def test_v4_vault_claiming_to_be_v3_is_refused(self):
-        # Structure v4 sous un numéro v3 (rétrogradation forgée) : endommagé, jamais
-        # lu comme un v3 ni « re-migré ».
+        # v4 structure under a v3 number (forged downgrade): damaged, never read as
+        # a v3 vault nor "re-migrated".
         with self.vault.connection as conn:
             conn.execute("UPDATE vault_meta SET schema_version = 3")
         self.vault.close()

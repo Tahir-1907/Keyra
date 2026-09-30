@@ -1,8 +1,7 @@
-"""Formulaire de création / modification d'un compte (modale premium).
+"""Form to create / edit an entry (premium modal).
 
-Le formulaire est dérivé de `app.core.entries.ENTRY_TYPES` (aucun type ni
-champ codé en dur) ; validation et enregistrement sont délégués à
-`EntryService`.
+The form is derived from `app.core.entries.ENTRY_TYPES` (no hard-coded type
+or field); validation and saving are delegated to `EntryService`.
 """
 
 from __future__ import annotations
@@ -48,8 +47,8 @@ class EntryDialog(PremiumDialog):
                  settings: Settings | None = None, default_category_id: int | None = None,
                  parent: QWidget | None = None) -> None:
         editing = entry is not None
-        super().__init__(parent, "Modifier le compte" if editing else "Nouveau compte",
-                         "Les champs sensibles sont chiffrés (AES-256-GCM).",
+        super().__init__(parent, "Edit entry" if editing else "New entry",
+                         "Sensitive fields are encrypted (AES-256-GCM).",
                          icon="square-pen" if editing else "plus", width=560)
         self._service = service
         self._clipboard = clipboard
@@ -66,18 +65,18 @@ class EntryDialog(PremiumDialog):
         self.type_combo = QComboBox()
         for spec in ENTRY_TYPES.values():
             self.type_combo.addItem(spec.label, spec.key)
-        self.type_combo.setEnabled(not editing)  # le type est fixé après création
+        self.type_combo.setEnabled(not editing)  # the type is fixed after creation
         self.category = QComboBox()
-        self.category.addItem("Aucune", None)
+        self.category.addItem("None", None)
         for cat in categories:
             self.category.addItem(cat.name, cat.id)
         grid.addWidget(_field("Type", self.type_combo), 0, 0)
-        grid.addWidget(_field("Catégorie", self.category), 0, 1)
+        grid.addWidget(_field("Category", self.category), 0, 1)
 
         self.name = QLineEdit()
-        self.name.setPlaceholderText("Ex. : GitHub, Banque, Box Wi-Fi…")
-        grid.addWidget(_field("Nom *", self.name), 1, 0, 1, 2)
-        self.favorite = ui.ToggleSwitch("Favori")
+        self.name.setPlaceholderText("E.g. GitHub, Bank, Home Wi-Fi…")
+        grid.addWidget(_field("Name *", self.name), 1, 0, 1, 2)
+        self.favorite = ui.ToggleSwitch("Favorite")
         grid.addWidget(self.favorite, 2, 0, 1, 2)
 
         self.url = QLineEdit()
@@ -85,14 +84,14 @@ class EntryDialog(PremiumDialog):
         self.username = QLineEdit()
         self.email = QLineEdit()
         self._url_row = _field("URL", self.url)
-        self._username_row = _field("Identifiant", self.username)
+        self._username_row = _field("Username", self.username)
         self._email_row = _field("Email", self.email)
         grid.addWidget(self._url_row, 3, 0, 1, 2)
         grid.addWidget(self._username_row, 4, 0)
         grid.addWidget(self._email_row, 4, 1)
 
         self.password = PasswordField()
-        generate = ui.icon_button("wand-sparkles", "Générer un mot de passe", "",
+        generate = ui.icon_button("wand-sparkles", "Generate a password", "",
                                   self._open_generator)
         line = QHBoxLayout()
         line.setSpacing(6)
@@ -107,11 +106,11 @@ class EntryDialog(PremiumDialog):
         self.strength_label = ui.label("", "Faint")
         password_layout.addWidget(self.strength)
         password_layout.addWidget(self.strength_label)
-        self._password_row = _field("Mot de passe", password_host)
+        self._password_row = _field("Password", password_host)
         self.password.textChanged.connect(self._update_strength)
         grid.addWidget(self._password_row, 5, 0, 1, 2)
 
-        # Champs spécifiques de tous les types ; seuls ceux du type courant sont visibles.
+        # Type-specific fields of every type; only those of the current type are visible.
         self._extra_widgets: dict[tuple[str, str], QLineEdit] = {}
         self._extra_rows: dict[tuple[str, str], QWidget] = {}
         row = 6
@@ -125,7 +124,7 @@ class EntryDialog(PremiumDialog):
             row += (len(spec.extra_fields) + 1) // 2
 
         self.notes = QPlainTextEdit()
-        self.notes.setPlaceholderText("Notes (chiffrées)")
+        self.notes.setPlaceholderText("Notes (encrypted)")
         self.notes.setFixedHeight(90)
         grid.addWidget(_field("Notes", self.notes), row, 0, 1, 2)
 
@@ -141,7 +140,7 @@ class EntryDialog(PremiumDialog):
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, save = self.add_buttons("Annuler", "Enregistrer", confirm_icon="check")
+        _, save = self.add_buttons("Cancel", "Save", confirm_icon="check")
         save.clicked.connect(self._save)
 
         self.type_combo.currentIndexChanged.connect(self._apply_type_visibility)
@@ -152,7 +151,7 @@ class EntryDialog(PremiumDialog):
         self._apply_type_visibility()
         self.name.setFocus()
 
-    # --- Aides ------------------------------------------------------------------------------
+    # --- Helpers ------------------------------------------------------------------------------
 
     def _current_type(self) -> str:
         return self.type_combo.currentData() or DEFAULT_ENTRY_TYPE
@@ -210,7 +209,7 @@ class EntryDialog(PremiumDialog):
             email=self.email.text(), password=self.password.text(),
             notes=self.notes.toPlainText(), extra=extra,
             category_id=self.category.currentData(), is_favorite=self.favorite.isChecked(),
-            # Texte saisi sans Entrée compris : le service le valide ou le refuse.
+            # Text typed without pressing Enter is included: the service validates or rejects it.
             tags=tuple(self.tags.pending_tags()),
         )
 
@@ -229,7 +228,7 @@ class EntryDialog(PremiumDialog):
         self.accept()
 
     def done(self, result: int) -> None:
-        # Ne laisse pas de secrets dans les widgets après fermeture.
+        # Leave no secrets in the widgets after closing.
         self.password.clear()
         self.notes.clear()
         for widget in self._extra_widgets.values():

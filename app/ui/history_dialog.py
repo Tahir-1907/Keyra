@@ -1,4 +1,4 @@
-"""Versions précédentes d'un compte : consultation, copie, restauration (modale)."""
+"""Previous versions of an entry: view, copy, restore (modal)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _VERSION_ROLE = Qt.UserRole + 1
 
 def _when(iso: str) -> str:
     try:
-        return datetime.fromisoformat(iso).astimezone().strftime("%d/%m/%Y à %H:%M")
+        return datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return iso
 
@@ -28,8 +28,8 @@ def _when(iso: str) -> str:
 class HistoryDialog(PremiumDialog):
     def __init__(self, service: EntryService, entry_id: int, clipboard: SecureClipboard,
                  category_names: dict[int, str], parent: QWidget | None = None) -> None:
-        super().__init__(parent, "Versions précédentes",
-                         "Chaque modification conserve la version remplacée (20 au plus).",
+        super().__init__(parent, "Previous versions",
+                         "Each modification keeps the replaced version (20 at most).",
                          icon="history", width=900)
         self._service = service
         self._entry_id = entry_id
@@ -54,12 +54,12 @@ class HistoryDialog(PremiumDialog):
         self.body.addLayout(row)
 
         buttons = QHBoxLayout()
-        buttons.addWidget(ui.button("Effacer l'historique", "trash-2", "Danger",
-                                    "Supprime toutes les versions (anciens mots de passe compris)",
+        buttons.addWidget(ui.button("Clear history", "trash-2", "Danger",
+                                    "Deletes every version (old passwords included)",
                                     self._clear))
         buttons.addStretch(1)
-        buttons.addWidget(ui.button("Fermer", kind="Ghost", on_click=self.accept))
-        self.restore_button = ui.button("Restaurer cette version", "rotate-ccw", "Primary",
+        buttons.addWidget(ui.button("Close", kind="Ghost", on_click=self.accept))
+        self.restore_button = ui.button("Restore this version", "rotate-ccw", "Primary",
                                         on_click=self._restore)
         buttons.addWidget(self.restore_button)
         self.card_layout.addLayout(buttons)
@@ -75,7 +75,7 @@ class HistoryDialog(PremiumDialog):
             self.restore_button.setEnabled(False)
             return
         for version in versions:
-            changed = ", ".join(version.changed) if version.changed else "aucun changement visible"
+            changed = ", ".join(version.changed) if version.changed else "no visible change"
             item = QListWidgetItem(f"{_when(version.replaced_at)}\n{changed}")
             item.setData(_VERSION_ROLE, version.id)
             self.versions.addItem(item)
@@ -83,7 +83,7 @@ class HistoryDialog(PremiumDialog):
         if versions:
             self.versions.setCurrentRow(0)
         else:
-            self.detail.show_error("Aucune version précédente.")
+            self.detail.show_error("No previous version.")
         self.restore_button.setEnabled(bool(versions))
 
     def _current(self) -> HistoryVersion | None:
@@ -101,24 +101,24 @@ class HistoryDialog(PremiumDialog):
     def _restore(self) -> None:
         version = self._current()
         if version is None or not dialogs.confirm(
-                self, "Restaurer cette version ?",
-                f"La version du {_when(version.replaced_at)} redeviendra la version actuelle. "
-                "La version actuelle sera conservée dans l'historique.", "Restaurer",
+                self, "Restore this version?",
+                f"The version from {_when(version.replaced_at)} will become the current one again. "
+                "The current version will be kept in the history.", "Restore",
                 icon="rotate-ccw"):
             return
         try:
             self._service.restore_version(version.id)
         except EntryError as exc:
-            dialogs.alert(self, "Restauration impossible", str(exc))
+            dialogs.alert(self, "Restore impossible", str(exc))
             return
         self.changed = True
         self.accept()
 
     def _clear(self) -> None:
-        if dialogs.confirm(self, "Effacer l'historique ?",
-                           "Toutes les versions précédentes de ce compte seront supprimées, "
-                           "avec les anciens mots de passe qu'elles contiennent.",
-                           "Effacer l'historique", danger=True, icon="trash-2"):
+        if dialogs.confirm(self, "Clear the history?",
+                           "Every previous version of this entry will be deleted, "
+                           "along with the old passwords they contain.",
+                           "Clear history", danger=True, icon="trash-2"):
             self._service.clear_history(self._entry_id)
             self.changed = True
             self._load()

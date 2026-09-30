@@ -1,4 +1,4 @@
-"""Vue « Sauvegardes » : état, création, restauration ; import et export."""
+"""The "Backups" view: state, creation, restore; import and export."""
 
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ from app.ui.transfer_dialogs import (
 
 
 def _size(n: int) -> str:
-    return f"{n / 1024:.0f} Ko" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} Mo"
+    return f"{n / 1024:.0f} KB" if n < 1024 * 1024 else f"{n / 1024 / 1024:.1f} MB"
 
 
 class BackupsPage(Page):
     key = "backups"
-    title = "Sauvegardes"
-    subtitle = "Copies chiffrées, import et export"
+    title = "Backups"
+    subtitle = "Encrypted copies, import and export"
     icon = "database-backup"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -39,7 +39,7 @@ class BackupsPage(Page):
         self._infos: list[backup.BackupInfo] = []
         layout = scrolling(self)
 
-        # --- État --------------------------------------------------------------------------
+        # --- State --------------------------------------------------------------------------
         status = ui.card("Surface")
         row = QHBoxLayout(status)
         row.setContentsMargins(22, 20, 22, 20)
@@ -48,12 +48,12 @@ class BackupsPage(Page):
         row.addWidget(self.halo)
         texts = QVBoxLayout()
         texts.setSpacing(4)
-        texts.addWidget(ui.label("DERNIÈRE SAUVEGARDE", "Overline"))
+        texts.addWidget(ui.label("LAST BACKUP", "Overline"))
         self.last = ui.label("", "H1")
         texts.addWidget(self.last)
         badges = QHBoxLayout()
         badges.setSpacing(6)
-        self.badge = ui.label("✓ Chiffrée · AES-256-GCM", "BadgeAccent")
+        self.badge = ui.label("✓ Encrypted · AES-256-GCM", "BadgeAccent")
         badges.addWidget(self.badge)
         self.auto_badge = ui.label("", "Badge")
         badges.addWidget(self.auto_badge)
@@ -64,30 +64,30 @@ class BackupsPage(Page):
         row.addLayout(texts, 1)
         buttons = QVBoxLayout()
         buttons.setSpacing(8)
-        buttons.addWidget(ui.button("Créer une sauvegarde", "database-backup", "Primary",
+        buttons.addWidget(ui.button("Create a backup", "database-backup", "Primary",
                                     on_click=self.create_backup))
-        buttons.addWidget(ui.button("Restaurer un fichier…", "rotate-ccw",
+        buttons.addWidget(ui.button("Restore a file…", "rotate-ccw",
                                     on_click=self.restore_other))
-        buttons.addWidget(ui.button("Ouvrir le dossier", "folder-open", "Ghost",
+        buttons.addWidget(ui.button("Open the folder", "folder-open", "Ghost",
                                     on_click=lambda: open_backup_folder(
                                         backup_directory(self.ctx.settings()))))
         row.addLayout(buttons)
         layout.addWidget(status)
 
-        # --- Liste -----------------------------------------------------------------------------
+        # --- List -----------------------------------------------------------------------------
         history_head = QHBoxLayout()
         history_head.setSpacing(12)
-        history_head.addWidget(ui.section("Historique des sauvegardes",
-                                          "Chaque fichier s'ouvre avec le mot de passe maître en "
-                                          "vigueur au moment de la sauvegarde. Restaurer crée un "
-                                          "nouveau coffre : rien n'est écrasé."), 1)
-        self.delete_button = ui.button("Supprimer…", "trash-2", "Ghost")
+        history_head.addWidget(ui.section("Backup history",
+                                          "Each file opens with the master password in effect "
+                                          "when the backup was made. Restoring creates a "
+                                          "new vault: nothing is overwritten."), 1)
+        self.delete_button = ui.button("Delete…", "trash-2", "Ghost")
         self.delete_menu = QMenu(self.delete_button)
         self.delete_auto_action = self.delete_menu.addAction(
-            ui.lucide.icon("trash-2", theme.TEXT_2), "Les sauvegardes automatiques…",
+            ui.lucide.icon("trash-2", theme.TEXT_2), "Automatic backups…",
             lambda: self.delete_all(backup.KIND_AUTO))
         self.delete_menu.addAction(ui.lucide.icon("trash-2", theme.DANGER),
-                                   "Toutes les sauvegardes de ce coffre…",
+                                   "All backups of this vault…",
                                    lambda: self.delete_all(None))
         self.delete_button.setMenu(self.delete_menu)
         history_head.addWidget(self.delete_button, 0, Qt.AlignBottom)
@@ -98,22 +98,22 @@ class BackupsPage(Page):
         self.rows.setSpacing(2)
         layout.addWidget(self.rows_host)
 
-        # --- Transferts --------------------------------------------------------------------------
-        layout.addWidget(ui.section("Import et export",
-                                    "Migrer depuis ou vers un autre logiciel, ou garder une copie "
-                                    "papier."))
+        # --- Transfers --------------------------------------------------------------------------
+        layout.addWidget(ui.section("Import and export",
+                                    "Move from or to other software, or keep a paper "
+                                    "copy."))
         grid = QGridLayout()
         grid.setSpacing(12)
         for column, (icon, title, text, label, action) in enumerate((
-            ("file-down", "Importer",
-             "Bitwarden, KeePassXC, Chrome, Firefox (CSV) ou export chiffré Mon Coffre-Fort.",
-             "Importer…", self.import_entries),
-            ("file-up", "Exporter",
-             "Export chiffré (recommandé) ou CSV en clair. Mot de passe maître requis.",
-             "Exporter…", self.export_entries),
-            ("file-text", "Copie papier (PDF)",
-             "Tous les comptes et mots de passe, pour les imprimer. PDF protégé par mot de "
-             "passe (recommandé) ou en clair.", "Créer le PDF…", self.export_pdf),
+            ("file-down", "Import",
+             "Bitwarden, KeePassXC, Chrome, Firefox (CSV) or a Keyra encrypted export.",
+             "Import…", self.import_entries),
+            ("file-up", "Export",
+             "Encrypted export (recommended) or plaintext CSV. Master password required.",
+             "Export…", self.export_entries),
+            ("file-text", "Paper copy (PDF)",
+             "Every entry and password, to print them. Password-protected PDF "
+             "(recommended) or plaintext.", "Create the PDF…", self.export_pdf),
         )):
             card = ui.card()
             inner = QVBoxLayout(card)
@@ -139,12 +139,12 @@ class BackupsPage(Page):
         except OSError:
             infos = []
         self.last.setText(relative_date(infos[0].created_at).capitalize() if infos
-                          else "Aucune sauvegarde")
+                          else "No backup")
         self.badge.setVisible(bool(infos))
         self.auto_badge.setText(
-            f"Auto : activée · {settings.auto_backups_kept} conservées" if settings.auto_backup
-            else "Auto : désactivée")
-        self.location.setText(f"Dossier : {describe_backup_location(directory / 'x')}")
+            f"Auto: on · {settings.auto_backups_kept} kept" if settings.auto_backup
+            else "Auto: off")
+        self.location.setText(f"Folder: {describe_backup_location(directory / 'x')}")
         while self.rows.count():
             item = self.rows.takeAt(0)
             if item.widget():
@@ -154,9 +154,9 @@ class BackupsPage(Page):
         self.delete_auto_action.setEnabled(any(i.kind == backup.KIND_AUTO for i in infos))
         if not infos:
             self.rows.addWidget(ui.EmptyState(
-                "database-backup", "Aucune sauvegarde",
-                "Créez une sauvegarde chiffrée pour pouvoir restaurer ce coffre en cas de "
-                "problème.", "Créer une sauvegarde", self.create_backup, "database-backup"))
+                "database-backup", "No backup",
+                "Create an encrypted backup to be able to restore this vault if something "
+                "goes wrong.", "Create a backup", self.create_backup, "database-backup"))
             return
         rows = []
         for info in infos:
@@ -171,18 +171,17 @@ class BackupsPage(Page):
             texts.setSpacing(0)
             try:
                 when = datetime.fromisoformat(info.created_at).astimezone()
-                title = f"{when:%d/%m/%Y à %H:%M}"
+                title = f"{when:%Y-%m-%d %H:%M}"
             except ValueError:
                 title = info.path.name
             texts.addWidget(ui.label(title))
             texts.addWidget(ui.label(f"{info.path.name} · {_size(info.size)}", "Faint"))
             inner.addLayout(texts, 1)
-            inner.addWidget(ui.label("automatique" if info.kind == backup.KIND_AUTO
-                                     else "manuelle", "Badge"))
-            restore = ui.button("Restaurer", "rotate-ccw",
+            inner.addWidget(ui.label(backup.kind_label(info.kind), "Badge"))
+            restore = ui.button("Restore", "rotate-ccw",
                                 on_click=lambda p=info.path: self.restore_path(p))
             inner.addWidget(restore)
-            inner.addWidget(ui.icon_button("trash-2", "Supprimer cette sauvegarde",
+            inner.addWidget(ui.icon_button("trash-2", "Delete this backup",
                                            on_click=lambda i=info: self.delete_one(i)))
             self.rows.addWidget(row)
             rows.append(row)
@@ -195,32 +194,32 @@ class BackupsPage(Page):
             path = backup.create_backup(self.ctx.vault,
                                         directory=backup_directory(self.ctx.settings()))
         except (VaultError, OSError) as exc:
-            dialogs.alert(self, "Sauvegarde impossible", str(exc))
+            dialogs.alert(self, "Backup impossible", str(exc))
             return
         self.refresh()
-        self.ctx.notify("Sauvegarde créée", path.name, icon="database-backup")
+        self.ctx.notify("Backup created", path.name, icon="database-backup")
 
     def delete_one(self, info: backup.BackupInfo) -> None:
         try:
-            when = f"du {datetime.fromisoformat(info.created_at).astimezone():%d/%m/%Y à %H:%M}"
+            when = f"from {datetime.fromisoformat(info.created_at).astimezone():%Y-%m-%d %H:%M}"
         except ValueError:
             when = info.path.name
         remaining = len(self._infos) - 1
         if not dialogs.confirm(
-                self, f"Supprimer la sauvegarde {when} ?",
-                f"Le fichier {info.path.name} sera effacé du disque ; il ne pourra plus servir "
-                "à restaurer ce coffre."
-                + ("" if remaining else " C'est la DERNIÈRE sauvegarde de ce coffre."),
-                "Supprimer", danger=True, icon="trash-2"):
+                self, f"Delete the backup {when}?",
+                f"The file {info.path.name} will be erased from the disk; it can no longer be "
+                "used to restore this vault."
+                + ("" if remaining else " It is the LAST backup of this vault."),
+                "Delete", danger=True, icon="trash-2"):
             return
         try:
             backup.delete_backup(info.path, self.ctx.vault.vault_id)
         except (VaultError, OSError) as exc:
-            dialogs.alert(self, "Suppression impossible", str(exc))
+            dialogs.alert(self, "Deletion impossible", str(exc))
             self.refresh()
             return
         self.refresh()
-        self.ctx.notify("Sauvegarde supprimée", info.path.name, icon="trash-2")
+        self.ctx.notify("Backup deleted", info.path.name, icon="trash-2")
 
     def delete_all(self, kind: str | None) -> None:
         targets = [i for i in self._infos if kind is None or i.kind == kind]
@@ -228,41 +227,41 @@ class BackupsPage(Page):
             return
         count = len(targets)
         automatic = kind == backup.KIND_AUTO
-        what = (f"{count} sauvegarde(s) automatique(s)" if automatic
-                else f"les {count} sauvegarde(s) de ce coffre")
+        what = (f"{count} automatic backup(s)" if automatic
+                else f"the {count} backup(s) of this vault")
         if not dialogs.confirm(
-                self, "Supprimer " + ("les sauvegardes automatiques ?" if automatic
-                                      else "toutes les sauvegardes ?"),
-                f"{what[0].upper() + what[1:]} seront effacées du disque. "
-                + ("Les sauvegardes manuelles sont conservées." if automatic else
-                   "Il ne restera AUCUNE copie de secours de ce coffre (hors copies faites "
-                   "ailleurs par vous-même)."),
-                "Supprimer", danger=True, icon="trash-2",
+                self, "Delete " + ("the automatic backups?" if automatic
+                                   else "all backups?"),
+                f"{what[0].upper() + what[1:]} will be erased from the disk. "
+                + ("Manual backups are kept." if automatic else
+                   "NO safety copy of this vault will remain (apart from copies you made "
+                   "elsewhere yourself)."),
+                "Delete", danger=True, icon="trash-2",
                 acknowledge=None if automatic else
-                "Je comprends qu'aucune restauration ne sera plus possible"):
+                "I understand that no restore will be possible anymore"):
             return
         removed = backup.delete_backups(self.ctx.vault.vault_id,
                                         backup_directory(self.ctx.settings()), kind)
         self.refresh()
-        self.ctx.notify("Sauvegardes supprimées", f"{removed} fichier(s) effacé(s).",
+        self.ctx.notify("Backups deleted", f"{removed} file(s) erased.",
                         icon="trash-2")
 
     def restore_path(self, path) -> None:
         restored = restore_file(self, path)
         if restored is not None:
-            self.ctx.notify("Sauvegarde restaurée", f"Nouveau coffre « {restored.vault_name} ».",
+            self.ctx.notify("Backup restored", f"New vault \"{restored.vault_name}\".",
                             icon="archive-restore")
 
     def restore_other(self) -> None:
         restored = run_restore(self, backup_directory(self.ctx.settings()))
         if restored is not None:
-            self.ctx.notify("Sauvegarde restaurée", f"Nouveau coffre « {restored.vault_name} ».",
+            self.ctx.notify("Backup restored", f"New vault \"{restored.vault_name}\".",
                             icon="archive-restore")
 
     def import_entries(self) -> None:
         if run_import(self, self.ctx.entries, self.ctx.categories):
             self.ctx.changed()
-            self.ctx.notify("Import terminé", icon="file-down")
+            self.ctx.notify("Import complete", icon="file-down")
 
     def export_entries(self, initial: str = "encrypted") -> None:
         dialog = ExportDialog(self.ctx.entries, self.ctx.vault, parent=self, initial=initial)
@@ -270,14 +269,14 @@ class BackupsPage(Page):
             path = dialog.exported_path
             if path.suffix == ".pdf":
                 self.ctx.notify(
-                    "PDF protégé créé" if dialog.exported_protected else "PDF créé (non protégé)",
-                    f"{dialog.exported_count} compte(s) → {path.name}. "
-                    + ("Son mot de passe sera demandé à l'ouverture." if dialog.exported_protected
-                       else "Imprimez-le puis supprimez le fichier."),
+                    "PDF created (protected)" if dialog.exported_protected else "PDF created",
+                    f"{dialog.exported_count} entry(ies) → {path.name}. "
+                    + ("Its password will be asked when it is opened." if dialog.exported_protected
+                       else "Print it, then delete the file."),
                     icon="file-text", duration=8)
             else:
-                self.ctx.notify("Export terminé",
-                                f"{dialog.exported_count} compte(s) → {path.name}",
+                self.ctx.notify("Export complete",
+                                f"{dialog.exported_count} entry(ies) → {path.name}",
                                 icon="file-up")
 
     def export_pdf(self) -> None:

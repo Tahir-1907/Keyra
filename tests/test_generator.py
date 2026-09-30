@@ -34,7 +34,7 @@ class TestNoInsecureRandomness(unittest.TestCase):
                     continue
                 if any(n == "random" or n.startswith("random.") for n in names):
                     offenders.append(str(path.relative_to(APP_DIR)))
-        self.assertEqual(offenders, [], "Le module `random` ne doit jamais être utilisé.")
+        self.assertEqual(offenders, [], "The `random` module must never be used.")
 
 
 class TestPasswordGenerator(unittest.TestCase):
@@ -81,7 +81,7 @@ class TestPasswordGenerator(unittest.TestCase):
         self.assertNotIn(result.value, repr(result))
 
 
-@unittest.skipUnless(passphrase_available(), "Liste de mots (wfrench) absente")
+@unittest.skipUnless(passphrase_available(), "Word list (wfrench) missing")
 class TestPassphraseGenerator(unittest.TestCase):
     def test_word_count_and_membership(self):
         wordlist = set(generator.load_passphrase_wordlist())

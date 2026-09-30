@@ -1,14 +1,13 @@
-"""Animations de l'interface — rapides, directionnelles, discrètes.
+"""Interface animations — fast, directional, subtle.
 
-Principes (design system, voir theme.DURATION_*) :
-* 150-320 ms, courbes « OutCubic » : rien de lent, rien qui rebondit ;
-* mouvement porteur de sens : une vue suivante entre par la droite, une vue
-  précédente par la gauche ; une entrée supprimée sort vers la gauche ;
-* une animation ne retarde JAMAIS l'état réel de l'interface (la nouvelle
-  vue est affichée tout de suite ; c'est une capture de l'ancienne qui
-  s'efface par-dessus) ;
-* tout est désactivable (Paramètres → Interface → Animations) : l'état final
-  est alors appliqué instantanément.
+Principles (design system, see theme.DURATION_*):
+* 150-320 ms, "OutCubic" curves: nothing slow, nothing bouncy;
+* meaningful motion: a next view comes in from the right, a previous view
+  from the left; a deleted entry leaves towards the left;
+* an animation NEVER delays the real state of the interface (the new view is
+  shown immediately; a capture of the old one fades out on top of it);
+* everything can be turned off (Settings → Interface → Animations): the final
+  state is then applied instantly.
 """
 
 from __future__ import annotations
@@ -54,7 +53,7 @@ def animations_enabled() -> bool:
 
 
 def _running(widget: QWidget, target, prop: bytes) -> list[QPropertyAnimation]:
-    """Animations de `widget` encore actives sur la propriété `prop` de `target`."""
+    """Animations of `widget` still running on property `prop` of `target`."""
     return [a for a in widget.findChildren(QPropertyAnimation)
             if a.targetObject() is target and a.propertyName() == prop
             and a.state() == QAbstractAnimation.Running]
@@ -63,8 +62,8 @@ def _running(widget: QWidget, target, prop: bytes) -> list[QPropertyAnimation]:
 def _opacity(widget: QWidget, start: float, end: float, duration: int,
              on_done: Callable[[], None] | None = None,
              curve: QEasingCurve.Type = QEasingCurve.OutCubic) -> QPropertyAnimation:
-    # Une nouvelle apparition remplace la précédente : sans cet arrêt, la fin de
-    # l'ancienne animation retirerait l'effet de la nouvelle en plein fondu.
+    # A new fade-in replaces the previous one: without this stop, the end of the
+    # old animation would remove the effect of the new one mid-fade.
     previous = widget.graphicsEffect()
     if previous is not None:
         for running in _running(widget, previous, b"opacity"):
@@ -79,7 +78,7 @@ def _opacity(widget: QWidget, start: float, end: float, duration: int,
     animation.setEasingCurve(curve)
 
     def finished() -> None:
-        # Un effet laissé en place ralentit le rendu et bloque les effets enfants.
+        # An effect left in place slows rendering and blocks child effects.
         if end >= 1.0:
             widget.setGraphicsEffect(None)
         if on_done:
@@ -90,7 +89,7 @@ def _opacity(widget: QWidget, start: float, end: float, duration: int,
     return animation
 
 
-# --- Apparitions -------------------------------------------------------------------------------
+# --- Appearances -------------------------------------------------------------------------------
 
 
 def fade_in(widget: QWidget, duration: int = theme.DURATION_BASE) -> None:
@@ -100,12 +99,12 @@ def fade_in(widget: QWidget, duration: int = theme.DURATION_BASE) -> None:
 
 def slide_in(widget: QWidget, dx: int = theme.SLIDE_DISTANCE, dy: int = 0,
              duration: int = theme.DURATION_BASE) -> None:
-    """Entrée : décalage (dx, dy) + transparence → position et opacité finales."""
+    """Entrance: offset (dx, dy) + transparency → final position and opacity."""
     if not _enabled or not widget.isVisible():
         return
     end = widget.pos()
-    # Relancée pendant qu'elle glisse encore (curseur déplacé vite…) : repartir de la
-    # position FINALE de la précédente, sinon le widget dérive et sort de sa place.
+    # Restarted while still sliding (slider moved quickly…): start again from the
+    # FINAL position of the previous one, otherwise the widget drifts out of place.
     for running in _running(widget, widget, b"pos"):
         end = running.endValue()
         running.stop()
@@ -120,7 +119,7 @@ def slide_in(widget: QWidget, dx: int = theme.SLIDE_DISTANCE, dy: int = 0,
 
 def switch_page(stack: QStackedWidget, page: QWidget, direction: int = 1,
                 duration: int = theme.DURATION_BASE) -> None:
-    """Change de vue : la nouvelle entre depuis la droite (direction=1) ou la gauche (-1)."""
+    """Switches view: the new one comes in from the right (direction=1) or the left (-1)."""
     current = stack.currentWidget()
     if not _enabled or current is None or current is page or not stack.isVisible():
         stack.setCurrentWidget(page)
@@ -131,7 +130,7 @@ def switch_page(stack: QStackedWidget, page: QWidget, direction: int = 1,
     stack.setCurrentWidget(page)
     snapshot.show()
     snapshot.raise_()
-    # L'ancienne vue s'efface vite en reculant légèrement ; la nouvelle glisse en place.
+    # The old view fades out quickly while moving back slightly; the new one slides in.
     retreat = QPropertyAnimation(snapshot, b"pos", snapshot)
     retreat.setDuration(theme.DURATION_FAST)
     retreat.setEndValue(QPoint(-direction * theme.SLIDE_DISTANCE // 2, 0))
@@ -143,7 +142,7 @@ def switch_page(stack: QStackedWidget, page: QWidget, direction: int = 1,
 
 
 def _blurred(pixmap: QPixmap, radius: int = 18) -> QPixmap:
-    """Version floutée d'une capture (calculée une seule fois, hors écran)."""
+    """Blurred version of a capture (computed only once, off-screen)."""
     scene = QGraphicsScene()
     item = QGraphicsPixmapItem(pixmap)
     blur = QGraphicsBlurEffect()
@@ -161,7 +160,7 @@ def _blurred(pixmap: QPixmap, radius: int = 18) -> QPixmap:
 
 
 class _ProtectOverlay(QWidget):
-    """Capture de l'interface : nette → floutée → transparente."""
+    """Capture of the interface: sharp → blurred → transparent."""
 
     def __init__(self, host: QWidget) -> None:
         super().__init__(host)
@@ -191,17 +190,17 @@ class _ProtectOverlay(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         t = self._t
-        if t < 0.45:  # la netteté se perd
+        if t < 0.45:  # sharpness fades
             painter.drawPixmap(0, 0, self._blurred)
             painter.setOpacity(1 - t / 0.45)
             painter.drawPixmap(0, 0, self._sharp)
-        else:         # puis l'interface floutée s'efface sur l'écran de verrouillage
+        else:         # then the blurred interface fades out over the lock screen
             painter.setOpacity(max(0.0, 1 - (t - 0.45) / 0.55))
             painter.drawPixmap(0, 0, self._blurred)
 
 
 def protect_transition(host: QWidget, change: Callable[[], None]) -> None:
-    """Verrouillage : l'interface se floute puis s'efface au-dessus de l'écran de verrouillage."""
+    """Locking: the interface blurs, then fades out above the lock screen."""
     if not _enabled or not host.isVisible():
         change()
         return
@@ -226,7 +225,7 @@ def shake(widget: QWidget, amplitude: int = 8) -> None:
 
 def count_up(label: QLabel, target: int, duration: int = theme.DURATION_SLOW + 200,
              fmt: Callable[[int], str] = str) -> None:
-    """Chiffre qui défile de 0 à `target` (statistiques du tableau de bord)."""
+    """Number that counts up from 0 to `target` (overview statistics)."""
     if not _enabled or target <= 0:
         label.setText(fmt(target))
         return
@@ -241,7 +240,7 @@ def count_up(label: QLabel, target: int, duration: int = theme.DURATION_SLOW + 2
 
 
 def stagger(widgets: list[QWidget], dy: int = 8, step: int = theme.STAGGER_STEP) -> None:
-    """Apparition décalée d'une série de widgets (0, 30, 60, 90 ms…)."""
+    """Staggered appearance of a series of widgets (0, 30, 60, 90 ms…)."""
     for index, widget in enumerate(widgets):
         if not _enabled:
             return
@@ -249,10 +248,10 @@ def stagger(widgets: list[QWidget], dy: int = 8, step: int = theme.STAGGER_STEP)
 
 
 class Stagger(QObject):
-    """Horloge d'apparition décalée pour une liste peinte par un délégué.
+    """Staggered appearance clock for a list painted by a delegate.
 
-    `progress(row)` vaut 0 → 1 pour chaque ligne, avec `STAGGER_STEP` ms de
-    décalage entre lignes ; le délégué s'en sert pour l'opacité et le décalage.
+    `progress(row)` goes from 0 → 1 for each row, with `STAGGER_STEP` ms between
+    rows; the delegate uses it for opacity and offset.
     """
 
     def __init__(self, viewport: QWidget) -> None:
@@ -264,7 +263,7 @@ class Stagger(QObject):
         self._rows = 0
 
     def start(self, rows: int) -> None:
-        self._rows = min(rows, 14)  # au-delà de l'écran visible : pas d'attente
+        self._rows = min(rows, 14)  # beyond the visible screen: no waiting
         if not _enabled or rows == 0:
             self._timer.stop()
             return
@@ -283,11 +282,11 @@ class Stagger(QObject):
         self._viewport.update()
 
 
-# --- Indicateurs ---------------------------------------------------------------------------
+# --- Indicators ---------------------------------------------------------------------------
 
 
 class Spinner(QWidget):
-    """Arc en rotation (activité en cours, ex. dérivation Argon2id)."""
+    """Rotating arc (activity in progress, e.g. Argon2id derivation)."""
 
     def __init__(self, size: int = 18, color: str = theme.ACCENT_2,
                  parent: QWidget | None = None) -> None:

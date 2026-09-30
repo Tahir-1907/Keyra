@@ -1,7 +1,7 @@
-"""Vue « Historique » : timeline des événements réellement enregistrés.
+"""The "History" view: timeline of the events actually recorded.
 
-Sources (voir app.core.activity) : création, modification (versions), mise à
-la corbeille d'un compte, sauvegardes chiffrées. Rien n'est inventé.
+Sources (see app.core.activity): creation, modification (versions), moving an
+entry to the Trash, encrypted backups. Nothing is invented.
 """
 
 from __future__ import annotations
@@ -27,27 +27,27 @@ from app.ui import effects, theme
 from app.ui.pages.base import AppContext, Page, scrolling
 
 EVENT_STYLE = {
-    KIND_CREATED: ("plus", theme.ACCENT_2, "Compte créé"),
-    KIND_MODIFIED: ("square-pen", theme.INFO, "Compte modifié"),
-    KIND_TRASHED: ("trash-2", theme.DANGER, "Déplacé vers la corbeille"),
-    KIND_BACKUP: ("database-backup", theme.TEXT_2, "Sauvegarde chiffrée"),
+    KIND_CREATED: ("plus", theme.ACCENT_2, "Entry created"),
+    KIND_MODIFIED: ("square-pen", theme.INFO, "Entry modified"),
+    KIND_TRASHED: ("trash-2", theme.DANGER, "Moved to Trash"),
+    KIND_BACKUP: ("database-backup", theme.TEXT_2, "Encrypted backup"),
 }
 
 
 def _day_label(day) -> str:
     today = datetime.now().astimezone().date()
     if day == today:
-        return "Aujourd'hui"
+        return "Today"
     if day == today - timedelta(days=1):
-        return "Hier"
-    months = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
-              "septembre", "octobre", "novembre", "décembre")
-    days = ("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche")
-    return f"{days[day.weekday()]} {day.day} {months[day.month - 1]} {day.year}"
+        return "Yesterday"
+    months = ("January", "February", "March", "April", "May", "June", "July", "August",
+              "September", "October", "November", "December")
+    days = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    return f"{days[day.weekday()]}, {months[day.month - 1]} {day.day}, {day.year}"
 
 
 class _Rail(QWidget):
-    """Colonne de la timeline : trait vertical + point coloré."""
+    """Timeline column: vertical line + colored dot."""
 
     def __init__(self, color: str, first: bool, last: bool) -> None:
         super().__init__()
@@ -100,8 +100,8 @@ class _EventRow(QPushButton):
 
 class HistoryPage(Page):
     key = "history"
-    title = "Historique"
-    subtitle = "Activité enregistrée dans ce coffre"
+    title = "History"
+    subtitle = "Activity recorded in this vault"
     icon = "history"
 
     def __init__(self, ctx: AppContext) -> None:
@@ -117,15 +117,15 @@ class HistoryPage(Page):
             for info in backup.list_backups(backup_directory(self.ctx.settings()),
                                             self.ctx.vault.vault_id):
                 events.append(ActivityEvent(info.created_at, KIND_BACKUP,
-                                            info.path.name, None, info.kind))
+                                            info.path.name, None, backup.kind_label(info.kind)))
         except OSError:
             pass
         events.sort(key=lambda e: e.timestamp, reverse=True)
         if not events:
             self.layout_.addWidget(ui.EmptyState(
-                "history", "Aucune activité",
-                "Les créations, modifications, suppressions et sauvegardes de ce coffre "
-                "apparaîtront ici."))
+                "history", "No activity",
+                "The creations, modifications, deletions and backups of this vault "
+                "will appear here."))
             return
         groups: dict = {}
         for event in events:

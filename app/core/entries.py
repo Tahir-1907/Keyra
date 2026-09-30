@@ -1,42 +1,40 @@
-"""Entrées du coffre : types, chiffrement des champs, CRUD, recherche, favoris.
+"""Vault entries: types, field encryption, CRUD, search, favorites.
 
-Cette couche est la seule à manipuler à la fois la clé de données (DEK) du
-coffre et les entrées en clair. L'UI ne fait qu'appeler `EntryService` ;
-la base (`app.database`) ne voit que des BLOB chiffrés.
+This layer is the only one that handles both the vault data key (DEK) and
+plaintext entries. The UI only calls `EntryService`; the database
+(`app.database`) only sees encrypted BLOBs.
 
-Chiffrement des champs sensibles
---------------------------------
-Chaque champ sensible (email, mot de passe, notes, champs spécifiques au
-type) est chiffré individuellement en AES-256-GCM avec la DEK et une
-**donnée associée** (AAD) qui lie le chiffré à *son* entrée et à *son*
-champ :
+Encryption of sensitive fields
+------------------------------
+Each sensitive field (email, password, notes, type-specific fields) is
+encrypted individually with AES-256-GCM, using the DEK and **associated
+data** (AAD) that binds the ciphertext to *its* entry and *its* field:
 
-    AAD = "mon-coffre-fort:entry:<id>:<champ>"
+    AAD = "mon-coffre-fort:entry:<id>:<field>"
 
-Déplacer un BLOB chiffré d'une entrée à une autre, ou d'une colonne à une
-autre (ex. copier le `password_enc` d'un compte bancaire dans les notes
-d'une autre entrée), fait donc échouer l'authentification au lieu de
-révéler silencieusement la valeur ailleurs. Les champs vides sont eux aussi
-chiffrés, pour ne pas révéler sur disque quelles entrées ont un mot de
-passe, des notes, etc.
+Moving an encrypted BLOB from one entry to another, or from one column to
+another (e.g. copying the `password_enc` of a bank account into the notes of
+another entry), therefore makes authentication fail instead of silently
+revealing the value elsewhere. Empty fields are encrypted too, so that the
+disk does not reveal which entries have a password, notes, etc.
 
-Métadonnées (schéma v4)
------------------------
-Nom, URL, identifiant, type, catégorie, favori, tags et dates ne sont plus en
-clair : ils forment un JSON chiffré par entrée (app.core.metadata), déchiffré
-une fois par session dans le cache du coffre (`Vault.metadata`). Liste,
-recherche, filtres et tri se font en mémoire sur ce cache. Les secrets restent
-chiffrés champ par champ, directement sous la DEK, comme avant (décision D2).
+Metadata (schema v4)
+--------------------
+Name, URL, username, type, category, favorite, tags and dates are no longer
+in plaintext: they form one encrypted JSON document per entry
+(app.core.metadata), decrypted once per session into the vault cache
+(`Vault.metadata`). Listing, search, filters and sorting are done in memory
+on this cache. Secrets stay encrypted field by field, directly under the
+DEK, as before (decision D2).
 
-Historique et corbeille
------------------------
-* Avant chaque modification du contenu d'une entrée, la version précédente
-  complète est conservée dans `entry_history`, sous forme d'un JSON chiffré
-  (AAD = "mon-coffre-fort:history:<entrée>:<version>"). Au plus
-  `MAX_HISTORY_VERSIONS` versions par entrée ; les plus anciennes sont
-  supprimées.
-* Supprimer une entrée la place dans la corbeille ; elle peut être
-  restaurée ou supprimée définitivement (avec son historique).
+History and Trash
+-----------------
+* Before every change to the content of an entry, the complete previous
+  version is kept in `entry_history`, as encrypted JSON
+  (AAD = "mon-coffre-fort:history:<entry>:<version>"). At most
+  `MAX_HISTORY_VERSIONS` versions per entry; the oldest are deleted.
+* Deleting an entry moves it to the Trash; it can be restored or deleted
+  permanently (together with its history).
 """
 
 from __future__ import annotations
@@ -66,16 +64,16 @@ MAX_SHORT_FIELD_LENGTH = 2048
 MAX_HISTORY_VERSIONS = 20
 DEFAULT_TRASH_RETENTION_DAYS = 30
 
-# --- Types d'entrées -----------------------------------------------------------------
+# --- Entry types -----------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class FieldSpec:
-    """Champ spécifique à un type d'entrée (stocké chiffré dans extra_fields_enc)."""
+    """Type-specific field of an entry (stored encrypted in extra_fields_enc)."""
 
     key: str
     label: str
-    secret: bool = False  # masqué par défaut dans l'interface
+    secret: bool = False  # hidden by default in the interface
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,56 +84,56 @@ class EntryTypeSpec:
     uses_username: bool = True
     uses_email: bool = True
     uses_password: bool = True
-    password_label: str = "Mot de passe"  # noqa: S105 - libellé affiché
+    password_label: str = "Password"  # noqa: S105 - display label
     extra_fields: tuple[FieldSpec, ...] = ()
 
 
 ENTRY_TYPES: dict[str, EntryTypeSpec] = {
     spec.key: spec
     for spec in (
-        EntryTypeSpec("login", "Identifiant"),
+        EntryTypeSpec("login", "Login"),
         EntryTypeSpec(
-            "secure_note", "Note sécurisée",
+            "secure_note", "Secure note",
             uses_url=False, uses_username=False, uses_email=False, uses_password=False,
         ),
         EntryTypeSpec(
-            "card", "Carte bancaire",
+            "card", "Payment card",
             uses_url=False, uses_username=False, uses_email=False, uses_password=False,
             extra_fields=(
-                FieldSpec("cardholder", "Titulaire"),
-                FieldSpec("card_number", "Numéro de carte", secret=True),
-                FieldSpec("expiry", "Expiration (MM/AA)"),
-                FieldSpec("cvv", "Cryptogramme (CVV)", secret=True),
-                FieldSpec("pin", "Code PIN", secret=True),
+                FieldSpec("cardholder", "Cardholder"),
+                FieldSpec("card_number", "Card number", secret=True),
+                FieldSpec("expiry", "Expiry (MM/YY)"),
+                FieldSpec("cvv", "Security code (CVV)", secret=True),
+                FieldSpec("pin", "PIN", secret=True),
             ),
         ),
         EntryTypeSpec(
-            "identity", "Identité",
+            "identity", "Identity",
             uses_url=False, uses_username=False, uses_password=False,
             extra_fields=(
-                FieldSpec("full_name", "Nom complet"),
-                FieldSpec("birth_date", "Date de naissance"),
-                FieldSpec("phone", "Téléphone"),
-                FieldSpec("address", "Adresse"),
-                FieldSpec("id_number", "N° de pièce d'identité", secret=True),
+                FieldSpec("full_name", "Full name"),
+                FieldSpec("birth_date", "Date of birth"),
+                FieldSpec("phone", "Phone"),
+                FieldSpec("address", "Address"),
+                FieldSpec("id_number", "ID document number", secret=True),
             ),
         ),
         EntryTypeSpec(
-            "wifi", "Réseau Wi-Fi",
+            "wifi", "Wi-Fi network",
             uses_url=False, uses_username=False, uses_email=False,
-            password_label="Clé Wi-Fi",  # noqa: S106 - libellé affiché
+            password_label="Wi-Fi key",  # noqa: S106 - display label
             extra_fields=(
                 FieldSpec("ssid", "SSID"),
-                FieldSpec("security", "Sécurité (WPA2, WPA3...)"),
+                FieldSpec("security", "Security (WPA2, WPA3...)"),
             ),
         ),
         EntryTypeSpec(
-            "server", "Serveur",
+            "server", "Server",
             uses_email=False,
             extra_fields=(
-                FieldSpec("hostname", "Hôte / adresse IP"),
+                FieldSpec("hostname", "Host / IP address"),
                 FieldSpec("port", "Port"),
-                FieldSpec("protocol", "Protocole (SSH, RDP...)"),
+                FieldSpec("protocol", "Protocol (SSH, RDP...)"),
             ),
         ),
     )
@@ -143,12 +141,12 @@ ENTRY_TYPES: dict[str, EntryTypeSpec] = {
 
 DEFAULT_ENTRY_TYPE = "login"
 
-# --- Objets manipulés par l'application ----------------------------------------------
+# --- Objects handled by the application ----------------------------------------------
 
 
 @dataclass(slots=True)
 class Entry:
-    """Entrée complète, déchiffrée. N'existe qu'en mémoire, coffre déverrouillé."""
+    """Complete, decrypted entry. Exists only in memory, while the vault is unlocked."""
 
     service_name: str
     entry_type: str = DEFAULT_ENTRY_TYPE
@@ -167,7 +165,7 @@ class Entry:
     deleted_at: str = ""
     tags: tuple[str, ...] = ()
 
-    def __repr__(self) -> str:  # jamais de secret dans un repr (logs, tracebacks)
+    def __repr__(self) -> str:  # never a secret in a repr (logs, tracebacks)
         return (
             f"Entry(id={self.id!r}, entry_type={self.entry_type!r}, "
             f"service_name={self.service_name!r})"
@@ -176,11 +174,11 @@ class Entry:
 
 @dataclass(frozen=True, slots=True)
 class EntrySummary:
-    """Vue d'une entrée pour les listes : uniquement des métadonnées, aucun secret.
+    """View of an entry for lists: metadata only, no secret.
 
-    Ces métadonnées (nom, URL, identifiant, catégorie, tags…) ne sont pas des secrets
-    au sens fonctionnel (elles sont affichées), mais elles sont chiffrées au repos (v4) ;
-    un résumé n'existe qu'en mémoire, coffre déverrouillé.
+    This metadata (name, URL, username, category, tags…) is not secret in the
+    functional sense (it is displayed), but it is encrypted at rest (v4); a
+    summary exists only in memory, while the vault is unlocked.
     """
 
     id: int
@@ -198,21 +196,21 @@ class EntrySummary:
 
 @dataclass(frozen=True, slots=True)
 class HistoryVersion:
-    """Version précédente d'une entrée, déchiffrée (coffre déverrouillé)."""
+    """Previous version of an entry, decrypted (unlocked vault)."""
 
     id: int
-    replaced_at: str            # date à laquelle cette version a été remplacée
-    entry: Entry                # contenu complet de la version
-    changed: tuple[str, ...]    # libellés des champs modifiés par la version suivante
+    replaced_at: str            # date on which this version was replaced
+    entry: Entry                # complete content of the version
+    changed: tuple[str, ...]    # labels of the fields changed by the next version
 
 
-# Valeur spéciale de filtre : entrées sans catégorie.
+# Special filter value: uncategorized entries.
 UNCATEGORIZED = -1
 
 
 @dataclass(frozen=True, slots=True)
 class EntryFilter:
-    """Critères de liste. `category_id=UNCATEGORIZED` => entrées sans catégorie."""
+    """List criteria. `category_id=UNCATEGORIZED` => uncategorized entries."""
 
     text: str = ""
     category_id: int | None = None
@@ -221,23 +219,23 @@ class EntryFilter:
 
 
 def normalize_for_search(value: str) -> str:
-    """Minuscules + suppression des accents : « Éléphant » == « elephant »."""
+    """Lowercase + accents removed: "Éléphant" == "elephant"."""
     decomposed = unicodedata.normalize("NFKD", value)
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
     return stripped.casefold()
 
 
-# `#tag` (sans espace) ou `#"tag avec espaces"` en début de mot. Le guillemet fermant
-# doit être suivi d'un espace ou de la fin du texte : un tag peut contenir « " ».
+# `#tag` (no space) or `#"tag with spaces"` at the start of a word. The closing quote
+# must be followed by a space or the end of the text: a tag may contain '"'.
 _TAG_TERM = re.compile(r'(?:^|(?<=\s))#(?:"(.*?)"(?=\s|$)|(\S*))')
 
 
 def parse_search(text: str) -> tuple[list[str], set[str]]:
-    """Texte de recherche -> (termes libres normalisés, clés `tag_key` des `#tag`).
+    """Search text -> (normalized free terms, `tag_key` keys of the `#tag` terms).
 
-    `#tag` : correspondance EXACTE avec un tag de l'entrée, casse et accents ignorés
-    (règles de app.core.metadata.tag_key). Un « # » seul est ignoré ; un « # » au
-    milieu d'un mot (« C# ») est du texte ordinaire.
+    `#tag`: EXACT match with a tag of the entry, ignoring case and accents
+    (rules of app.core.metadata.tag_key). A lone "#" is ignored; a "#" in the
+    middle of a word ("C#") is ordinary text.
     """
     tags: set[str] = set()
 
@@ -253,7 +251,7 @@ def parse_search(text: str) -> tuple[list[str], set[str]]:
 
 
 def tag_search_query(tag: str) -> str:
-    """Recherche qui sélectionne exactement les entrées portant `tag` (clic sur un badge)."""
+    """Search that selects exactly the entries carrying `tag` (click on a badge)."""
     quoted = tag.startswith('"') or any(c.isspace() for c in tag)
     return f'#"{tag}"' if quoted else f"#{tag}"
 
@@ -296,7 +294,7 @@ def _history_aad(entry_id: int, history_id: int) -> bytes:
 
 
 def _content(entry: Entry) -> tuple:
-    """Contenu comparé pour l'historique (le statut favori n'en fait pas partie)."""
+    """Content compared for the history (the favorite status is not part of it)."""
     return (entry.entry_type, entry.service_name, entry.url, entry.username, entry.email,
             entry.password, entry.notes, tuple(sorted(entry.extra.items())), entry.category_id,
             tuple(entry.tags))
@@ -306,13 +304,13 @@ def changed_field_labels(old: Entry, new: Entry) -> tuple[str, ...]:
     spec = ENTRY_TYPES.get(new.entry_type) or ENTRY_TYPES[DEFAULT_ENTRY_TYPE]
     labels = []
     for label, a, b in (
-        ("Nom", old.service_name, new.service_name),
+        ("Name", old.service_name, new.service_name),
         ("URL", old.url, new.url),
-        ("Nom d'utilisateur", old.username, new.username),
+        ("Username", old.username, new.username),
         ("Email", old.email, new.email),
         (spec.password_label, old.password, new.password),
         ("Notes", old.notes, new.notes),
-        ("Catégorie", old.category_id, new.category_id),
+        ("Category", old.category_id, new.category_id),
         ("Tags", tuple(old.tags), tuple(new.tags)),
     ):
         if a != b:
@@ -324,7 +322,7 @@ def changed_field_labels(old: Entry, new: Entry) -> tuple[str, ...]:
 
 
 class EntryService:
-    """CRUD des entrées d'un coffre v4 déverrouillé (métadonnées via `Vault.metadata`)."""
+    """CRUD of the entries of an unlocked v4 vault (metadata through `Vault.metadata`)."""
 
     def __init__(self, vault: Vault) -> None:
         self._vault = vault
@@ -335,15 +333,15 @@ class EntryService:
 
     @property
     def _store(self):
-        return self._vault.metadata  # VaultLockedError si le coffre est verrouillé
+        return self._vault.metadata  # VaultLockedError if the vault is locked
 
-    # --- Lecture ---------------------------------------------------------------
+    # --- Reading ---------------------------------------------------------------
 
     def list_entries(self, flt: EntryFilter | None = None) -> list[EntrySummary]:
-        """Liste triée (ordre alphabétique insensible à la casse/aux accents).
+        """Sorted list (alphabetical, case- and accent-insensitive).
 
-        Calculée en mémoire à partir des métadonnées déchiffrées (cache de session) :
-        aucun secret n'est déchiffré. Les entrées illisibles sont signalées à part
+        Computed in memory from the decrypted metadata (session cache): no
+        secret is decrypted. Unreadable entries are reported separately
         (`unreadable_entries`).
         """
         flt = flt or EntryFilter()
@@ -361,17 +359,17 @@ class EntryService:
             )
             if summary_matches(summary, flt):
                 result.append(summary)
-        if flt.in_trash:  # corbeille : dernières suppressions en premier
+        if flt.in_trash:  # Trash: most recently deleted first
             result.sort(key=lambda s: (s.deleted_at, s.id), reverse=True)
         else:
             result.sort(key=lambda s: (normalize_for_search(s.service_name), s.id))
         return result
 
     def all_tags(self) -> tuple[str, ...]:
-        """Tags des entrées actives et lisibles (complétion), un par `tag_key`.
+        """Tags of the active, readable entries (completion), one per `tag_key`.
 
-        Forme affichée : la plus fréquente (à égalité, la première par ordre de code).
-        Recalculé à chaque appel depuis le cache de session : rien n'est conservé ici.
+        Displayed form: the most frequent one (on a tie, the first in code-point
+        order). Recomputed on every call from the session cache: nothing is kept here.
         """
         forms: dict[str, Counter[str]] = {}
         for meta in self._store.entries().values():
@@ -383,27 +381,27 @@ class EntryService:
             for _key, counter in sorted(forms.items()))
 
     def unreadable_entries(self) -> list[int]:
-        """Entrées dont les métadonnées chiffrées sont altérées (actives ou corbeille)."""
+        """Entries whose encrypted metadata has been tampered with (active or in the Trash)."""
         return sorted(self._store.unreadable())
 
     def get_entry(self, entry_id: int, include_deleted: bool = False) -> Entry:
-        """Retourne l'entrée complète, champs sensibles déchiffrés."""
+        """Returns the complete entry, with its sensitive fields decrypted."""
         key = self._vault._require_unlocked_key()
         meta = self._store.entry(entry_id)  # EntryNotFoundError / EntryDecryptionError
         if meta.deleted_at is not None and not include_deleted:
-            raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+            raise EntryNotFoundError(f"Entry {entry_id} not found.")
         blobs = self._entries.get_secret_blobs(entry_id)
         if blobs is None:
-            raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+            raise EntryNotFoundError(f"Entry {entry_id} not found.")
         email, password, notes, extra_json = (
             self._decrypt(key, entry_id, column, blob)
             for column, blob in zip(_SECRET_COLUMNS, blobs, strict=True))
         try:
             extra = json.loads(extra_json) if extra_json else {}
         except json.JSONDecodeError as exc:
-            raise EntryDecryptionError("Champs additionnels illisibles.") from exc
+            raise EntryDecryptionError("Unreadable additional fields.") from exc
         if not isinstance(extra, dict):
-            raise EntryDecryptionError("Champs additionnels invalides.")
+            raise EntryDecryptionError("Invalid additional fields.")
         return Entry(
             id=entry_id, entry_type=meta.entry_type, service_name=meta.name, url=meta.url,
             username=meta.username, email=email, password=password, notes=notes,
@@ -413,22 +411,22 @@ class EntryService:
             deleted_at=meta.deleted_at or "", tags=meta.tags,
         )
 
-    # --- Écriture --------------------------------------------------------------
+    # --- Writing --------------------------------------------------------------
 
     def validate_entry(self, entry: Entry) -> None:
-        """Lève EntryValidationError si l'entrée ne peut pas être enregistrée."""
+        """Raises EntryValidationError if the entry cannot be saved."""
         self._validate(entry)
 
     def create_entry(self, entry: Entry) -> int:
         key = self._vault._require_unlocked_key()
         self._validate(entry)
-        with self._conn:  # transaction atomique : identifiant + blobs chiffrés
+        with self._conn:  # atomic transaction: identifier + encrypted blobs
             entry_id = self._insert(entry, key, _utc_now_iso())
         self._logger.info("Entry created: id=%d", entry_id)
         return entry_id
 
     def import_entries(self, entries: list[Entry]) -> list[int]:
-        """Crée plusieurs entrées en **une seule** transaction (tout ou rien)."""
+        """Creates several entries in **a single** transaction (all or nothing)."""
         key = self._vault._require_unlocked_key()
         for entry in entries:
             self._validate(entry)
@@ -439,11 +437,11 @@ class EntryService:
         return ids
 
     def update_entry(self, entry: Entry) -> None:
-        """Enregistre une modification ; la version précédente va dans l'historique."""
+        """Saves a modification; the previous version goes into the history."""
         key = self._vault._require_unlocked_key()
         if entry.id is None:
-            raise EntryValidationError("Impossible de modifier une entrée sans identifiant.")
-        previous = self.get_entry(entry.id)  # entrée active uniquement
+            raise EntryValidationError("Cannot modify an entry without an identifier.")
+        previous = self.get_entry(entry.id)  # active entry only
         self._validate(entry)
         new = self._normalized(entry)
         new.id = entry.id
@@ -460,31 +458,31 @@ class EntryService:
             password_changed_at=(now if new.password != previous.password
                                  else previous.password_changed_at),
         )
-        with self._conn:  # historique + mise à jour : tout ou rien
+        with self._conn:  # history + update: all or nothing
             self._save_history(previous, key, replaced_at=now)
             self._write_secrets(entry.id, new, key)
             self._store.write_entry(entry.id, meta)
         self._logger.info("Entry updated: id=%d", entry.id)
 
     def set_favorite(self, entry_id: int, is_favorite: bool) -> None:
-        """Le favori ne crée pas de version d'historique (D7)."""
+        """The favorite does not create a history version (D7)."""
         meta = self._active_meta(entry_id)
         with self._conn:
             self._store.write_entry(entry_id, dataclasses.replace(meta, is_favorite=is_favorite))
 
     def duplicate_entry(self, entry_id: int) -> int:
-        """Copie d'une entrée (« Nom (copie) »), sans son historique ni le statut favori."""
+        """Copy of an entry ("Name (copy)"), without its history or favorite status."""
         source = self.get_entry(entry_id)
-        suffix = " (copie)"
+        suffix = " (copy)"
         source.service_name = source.service_name[:MAX_SERVICE_NAME_LENGTH - len(suffix)] + suffix
         source.id = None
         source.is_favorite = False
         return self.create_entry(source)
 
-    # --- Corbeille -------------------------------------------------------------
+    # --- Trash -------------------------------------------------------------
 
     def delete_entry(self, entry_id: int) -> None:
-        """Place l'entrée dans la corbeille (restaurable)."""
+        """Moves the entry to the Trash (restorable)."""
         meta = self._active_meta(entry_id)
         with self._conn:
             self._store.write_entry(entry_id, dataclasses.replace(meta, deleted_at=_utc_now_iso()))
@@ -497,20 +495,20 @@ class EntryService:
         except EntryNotFoundError:
             meta = None
         if meta is None or meta.deleted_at is None:
-            raise EntryNotFoundError(f"Entrée {entry_id} absente de la corbeille.")
-        # Une catégorie supprimée entre-temps a déjà été retirée des métadonnées.
+            raise EntryNotFoundError(f"Entry {entry_id} is not in the Trash.")
+        # A category deleted in the meantime has already been removed from the metadata.
         with self._conn:
             self._store.write_entry(entry_id, dataclasses.replace(meta, deleted_at=None))
         self._logger.info("Entry restored from trash: id=%d", entry_id)
 
     def delete_permanently(self, entry_id: int) -> None:
-        """Suppression définitive, historique compris (pages effacées : secure_delete)."""
+        """Permanent deletion, history included (pages erased: secure_delete)."""
         self._vault._require_unlocked_key()
         with self._conn:
-            found = self._entries.delete_permanently(entry_id)  # historique : ON DELETE CASCADE
+            found = self._entries.delete_permanently(entry_id)  # history: ON DELETE CASCADE
             self._store.invalidate_entry(entry_id)
         if not found:
-            raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+            raise EntryNotFoundError(f"Entry {entry_id} not found.")
         self._logger.info("Entry permanently deleted: id=%d", entry_id)
 
     def trash_count(self) -> int:
@@ -526,10 +524,10 @@ class EntryService:
         return len(ids)
 
     def purge_trash(self, retention_days: int = DEFAULT_TRASH_RETENTION_DAYS) -> int:
-        """Supprime définitivement les entrées en corbeille depuis plus de N jours.
+        """Permanently deletes the entries that have been in the Trash for more than N days.
 
-        La date de suppression est lue dans les métadonnées CHIFFRÉES : elle ne peut
-        plus être falsifiée sur disque pour provoquer une purge.
+        The deletion date is read from the ENCRYPTED metadata: it can no longer
+        be forged on disk to trigger a purge.
         """
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
         ids = [i for i, m in self._store.entries().items()
@@ -543,14 +541,14 @@ class EntryService:
                               retention_days)
         return len(ids)
 
-    # --- Historique -----------------------------------------------------------
+    # --- History -----------------------------------------------------------
 
     def history_count(self, entry_id: int) -> int:
         self._vault._require_unlocked_key()
         return self._history.count_for_entry(entry_id)
 
     def list_history(self, entry_id: int) -> list[HistoryVersion]:
-        """Versions précédentes, de la plus récente à la plus ancienne."""
+        """Previous versions, most recent first."""
         key = self._vault._require_unlocked_key()
         current = self.get_entry(entry_id, include_deleted=True)
         versions: list[HistoryVersion] = []
@@ -568,16 +566,16 @@ class EntryService:
         return versions
 
     def restore_version(self, history_id: int) -> None:
-        """Rétablit une version ; la version actuelle part elle-même dans l'historique.
+        """Restores a version; the current version itself goes into the history.
 
-        Favori : celui d'aujourd'hui est conservé (il ne fait pas partie des versions).
-        Tags : ceux de la version (format v2) ; une version v1 n'en connaissait pas,
-        les tags actuels sont alors conservés.
+        Favorite: the current one is kept (it is not part of the versions).
+        Tags: those of the version (format v2); a v1 version had none, so the
+        current tags are kept.
         """
         key = self._vault._require_unlocked_key()
         record = self._history.get(history_id)
         if record is None:
-            raise EntryNotFoundError("Version introuvable.")
+            raise EntryNotFoundError("Version not found.")
         current = self.get_entry(record.entry_id)
         snapshot = self._decrypt_snapshot(key, record.entry_id, record.id,
                                           record.snapshot_enc, current)
@@ -596,42 +594,42 @@ class EntryService:
         self._logger.info("Entry history cleared: id=%d (%d versions)", entry_id, count)
         return count
 
-    # --- Interne ---------------------------------------------------------------
+    # --- Internal ---------------------------------------------------------------
 
     def _active_meta(self, entry_id: int) -> EntryMetadata:
         self._vault._require_unlocked_key()
         meta = self._store.entry(entry_id)
         if meta.deleted_at is not None:
-            raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+            raise EntryNotFoundError(f"Entry {entry_id} not found.")
         return meta
 
     def _validate(self, entry: Entry) -> None:
         spec = ENTRY_TYPES.get(entry.entry_type)
         if spec is None:
-            raise EntryValidationError(f"Type d'entrée inconnu : {entry.entry_type!r}.")
+            raise EntryValidationError(f"Unknown entry type: {entry.entry_type!r}.")
         name = entry.service_name.strip()
         if not name:
-            raise EntryValidationError("Le nom de l'entrée est obligatoire.")
+            raise EntryValidationError("An entry name is required.")
         if len(name) > MAX_SERVICE_NAME_LENGTH:
             raise EntryValidationError(
-                f"Le nom de l'entrée ne doit pas dépasser {MAX_SERVICE_NAME_LENGTH} caractères."
+                f"The entry name must not exceed {MAX_SERVICE_NAME_LENGTH} characters."
             )
-        for label, value in (("L'URL", entry.url), ("Le nom d'utilisateur", entry.username)):
+        for label, value in (("The URL", entry.url), ("The username", entry.username)):
             if len(value) > MAX_SHORT_FIELD_LENGTH:
-                raise EntryValidationError(f"{label} est trop long.")
+                raise EntryValidationError(f"{label} is too long.")
         if entry.category_id is not None and entry.category_id not in self._store.categories():
-            raise EntryValidationError("La catégorie sélectionnée n'existe plus.")
+            raise EntryValidationError("The selected category no longer exists.")
         allowed = {f.key for f in spec.extra_fields}
         unknown = set(entry.extra) - allowed
         if unknown:
             raise EntryValidationError(
-                f"Champs non prévus pour ce type d'entrée : {', '.join(sorted(unknown))}."
+                f"Fields not supported by this entry type: {', '.join(sorted(unknown))}."
             )
-        normalize_tags(entry.tags)  # EntryValidationError si invalides
+        normalize_tags(entry.tags)  # EntryValidationError if invalid
 
     @staticmethod
     def _normalized(entry: Entry) -> Entry:
-        """Forme stockée d'une entrée (espaces retirés, champs inutilisés vidés)."""
+        """Stored form of an entry (whitespace trimmed, unused fields emptied)."""
         spec = ENTRY_TYPES[entry.entry_type]
         extra = {f.key: entry.extra.get(f.key, "") for f in spec.extra_fields}
         return Entry(
@@ -650,7 +648,7 @@ class EntryService:
         )
 
     def _insert(self, entry: Entry, key: bytes, now: str) -> int:
-        """Insertion sans commit (l'appelant délimite la transaction)."""
+        """Insert without commit (the caller delimits the transaction)."""
         normalized = self._normalized(entry)
         entry_id = self._entries.insert_v4_placeholder()
         self._write_secrets(entry_id, normalized, key)
@@ -675,11 +673,11 @@ class EntryService:
         blobs = [crypto.encrypt_field(key, values[column], _aad(entry_id, column))
                  for column in _SECRET_COLUMNS]
         if not self._entries.set_secret_blobs(entry_id, *blobs):
-            raise EntryNotFoundError(f"Entrée {entry_id} introuvable.")
+            raise EntryNotFoundError(f"Entry {entry_id} not found.")
 
     def _save_history(self, previous: Entry, key: bytes, replaced_at: str) -> None:
         if previous.id is None:
-            raise EntryValidationError("Version sans identifiant d'entrée.")
+            raise EntryValidationError("Version without an entry identifier.")
         payload = build_snapshot(SnapshotContent(
             version=2, entry_type=previous.entry_type, service_name=previous.service_name,
             url=previous.url, username=previous.username, email=previous.email,
@@ -698,16 +696,16 @@ class EntryService:
     @staticmethod
     def _decrypt_snapshot(key: bytes, entry_id: int, history_id: int, blob: bytes | None,
                           newer: Entry) -> Entry:
-        """Version d'historique -> Entry. Format v1 (sans tags ni favori) : ceux de la
-        version plus récente sont repris, pour ne pas afficher de faux changement."""
+        """History version -> Entry. Format v1 (no tags, no favorite): those of the
+        more recent version are reused, so that no false change is displayed."""
         try:
             if not blob:
-                raise ValueError("version vide")
+                raise ValueError("empty version")
             content = parse_snapshot(json.loads(crypto.decrypt_field(
                 key, blob, _history_aad(entry_id, history_id))))
         except (ValueError, crypto.AuthenticationFailed) as exc:
             raise EntryDecryptionError(
-                f"Une version de l'historique de l'entrée {entry_id} est corrompue."
+                f"A history version of entry {entry_id} is corrupted."
             ) from exc
         return Entry(
             id=entry_id, entry_type=content.entry_type, service_name=content.service_name,
@@ -722,13 +720,13 @@ class EntryService:
 
     @staticmethod
     def _decrypt(key: bytes, entry_id: int, column: str, blob: bytes | None) -> str:
-        """NULL ou blob altéré : corruption (jamais une valeur vide silencieuse)."""
+        """NULL or tampered blob: corruption (never a silent empty value)."""
         try:
             if not blob:
-                raise ValueError("champ chiffré absent")
+                raise ValueError("missing encrypted field")
             return crypto.decrypt_field(key, blob, _aad(entry_id, column))
         except (ValueError, crypto.AuthenticationFailed) as exc:
             raise EntryDecryptionError(
-                f"Le champ chiffré « {column} » de l'entrée {entry_id} est "
-                "corrompu ou a été altéré."
+                f"The encrypted field \"{column}\" of entry {entry_id} is "
+                "corrupted or has been tampered with."
             ) from exc

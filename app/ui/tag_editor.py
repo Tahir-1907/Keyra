@@ -1,9 +1,9 @@
-"""Tags : éditeur à puces (fenêtre d'entrée) et badges (panneau de détail).
+"""Tags: chip editor (entry window) and badges (details panel).
 
-Aucune règle n'est définie ici : toute validation passe par
-app.core.metadata.normalize_tags, la source de vérité (casse, accents,
-doublons logiques, longueur, nombre, caractères interdits). Le service
-revalide de toute façon à l'enregistrement.
+No rule is defined here: all validation goes through
+app.core.metadata.normalize_tags, the source of truth (case, accents, logical
+duplicates, length, number, forbidden characters). The service validates again
+when saving anyway.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from app.ui import lucide, theme
 
 
 class FlowLayout(QLayout):
-    """Éléments alignés à gauche, passage à la ligne quand la largeur manque."""
+    """Left-aligned items, wrapping when width runs out."""
 
     def __init__(self, parent: QWidget | None = None, spacing: int = 6) -> None:
         super().__init__(parent)
@@ -93,7 +93,7 @@ _CHIP_STYLE = (
 
 
 def tag_chip(tag: str, tooltip: str, removable: bool = False) -> QPushButton:
-    """Puce cliquable d'un tag (retrait dans l'éditeur, recherche dans le détail)."""
+    """Clickable tag chip (removal in the editor, search in the details)."""
     chip = QPushButton(tag)
     chip.setObjectName("TagChip")
     chip.setStyleSheet(_CHIP_STYLE)
@@ -103,12 +103,12 @@ def tag_chip(tag: str, tooltip: str, removable: bool = False) -> QPushButton:
     if removable:
         chip.setIcon(lucide.icon("x", theme.TEXT_2, 12))
         chip.setIconSize(QSize(12, 12))
-        chip.setLayoutDirection(Qt.RightToLeft)  # croix après le texte
+        chip.setLayoutDirection(Qt.RightToLeft)  # cross after the text
     return chip
 
 
 class _TagInput(QLineEdit):
-    """Entrée : valide le tag saisi. Champ vide : Entrée garde son rôle (enregistrer)."""
+    """Enter: accepts the typed tag. Empty field: Enter keeps its role (save)."""
 
     commit = Signal()
 
@@ -123,7 +123,7 @@ class _TagInput(QLineEdit):
 
 
 class TagEditor(QWidget):
-    """Liste de tags en puces + champ de saisie (Entrée ou virgule pour ajouter)."""
+    """List of tag chips + input field (Enter or comma to add)."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -136,7 +136,7 @@ class TagEditor(QWidget):
         self._chips = QWidget()
         self._flow = FlowLayout(self._chips)
         self.input = _TagInput()
-        self.input.setPlaceholderText("Ajouter un tag (Entrée ou virgule)")
+        self.input.setPlaceholderText("Add a tag (Enter or comma)")
         self.input.commit.connect(self._commit_input)
         self.input.textChanged.connect(self._on_text_changed)
         self._model = QStringListModel(self)
@@ -166,12 +166,12 @@ class TagEditor(QWidget):
         self._rebuild()
 
     def pending_tags(self) -> list[str]:
-        """Tags + texte saisi non encore validé (le service le validera ou le refusera)."""
+        """Tags + typed text not yet accepted (the service will accept or reject it)."""
         pending = self.input.text().strip()
         return [*self._tags, pending] if pending else list(self._tags)
 
     def add_text(self, value: str) -> bool:
-        """Ajoute un tag ; False (message affiché) s'il est refusé par normalize_tags."""
+        """Adds a tag; False (message shown) if normalize_tags rejects it."""
         try:
             self._tags = list(normalize_tags([*self._tags, value]))
         except EntryValidationError as exc:
@@ -199,7 +199,7 @@ class TagEditor(QWidget):
     def error_text(self) -> str:
         return self.error.text() if not self.error.isHidden() else ""
 
-    # --- Interne --------------------------------------------------------------------
+    # --- Internal --------------------------------------------------------------------
 
     def _set_error(self, message: str) -> None:
         self.error.setText(message)
@@ -210,7 +210,7 @@ class TagEditor(QWidget):
             item = self._flow.takeAt(0)
             item.widget().deleteLater()
         for tag in self._tags:
-            chip = tag_chip(tag, f"Retirer « {tag} »", removable=True)
+            chip = tag_chip(tag, f"Remove \"{tag}\"", removable=True)
             chip.clicked.connect(lambda _checked=False, t=tag: self.remove_tag(t))
             self._flow.addWidget(chip)
         self._chips.setVisible(bool(self._tags))
@@ -226,7 +226,7 @@ class TagEditor(QWidget):
         *complete, rest = text.split(",")
         for index, part in enumerate(complete):
             if part.strip() and not self.add_text(part):
-                # Refusé : le texte non traité reste dans le champ, à corriger.
+                # Rejected: the unprocessed text stays in the field, to be corrected.
                 remaining = ",".join([part, *complete[index + 1:], rest])
                 self._replace_text(remaining.lstrip())
                 return
@@ -238,8 +238,8 @@ class TagEditor(QWidget):
         self.input.blockSignals(False)
 
     def _on_completion(self, text: str) -> None:
-        # Le complèteur réécrit le champ après ce signal : validation au tour suivant.
-        # Minuteur enfant de l'éditeur : détruit avec lui, jamais appelé après.
+        # The completer rewrites the field after this signal: validate on the next turn.
+        # Timer owned by the editor: destroyed with it, never called afterwards.
         self._completion_text = text
         self._completion_timer.start()
 

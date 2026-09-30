@@ -1,7 +1,7 @@
-"""Services v4 (E1) : tags, catégories, audit et import/export sur le vrai runtime.
+"""v4 services (E1): tags, categories, audit and import/export on the real runtime.
 
-Coffres jetables (répertoire XDG temporaire) ou copies MIGRÉES du coffre de
-référence 1.6.0 : aucun vrai coffre n'est ouvert.
+Throwaway vaults (temporary XDG directory) or MIGRATED copies of the 1.6.0
+reference vault: no real vault is ever opened.
 """
 
 import base64
@@ -26,7 +26,7 @@ from app.services import import_export
 from tests.test_entries import MASTER, EntryTestCase
 from tests.test_migration_v4 import V3, MigrationTestCase
 
-BANK = 1  # « Banque Exemple » (historique au format v1) dans le coffre de référence 1.6.0
+BANK = 1  # "Banque Exemple" (history in format v1) in the 1.6.0 reference vault
 
 
 def raw_metadata(vault, entry_id: int) -> bytes:
@@ -115,10 +115,10 @@ class TestTags(EntryTestCase):
         self.assertEqual(self.entries.history_count(entry_id), 1)
 
     def test_other_changes_keep_the_tags(self):
-        entry_id = self.create(["a", "b"], category_id=self.category_id("Travail"))
+        entry_id = self.create(["a", "b"], category_id=self.category_id("Work"))
         entry = self.entries.get_entry(entry_id)
         entry.url = "https://serveur.example"
-        entry.category_id = self.category_id("Personnel")
+        entry.category_id = self.category_id("Personal")
         self.entries.update_entry(entry)
         self.entries.set_favorite(entry_id, True)
         self.entries.delete_entry(entry_id)
@@ -162,7 +162,7 @@ class TestTags(EntryTestCase):
 
 
 class TestTagsOnMigratedVault(MigrationTestCase):
-    """Entrée migrée dont l'historique est resté au format v1 (sans tags)."""
+    """Migrated entry whose history stayed in format v1 (no tags)."""
 
     def setUp(self):
         super().setUp()
@@ -180,7 +180,7 @@ class TestTagsOnMigratedVault(MigrationTestCase):
         entry.tags = ("banque",)
         self.entries.update_entry(entry)
         v1 = self.entries.list_history(BANK)[-1]
-        # Affichage : une version v1 reprend les tags de la version plus récente (ici aucun).
+        # Display: a v1 version reuses the tags of the more recent version (none here).
         self.assertEqual(v1.entry.tags, ())
         self.entries.restore_version(v1.id)
         got = self.entries.get_entry(BANK)
@@ -199,7 +199,7 @@ class TestCategoryDeletion(EntryTestCase):
         self.trashed = self.entries.create_entry(Entry(service_name="Jeté", password="b",
                                                        category_id=self.cat))
         self.other = self.entries.create_entry(Entry(service_name="Autre", password="c",
-                                                     category_id=self.category_id("Travail")))
+                                                     category_id=self.category_id("Work")))
         self.entries.delete_entry(self.trashed)
 
     def test_entries_become_uncategorized_and_are_reencrypted(self):
@@ -213,7 +213,7 @@ class TestCategoryDeletion(EntryTestCase):
         self.assertEqual((active.category_id, active.tags, active.password), (None, ("x",), "a"))
         self.assertIsNone(self.entries.get_entry(self.trashed, include_deleted=True).category_id)
         self.assertEqual(self.entries.history_count(self.active), 0)
-        # Relu depuis la base, sans cache.
+        # Read back from the database, without cache.
         self.vault.metadata.invalidate()
         self.assertIsNone(self.vault.metadata.entry(self.active).category_id)
         self.assertEqual(self.categories.overview().uncategorized, 1)
@@ -247,13 +247,13 @@ class TestCategoryDeletion(EntryTestCase):
         before = {i: raw_metadata(self.vault, i) for i in ids}
         rows = self.vault.connection.execute("SELECT * FROM categories").fetchall()
         with mock.patch.object(CategoryRepository, "delete",
-                               side_effect=sqlite3.OperationalError("panne simulée")), \
+                               side_effect=sqlite3.OperationalError("simulated failure")), \
                 self.assertRaises(sqlite3.OperationalError):
             self.categories.delete_category(self.cat)
         self.assertEqual({i: raw_metadata(self.vault, i) for i in ids}, before)
         self.assertEqual(self.vault.connection.execute("SELECT * FROM categories").fetchall(),
                          rows)
-        # Le cache ne garde pas la valeur annulée.
+        # The cache does not keep the cancelled value.
         self.assertEqual(self.entries.get_entry(self.active).category_id, self.cat)
         self.assertEqual(
             self.entries.get_entry(self.trashed, include_deleted=True).category_id, self.cat)
@@ -274,7 +274,7 @@ class TestAuditOfAlteredMetadata(EntryTestCase):
                 conn.execute("UPDATE entries SET metadata_enc = ? WHERE id = ?",
                              (bytes(blob), entry_id))
         altered = {i: raw_metadata(self.vault, i) for i in (bad, trashed)}
-        self.vault.metadata.invalidate()  # modification faite hors de l'application
+        self.vault.metadata.invalidate()  # change made outside the application
 
         report = run_audit(self.entries)
         self.assertEqual(sorted(f.entry_id for f in report.by_kind(KIND_UNREADABLE)),
@@ -282,7 +282,7 @@ class TestAuditOfAlteredMetadata(EntryTestCase):
         self.assertEqual(report.checked_entries, 3)
         self.assertNotIn("Altérée", repr(report))
 
-        # Rien n'est reconstruit : l'entrée reste illisible, le blob inchangé.
+        # Nothing is rebuilt: the entry stays unreadable, the blob unchanged.
         self.assertEqual([s.id for s in self.entries.list_entries()], [ok])
         self.assertEqual(self.entries.list_entries(EntryFilter(in_trash=True)), [])
         self.assertEqual(self.entries.unreadable_entries(), sorted([bad, trashed]))
@@ -290,7 +290,7 @@ class TestAuditOfAlteredMetadata(EntryTestCase):
             self.entries.get_entry(bad)
         self.assertEqual({i: raw_metadata(self.vault, i) for i in (bad, trashed)}, altered)
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0], 3)
-        # Ni la purge ni le vidage de la corbeille ne touchent une entrée illisible.
+        # Neither purging nor emptying the Trash touches an unreadable entry.
         self.assertEqual((self.entries.purge_trash(0), self.entries.empty_trash()), (0, 0))
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0], 3)
 
@@ -302,12 +302,12 @@ class TestImportExportWithTags(EntryTestCase):
         self.entries.create_entry(Entry(
             service_name="Serveur", entry_type="server", username="root", password="pw,1",
             notes="note\nsur deux lignes", extra={"hostname": "10.0.0.1", "port": "22"},
-            category_id=self.category_id("Travail"), is_favorite=True,
+            category_id=self.category_id("Work"), is_favorite=True,
             tags=["Linux", "Écoles primaires", "#prod"]))
         self.entries.create_entry(Entry(service_name="Sans tag", password="p2"))
 
     def fresh_target(self):
-        """Second coffre jetable, pour réimporter."""
+        """Second throwaway vault, to import into again."""
         target = Vault.create(f"cible-{secrets.token_hex(4)}", "Cible", MASTER)
         self.addCleanup(target.close)
         categories = CategoryService(target)
@@ -340,10 +340,10 @@ class TestImportExportWithTags(EntryTestCase):
         self.assertEqual((result.imported, result.invalid), (2, 0))
         self.assert_same_as_source(service)
         server = self.imported(service)["Serveur"]
-        self.assertEqual(categories.list_categories()[0].name, "Personnel")
+        self.assertEqual(categories.list_categories()[0].name, "Personal")
         self.assertEqual(
             next(c.name for c in categories.list_categories() if c.id == server.category_id),
-            "Travail")
+            "Work")
 
     def test_encrypted_export_roundtrips_the_tags(self):
         dest = self.dir / "export.mcfexport"
@@ -373,7 +373,7 @@ class TestImportExportWithTags(EntryTestCase):
         import_export.apply_import(self.entries, self.categories, preview)
         got = self.imported(self.entries)["Ancien"]
         self.assertEqual((got.tags, got.password, got.is_favorite, got.category_id),
-                         ((), "pw", True, self.category_id("Travail")))
+                         ((), "pw", True, self.category_id("Work")))
 
     def test_invalid_tags_are_dropped_without_losing_the_entry(self):
         too_many = ", ".join(f"t{i}" for i in range(MAX_TAGS + 5))
@@ -419,7 +419,7 @@ class TestImportExportWithTags(EntryTestCase):
 
 
 class TestRuntimeIgnoresLegacy(EntryTestCase):
-    """Les lecteurs v1 à v3 (colonnes en clair, entry_tags) sont réservés à la migration."""
+    """The v1 to v3 readers (plaintext columns, entry_tags) are reserved for the migration."""
 
     LEGACY = ("list_active", "list_deleted", "list_all(", "list_all_v4", "set_builtin_key",
               "set_name_blob(", "count_entries_by_category", "apply_legacy_steps",

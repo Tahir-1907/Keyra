@@ -1,24 +1,27 @@
-"""Connexion SQLite et schéma d'un coffre.
+"""SQLite connection and schema of a vault.
 
-Chaque coffre = un fichier SQLite indépendant
+Each vault = one independent SQLite file
 (~/.local/share/mon-coffre/vaults/<vault_id>/vault.db).
 
-Choix : une couche d'accès SQLite « propre » en `sqlite3` (bibliothèque
-standard) plutôt qu'un ORM, pour limiter les dépendances externes et garder
-un contrôle explicite sur les requêtes touchant des données sensibles.
-L'architecture (repositories.py) isole ce choix : il serait possible de
-migrer vers SQLAlchemy plus tard sans changer le reste de l'application.
+Choice: a "clean" SQLite access layer using `sqlite3` (standard library)
+rather than an ORM, to limit external dependencies and keep explicit control
+over the queries that touch sensitive data. The architecture
+(repositories.py) isolates this choice: migrating to SQLAlchemy later would
+be possible without changing the rest of the application.
 
-Les colonnes contenant des données sensibles (mots de passe, notes,
-numéros de carte, etc.) sont toujours des BLOB
-chiffrés (AES-256-GCM), jamais du texte en clair. Depuis le schéma v4, les
-métadonnées des entrées (dont les tags) et les noms de catégories personnelles
-le sont aussi (`metadata_enc`, `name_enc`) ; `entry_tags` n'existe plus que dans
-les coffres v1 à v3, lus par la migration. Restent lisibles par conception : les
-paramètres de `vault_meta` (dont le nom du coffre), les clés techniques des
-catégories intégrées et `entry_history.created_at` (décision D3 : ordre et
-plafond de l'historique). Cette couche ne connaît aucune clé de chiffrement :
-elle stocke des octets opaques.
+Columns holding sensitive data (passwords, notes, card numbers, etc.) are
+always encrypted BLOBs (AES-256-GCM), never plaintext. Since schema v4, the
+entry metadata (tags included) and the names of custom categories are
+encrypted too (`metadata_enc`, `name_enc`); `entry_tags` only exists in v1 to
+v3 vaults, read by the migration. What stays readable by design: the
+`vault_meta` parameters (including the vault name), the technical keys of the
+built-in categories and `entry_history.created_at` (decision D3: order and
+cap of the history). This layer knows no encryption key: it stores opaque
+bytes.
+
+Note: the SQL statements below (including their `--` comments and the
+trigger message) are stored verbatim in `sqlite_master` of every vault they
+create, so they are kept exactly as they were written.
 """
 
 from __future__ import annotations
@@ -28,15 +31,15 @@ from pathlib import Path
 
 SCHEMA_VERSION = 4
 
-# Historique des versions de schéma :
-#   1 — Phase 1 : vault_meta, categories, entries, entry_tags.
-#   2 — Phase 4 : entries.password_changed_at, table entry_history.
-#   3 — v1.2 : table vault_recovery (clé de récupération, facultative).
-#   4 — v1.7 : métadonnées chiffrées (voir v4_tables_sql et app/services/migration_v4).
+# Schema version history:
+#   1 — Phase 1: vault_meta, categories, entries, entry_tags.
+#   2 — Phase 4: entries.password_changed_at, entry_history table.
+#   3 — v1.2: vault_recovery table (optional recovery key).
+#   4 — v1.7: encrypted metadata (see v4_tables_sql and app/services/migration_v4).
 
-# DEK enveloppée une seconde fois, par la clé de récupération (Argon2id puis
-# AES-256-GCM). Ligne absente = pas de clé de récupération. La clé elle-même
-# n'est jamais stockée.
+# DEK wrapped a second time, by the recovery key (Argon2id then
+# AES-256-GCM). Missing row = no recovery key. The key itself is never
+# stored.
 _RECOVERY_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS vault_recovery (
     id                  INTEGER PRIMARY KEY CHECK (id = 1),  -- ligne unique
@@ -47,35 +50,35 @@ CREATE TABLE IF NOT EXISTS vault_recovery (
 );
 """
 
-# Le schéma v1 à v3 (métadonnées en clair, table entry_tags) n'est plus jamais créé :
-# il n'est que LU par la migration (_REQUIRED_STRUCTURE, apply_legacy_steps). Référence :
-# commit a99f821 (v1.6.0) et les coffres réels de tests/fixtures.
+# The v1 to v3 schema (plaintext metadata, entry_tags table) is never created anymore:
+# it is only READ by the migration (_REQUIRED_STRUCTURE, apply_legacy_steps). Reference:
+# commit a99f821 (v1.6.0) and the real vaults in tests/fixtures.
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    """Ouvre une connexion SQLite avec les pragmas de sécurité/fiabilité usuels."""
-    # check_same_thread=False : le déverrouillage (Argon2id, ~0,5 s) s'exécute
-    # dans un fil de travail pour garder l'interface animée ; la connexion est
-    # ensuite remise au fil principal. Elle n'est jamais utilisée par deux fils
-    # en même temps (relais séquentiel), ce que SQLite autorise.
+    """Opens an SQLite connection with the usual security/reliability pragmas."""
+    # check_same_thread=False: unlocking (Argon2id, ~0.5 s) runs in a worker
+    # thread to keep the interface responsive; the connection is then handed
+    # over to the main thread. It is never used by two threads at the same
+    # time (sequential hand-over), which SQLite allows.
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     try:
         conn.execute("PRAGMA foreign_keys = ON;")
-        # Premier accès réel au fichier : un fichier qui n'est pas une base
-        # SQLite échoue ici (sqlite3.connect n'ouvre rien tant qu'on ne lit pas).
+        # First real access to the file: a file that is not an SQLite database
+        # fails here (sqlite3.connect opens nothing until something is read).
         conn.execute("PRAGMA journal_mode = WAL;")
-        # Les pages libérées (entrée supprimée, champ modifié) sont écrasées par
-        # des zéros au lieu de rester lisibles dans le fichier.
+        # Freed pages (deleted entry, modified field) are overwritten with zeros
+        # instead of remaining readable in the file.
         conn.execute("PRAGMA secure_delete = ON;")
     except BaseException:
-        conn.close()  # pas de connexion laissée ouverte au ramasse-miettes
+        conn.close()  # no connection left open for the garbage collector
         raise
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def initialize_schema(conn: sqlite3.Connection) -> None:
-    """Schéma d'un NOUVEAU coffre : directement v4 (aucune métadonnée en clair)."""
+    """Schema of a NEW vault: v4 directly (no plaintext metadata)."""
     with conn:
         for sql in v4_tables_sql().values():
             conn.execute(sql)
@@ -84,7 +87,7 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
             conn.execute(sql)
 
 
-# Colonnes indispensables par table, et version du schéma qui les a introduites.
+# Required columns per table, and the schema version that introduced them.
 _REQUIRED_STRUCTURE: dict[str, tuple[int, set[str]]] = {
     "vault_meta": (1, {"id", "schema_version", "format_version", "kdf_name", "kdf_params_json",
                        "kdf_salt", "wrapped_key_blob", "verifier_blob", "vault_name",
@@ -101,9 +104,9 @@ _REQUIRED_STRUCTURE: dict[str, tuple[int, set[str]]] = {
 }
 _REQUIRED_ENTRY_COLUMNS_V2 = {"password_changed_at"}
 
-# Index présents dans les coffres v1 à v3, et version qui les a introduits (relevés dans
-# les coffres réels produits par 1.0.0 et 1.6.0, tests/fixtures). Les index
-# « sqlite_autoindex_* » sont créés par SQLite pour les contraintes UNIQUE / PRIMARY KEY.
+# Indexes present in v1 to v3 vaults, and the version that introduced them (taken from
+# the real vaults produced by 1.0.0 and 1.6.0, tests/fixtures). The
+# "sqlite_autoindex_*" indexes are created by SQLite for UNIQUE / PRIMARY KEY constraints.
 LEGACY_INDEXES: dict[str, tuple[int, str]] = {
     "idx_entries_service_name": (1, "entries"),
     "idx_entries_is_deleted": (1, "entries"),
@@ -115,7 +118,7 @@ LEGACY_INDEXES: dict[str, tuple[int, str]] = {
 
 
 def legacy_structure(schema_version: int) -> dict[str, set[str]]:
-    """Colonnes EXACTES de chaque table d'un coffre v1 à v3 (source : _REQUIRED_STRUCTURE)."""
+    """EXACT columns of each table of a v1 to v3 vault (source: _REQUIRED_STRUCTURE)."""
     return {
         table: columns | (_REQUIRED_ENTRY_COLUMNS_V2
                           if table == "entries" and schema_version >= 2 else set())
@@ -124,10 +127,10 @@ def legacy_structure(schema_version: int) -> dict[str, set[str]]:
 
 
 def v4_reference_structure() -> tuple[set[tuple[str, str, str]], dict[str, set[str]]]:
-    """Objets SQLite (type, nom, table) et colonnes d'un coffre v4 NEUF.
+    """SQLite objects (type, name, table) and columns of a NEW v4 vault.
 
-    Construit en mémoire par initialize_schema : la référence est le code de création
-    lui-même, jamais une seconde définition du schéma.
+    Built in memory by initialize_schema: the reference is the creation code
+    itself, never a second definition of the schema.
     """
     conn = sqlite3.connect(":memory:")
     try:
@@ -139,10 +142,10 @@ def v4_reference_structure() -> tuple[set[tuple[str, str, str]], dict[str, set[s
         conn.close()
     return objects, columns
 
-# --- Schéma v4 définitif (métadonnées chiffrées ; voir app/core/metadata.py) ---------------
+# --- Final v4 schema (encrypted metadata; see app/core/metadata.py) ---------------
 #
-# Créé directement pour un nouveau coffre (initialize_schema), ou écrit par la migration
-# v3 -> v4 (reconstruction des tables) ; utilisé aussi par la vérification de structure.
+# Created directly for a new vault (initialize_schema), or written by the v3 -> v4
+# migration (table rebuild); also used by the structure check.
 V4_SCHEMA_VERSION = 4
 
 _V4_REQUIRED: dict[str, set[str]] = {
@@ -153,7 +156,7 @@ _V4_REQUIRED: dict[str, set[str]] = {
     "entry_history": _REQUIRED_STRUCTURE["entry_history"][1],
     "vault_recovery": _REQUIRED_STRUCTURE["vault_recovery"][1],
 }
-# Colonnes v3 en clair qui ne doivent PLUS exister dans un coffre v4.
+# Plaintext v3 columns that must NO LONGER exist in a v4 vault.
 _V4_FORBIDDEN: dict[str, set[str]] = {
     "entries": {"service_name", "url", "username", "entry_type", "category_id",
                 "is_favorite", "is_deleted", "deleted_at", "created_at", "updated_at",
@@ -163,12 +166,12 @@ _V4_FORBIDDEN: dict[str, set[str]] = {
 
 
 def v4_tables_sql(suffix: str = "") -> dict[str, str]:
-    """CREATE TABLE du schéma v4 définitif (`suffix` : tables de reconstruction).
+    """CREATE TABLE statements of the final v4 schema (`suffix`: rebuild tables).
 
-    Plus aucune métadonnée en clair : tout est dans metadata_enc / name_enc.
-    Les secrets sont inchangés (mêmes colonnes, même chiffrement sous la DEK).
+    No plaintext metadata anymore: everything is in metadata_enc / name_enc.
+    Secrets are unchanged (same columns, same encryption under the DEK).
     """
-    from app.core.builtin_categories import BUILTIN_CATEGORY_KEYS  # module sans dépendance
+    from app.core.builtin_categories import BUILTIN_CATEGORY_KEYS  # dependency-free module
 
     keys = ", ".join(f"'{key}'" for key in BUILTIN_CATEGORY_KEYS)
 
@@ -228,11 +231,11 @@ V4_POST_REBUILD_SQL = (
 
 
 def structure_problems(conn: sqlite3.Connection, schema_version: int) -> list[str]:
-    """Écarts entre la base et le schéma `schema_version` (liste vide : structure saine).
+    """Differences between the database and schema `schema_version` (empty list: sound structure).
 
-    Vérifie les tables et colonnes indispensables, puis `PRAGMA quick_check`
-    (cohérence des pages et des index, en lecture seule). Un coffre dont une
-    table a été supprimée ou tronquée ne doit pas passer pour déverrouillé.
+    Checks the required tables and columns, then `PRAGMA quick_check` (page and
+    index consistency, read-only). A vault with a deleted or truncated table
+    must not pass as unlocked.
     """
     problems = []
     tables = {row[0] for row in conn.execute(
@@ -243,50 +246,50 @@ def structure_problems(conn: sqlite3.Connection, schema_version: int) -> list[st
         required = legacy_structure(schema_version)
     for table, expected in required.items():
         if table not in tables:
-            problems.append(f"table {table} absente")
+            problems.append(f"table {table} missing")
             continue
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table});")}
         if expected - present:
-            problems.append(f"colonnes absentes dans {table}")
+            problems.append(f"columns missing in {table}")
         if schema_version >= V4_SCHEMA_VERSION and present & _V4_FORBIDDEN.get(table, set()):
-            # Une colonne v3 en clair dans un coffre v4 : métadonnées potentiellement exposées.
-            problems.append(f"colonnes v3 en clair présentes dans {table}")
+            # A plaintext v3 column in a v4 vault: metadata potentially exposed.
+            problems.append(f"plaintext v3 columns present in {table}")
     if schema_version >= V4_SCHEMA_VERSION and "entry_tags" in tables:
-        problems.append("table entry_tags (v3) présente")
+        problems.append("entry_tags table (v3) present")
     check = [row[0] for row in conn.execute("PRAGMA quick_check;")]
     if check != ["ok"]:
-        problems.append("contrôle d'intégrité SQLite en échec")
+        problems.append("SQLite integrity check failed")
     return problems
 
 
-# --- Structures du schéma v4 (ajouts seulement) -------------------------------------------
+# --- v4 schema structures (additions only) -------------------------------------------
 #
-# v4 chiffre les métadonnées (voir app/core/metadata.py). Ces ajouts préparent la
-# migration v3 -> v4 : colonnes NULLABLES pendant la transition (un coffre v3 n'a
-# encore aucune valeur), anciennes colonnes intactes. Ils ne sont appliqués QUE par
-# la migration, jamais à l'ouverture d'un coffre. Les contraintes définitives
-# (NOT NULL, suppression des colonnes en clair) viendront avec la reconstruction
-# finale des tables, après validation des données migrées.
+# v4 encrypts the metadata (see app/core/metadata.py). These additions prepare the
+# v3 -> v4 migration: NULLABLE columns during the transition (a v3 vault has no value
+# yet), old columns intact. They are applied ONLY by the migration, never when a
+# vault is opened. The final constraints (NOT NULL, removal of the plaintext
+# columns) come with the final rebuild of the tables, after the migrated data
+# has been validated.
 
 _V4_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    # Identité stable du coffre (16 octets), utilisée dans les AAD des métadonnées.
+    # Stable vault identity (16 bytes), used in the metadata AAD.
     ("vault_meta", "vault_uuid",
      "BLOB CHECK (vault_uuid IS NULL"
      " OR (typeof(vault_uuid) = 'blob' AND length(vault_uuid) = 16))"),
-    # Métadonnées chiffrées de l'entrée (nom, URL, identifiant, type, catégorie, tags…).
+    # Encrypted entry metadata (name, URL, username, type, category, tags…).
     ("entries", "metadata_enc",
      "BLOB CHECK (metadata_enc IS NULL OR typeof(metadata_enc) = 'blob')"),
-    # Clé technique d'une catégorie intégrée (générique, identique dans tous les coffres).
+    # Technical key of a built-in category (generic, identical in every vault).
     ("categories", "builtin_key",
      "TEXT CHECK (builtin_key IS NULL OR builtin_key IN ({keys}))"),
-    # Nom chiffré d'une catégorie personnelle.
+    # Encrypted name of a custom category.
     ("categories", "name_enc",
      "BLOB CHECK (name_enc IS NULL OR typeof(name_enc) = 'blob')"),
 )
 
 _V4_EXTRA_SQL = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_builtin_key ON categories(builtin_key);",
-    # vault_uuid est immuable une fois défini (renommage, mot de passe, restauration…).
+    # vault_uuid is immutable once set (rename, password change, restore…).
     """CREATE TRIGGER IF NOT EXISTS trg_vault_uuid_immutable
        BEFORE UPDATE OF vault_uuid ON vault_meta
        WHEN OLD.vault_uuid IS NOT NULL AND (NEW.vault_uuid IS NULL
@@ -304,12 +307,12 @@ def has_v4_structures(conn: sqlite3.Connection) -> bool:
 
 
 def add_v4_structures(conn: sqlite3.Connection) -> None:
-    """Ajoute les colonnes, l'index et le déclencheur v4, sans rien retirer ni committer.
+    """Adds the v4 columns, index and trigger, without removing or committing anything.
 
-    Idempotent. Réservé à la migration v3 -> v4 (qui délimite la transaction) :
-    n'est jamais appelé à l'ouverture d'un coffre, et ne génère aucune valeur.
+    Idempotent. Reserved for the v3 -> v4 migration (which delimits the
+    transaction): never called when a vault is opened, and generates no value.
     """
-    from app.core.builtin_categories import BUILTIN_CATEGORY_KEYS  # module sans dépendance
+    from app.core.builtin_categories import BUILTIN_CATEGORY_KEYS  # dependency-free module
 
     keys = ", ".join(f"'{key}'" for key in BUILTIN_CATEGORY_KEYS)
     for table, column, definition in _V4_COLUMNS:
@@ -326,17 +329,17 @@ def vault_meta_exists(conn: sqlite3.Connection) -> bool:
 
 
 def apply_legacy_steps(conn: sqlite3.Connection, from_version: int) -> None:
-    """Structures v1/v2 -> v3, SANS transaction ni changement de schema_version.
+    """v1/v2 -> v3 structures, WITHOUT a transaction or a schema_version change.
 
-    Réutilisé par `migrate` (v3) et par la migration v4, qui l'inclut dans sa
-    propre transaction. Aucune donnée chiffrée n'est touchée.
+    Reused by `migrate` (v3) and by the v4 migration, which includes it in its
+    own transaction. No encrypted data is touched.
     """
     if from_version < 2:
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(entries);")}
         if "password_changed_at" not in columns:
             conn.execute("ALTER TABLE entries ADD COLUMN password_changed_at TEXT;")
-        # Date réelle inconnue : on prend la dernière modification (valeur
-        # la plus récente possible, pour ne pas signaler à tort un mot de passe ancien).
+        # Real date unknown: the last modification is used (the most recent
+        # possible value, so that no password is wrongly reported as old).
         conn.execute(
             "UPDATE entries SET password_changed_at = updated_at "
             "WHERE password_changed_at IS NULL;"

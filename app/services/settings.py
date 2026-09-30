@@ -1,11 +1,13 @@
-"""Paramètres de l'application (non sensibles), par utilisateur Linux.
+"""Application settings (non-sensitive), per Linux user.
 
-Fichier : ~/.config/mon-coffre/settings.json (ou $XDG_CONFIG_HOME), 0600.
-Aucun secret n'y figure : uniquement des préférences (délais, dossier des
-sauvegardes, options du générateur, dernier coffre utilisé, géométrie de
-fenêtre). Toute valeur absente, inconnue ou invalide est remplacée par sa
-valeur par défaut : un fichier abîmé ne peut ni empêcher le démarrage, ni
-désactiver silencieusement une protection (ex. délai hors liste).
+File: ~/.config/mon-coffre/settings.json (or $XDG_CONFIG_HOME), 0600.
+It contains no secret: only preferences (delays, backup folder, generator
+options, last vault used, window geometry). Any missing, unknown or invalid
+value is replaced by its default: a damaged file can neither prevent startup
+nor silently disable a protection (e.g. a delay outside the list).
+
+The choice dictionaries map a display label to the stored value: only the
+values are written to the file.
 """
 
 from __future__ import annotations
@@ -28,13 +30,13 @@ from app.utils.paths import config_dir, default_backup_dir
 
 SETTINGS_FILENAME = "settings.json"
 
-AUTO_LOCK_CHOICES = AUTO_LOCK_CHOICES_SECONDS  # libellé -> secondes (None = jamais)
+AUTO_LOCK_CHOICES = AUTO_LOCK_CHOICES_SECONDS  # label -> seconds (None = never)
 CLIPBOARD_CHOICES: dict[str, int] = {
-    "10 secondes": 10, "20 secondes": 20, "30 secondes": 30,
+    "10 seconds": 10, "20 seconds": 20, "30 seconds": 30,
     "1 minute": 60, "2 minutes": 120, "5 minutes": 300,
 }
 TRASH_RETENTION_CHOICES: dict[str, int | None] = {
-    "7 jours": 7, "30 jours": 30, "90 jours": 90, "1 an": 365, "Jamais (vidage manuel)": None,
+    "7 days": 7, "30 days": 30, "90 days": 90, "1 year": 365, "Never (empty manually)": None,
 }
 PASSPHRASE_SEPARATORS = ("-", " ", ".", "_", "")
 MIN_AUTO_BACKUPS, MAX_AUTO_BACKUPS = 1, 100
@@ -42,16 +44,16 @@ MIN_AUTO_BACKUPS, MAX_AUTO_BACKUPS = 1, 100
 
 @dataclass(slots=True)
 class Settings:
-    # Sécurité
+    # Security
     auto_lock_seconds: int | None = 5 * 60
     lock_on_session_lock: bool = True
     clipboard_clear_seconds: int = 30
-    # Corbeille et sauvegardes
+    # Trash and backups
     trash_retention_days: int | None = 30
     auto_backup: bool = True
     auto_backups_kept: int = 10
-    backup_dir: str = ""  # vide = <Documents>/MonCoffre/backup
-    # Générateur (valeurs par défaut)
+    backup_dir: str = ""  # empty = <Documents>/MonCoffre/backup
+    # Generator (default values)
     generator_mode: str = "password"  # "password" | "passphrase"
     generator_length: int = 20
     generator_lowercase: bool = True
@@ -60,16 +62,16 @@ class Settings:
     generator_symbols: bool = True
     generator_exclude_ambiguous: bool = False
     passphrase_words: int = 6
-    passphrase_separator: str = "-"  # noqa: S105 - séparateur de mots
+    passphrase_separator: str = "-"  # noqa: S105 - word separator
     passphrase_capitalize: bool = False
     passphrase_add_number: bool = False
     # Interface
     animations: bool = True
     last_vault_id: str = ""
-    window_geometry: str = ""  # QMainWindow.saveGeometry() en base64
+    window_geometry: str = ""  # QMainWindow.saveGeometry() in base64
 
     def validated(self) -> Settings:
-        """Copie où chaque valeur hors domaine est remise à sa valeur par défaut."""
+        """Copy in which every out-of-range value is reset to its default."""
         default = Settings()
         checks = {
             "auto_lock_seconds": lambda v: v in AUTO_LOCK_CHOICES.values(),
@@ -135,13 +137,13 @@ def save_settings(settings: Settings) -> None:
 
 
 def backup_directory(settings: Settings) -> Path:
-    """Dossier des sauvegardes selon les paramètres (créé en 0700 si besoin)."""
+    """Backup folder according to the settings (created as 0700 if needed)."""
     if not settings.backup_dir:
         return default_backup_dir()
     path = Path(settings.backup_dir)
     if not path.exists():
-        # Seul un dossier créé par l'application est restreint : on ne modifie
-        # jamais les permissions d'un dossier existant choisi par l'utilisateur.
+        # Only a folder created by the application is restricted: the permissions of
+        # an existing folder chosen by the user are never changed.
         path.mkdir(parents=True)
         os.chmod(path, 0o700)
     return path

@@ -1,14 +1,14 @@
-"""E5.4 : couverture complémentaire de la mise à niveau (E3).
+"""E5.4: additional coverage of the upgrade (E3).
 
-* vérification finale face à de VRAIES corruptions d'un coffre v4 migré ;
-* VACUUM : échec du moteur puis nouvel essai réussi, ou double échec (avertissement) ;
-* SIGKILL réel (processus séparé) pendant l'écriture de la sauvegarde préalable et
-  après le COMMIT (avant VACUUM, pendant la vérification).
+* final verification against REAL corruptions of a migrated v4 vault;
+* VACUUM: engine failure then successful retry, or double failure (warning);
+* real SIGKILL (separate process) while the preliminary backup is written and
+  after the COMMIT (before VACUUM, during verification).
 
-La panne de VACUUM est injectée côté TEST, par une enveloppe de la connexion SQLite
-qui refuse l'instruction `VACUUM` : le moteur (migration_v4) n'a pas de point
-d'injection pour cette étape et n'est pas modifié. Copies de fixtures dans des
-répertoires XDG temporaires uniquement.
+The VACUUM failure is injected on the TEST side, through a wrapper around the SQLite
+connection that refuses the `VACUUM` statement: the engine (migration_v4) has no
+injection point for this step and is not modified. Fixture copies in temporary XDG
+directories only.
 """
 
 import os
@@ -32,7 +32,7 @@ from tests.test_fixtures import logical_dump
 
 
 class NoVacuum:
-    """Connexion SQLite dont l'instruction VACUUM échoue (disque plein simulé)."""
+    """SQLite connection whose VACUUM statement fails (simulated full disk)."""
 
     def __init__(self, conn):
         self._conn = conn
@@ -62,7 +62,7 @@ def flip_last_byte(conn, table: str, column: str, row_id: int) -> None:
                  (bytes(blob), row_id))
 
 
-# --- E5.4.1 : vérification finale sur un vrai coffre v4 corrompu -----------------------------
+# --- E5.4.1: final verification on a really corrupted v4 vault -----------------------------
 
 
 class TestVerificationOnRealCorruption(UpgradeTestCase):
@@ -93,18 +93,17 @@ class TestVerificationOnRealCorruption(UpgradeTestCase):
         self.assertEqual(self.verify(manifest, report), [])
 
     def test_each_real_corruption_is_refused(self):
-        custom_category = 7  # « Projets BTS » : catégorie personnelle (nom chiffré)
+        custom_category = 7  # "Projets BTS": custom category (encrypted name)
         cases = {
-            "métadonnées d'une entrée": lambda c: flip_last_byte(c, "entries",
-                                                                 "metadata_enc", 1),
-            "secret d'une entrée": lambda c: flip_last_byte(c, "entries", "password_enc", 2),
-            "version d'historique": lambda c: flip_last_byte(
+            "entry metadata": lambda c: flip_last_byte(c, "entries", "metadata_enc", 1),
+            "entry secret": lambda c: flip_last_byte(c, "entries", "password_enc", 2),
+            "history version": lambda c: flip_last_byte(
                 c, "entry_history", "snapshot_enc",
                 c.execute("SELECT MIN(id) FROM entry_history").fetchone()[0]),
-            "nom de catégorie": lambda c: flip_last_byte(c, "categories", "name_enc",
-                                                         custom_category),
-            "entrée disparue": lambda c: c.execute("DELETE FROM entries WHERE id = 3"),
-            "table inattendue": lambda c: c.execute("CREATE TABLE intrus (x)"),
+            "category name": lambda c: flip_last_byte(c, "categories", "name_enc",
+                                                      custom_category),
+            "missing entry": lambda c: c.execute("DELETE FROM entries WHERE id = 3"),
+            "unexpected table": lambda c: c.execute("CREATE TABLE intrus (x)"),
         }
         for label, action in cases.items():
             with self.subTest(corruption=label):
@@ -121,8 +120,8 @@ class TestVerificationOnRealCorruption(UpgradeTestCase):
             self.verify(manifest, report)
 
     def test_upgrade_reports_a_real_verification_failure(self):
-        """Corruption survenue entre la migration et la vérification : `upgrade` ne rend
-        pas de coffre ouvert et lève UpgradeVerificationError (mécanisme réel)."""
+        """Corruption between the migration and the verification: `upgrade` returns no
+        open vault and raises UpgradeVerificationError (real mechanism)."""
         manifest = self.install(V3)
         real = vault_upgrade.migrate_to_v4
 
@@ -168,9 +167,9 @@ class TestVacuumRetry(UpgradeTestCase):
         with unittest.mock.patch.object(vault_upgrade, "migrate_to_v4",
                                         self.engine_without_vacuum(seen)):
             result = self.upgrade(manifest)
-        self.assertFalse(seen["engine_vacuumed"])  # premier essai (moteur) en échec
+        self.assertFalse(seen["engine_vacuumed"])  # first attempt (engine) fails
         self.assertGreater(seen["freelist_after_engine"], 0)
-        self.assertTrue(result.report.vacuumed)  # second essai (vérification) réussi
+        self.assertTrue(result.report.vacuumed)  # second attempt (verification) succeeds
         self.assertEqual(result.warnings, [])
         self.assertEqual(freelist(self.db(manifest)), 0)
         self.assert_matches_manifest(manifest)
@@ -192,9 +191,9 @@ class TestVacuumRetry(UpgradeTestCase):
         self.assertFalse(seen["engine_vacuumed"])
         self.assertFalse(result.report.vacuumed)
         self.assertEqual(len(result.warnings), 1)
-        self.assertIn("compactage", result.warnings[0])
+        self.assertIn("compaction", result.warnings[0])
         self.assertGreater(freelist(self.db(manifest)), 0)
-        # Mise à niveau validée et vérifiée malgré tout : contenu intact, ouvrable.
+        # Upgrade committed and verified nonetheless: content intact, can be opened.
         self.assertEqual(schema_of(self.db(manifest)), 4)
         self.assert_matches_manifest(manifest)
         self.vault.close()
@@ -202,14 +201,14 @@ class TestVacuumRetry(UpgradeTestCase):
         self.assert_matches_manifest(manifest)
 
 
-# --- E5.4.5 : SIGKILL hors de la transaction ---------------------------------------------------
+# --- E5.4.5: SIGKILL outside the transaction ---------------------------------------------------
 
 
 class TestSigkillOutsideTheTransaction(UpgradeTestCase):
-    """Complète TestSigkill (E3 : étapes entry, rebuilt, before_commit, DANS la transaction)."""
+    """Complements TestSigkill (E3: entry, rebuilt, before_commit steps, INSIDE the transaction)."""
 
     def run_and_kill(self, manifest, pause_code: str) -> None:
-        marker = Path(self._tmp.name) / "pause-atteinte"
+        marker = Path(self._tmp.name) / "pause-reached"
         marker.unlink(missing_ok=True)
         child = (
             "import sys, time\n"
@@ -251,8 +250,8 @@ class TestSigkillOutsideTheTransaction(UpgradeTestCase):
             conn.close()
 
     def test_while_writing_the_backup(self):
-        """Arrêt après l'écriture chiffrée complète, avant le renommage final : le coffre
-        n'a pas été touché, le temporaire (chiffré) reste, ignoré ; nouvel essai complet."""
+        """Stop after the complete encrypted write, before the final rename: the vault was
+        not touched, the (encrypted) temporary remains, ignored; full retry."""
         manifest = self.install(V3)
         dump = logical_dump(self.db(manifest))
         self.run_and_kill(manifest, (
@@ -268,9 +267,9 @@ class TestSigkillOutsideTheTransaction(UpgradeTestCase):
         self.assert_integrity(manifest)
         leftovers = sorted(self.backup_dir.glob(".tmp-*"))
         self.assertEqual(len(leftovers), 1)
-        self.assertTrue(leftovers[0].read_bytes().startswith(backup.MAGIC))  # chiffré
-        self.assertEqual(backup.list_backups(self.backup_dir), [])  # ignoré au listage
-        self.upgrade(manifest)  # nouvel essai
+        self.assertTrue(leftovers[0].read_bytes().startswith(backup.MAGIC))  # encrypted
+        self.assertEqual(backup.list_backups(self.backup_dir), [])  # ignored when listing
+        self.upgrade(manifest)  # new attempt
         self.assert_matches_manifest(manifest)
 
     def test_after_commit_before_vacuum(self):
@@ -291,13 +290,13 @@ class TestSigkillOutsideTheTransaction(UpgradeTestCase):
             "    return vault\n"
             "Vault.open_for_migration = classmethod(open_for_migration)\n"))
         self.assert_integrity(manifest)
-        self.assertEqual(schema_of(self.db(manifest)), 4)  # COMMIT déjà fait
+        self.assertEqual(schema_of(self.db(manifest)), 4)  # COMMIT already done
         self.vault = Vault.unlock(manifest["vault_id"], manifest["master_password"])
         self.assert_matches_manifest(manifest)
         report = self.rebuilt_report(manifest)
-        report.vacuumed = False  # le VACUUM du moteur n'a pas eu lieu
+        report.vacuumed = False  # the engine's VACUUM did not happen
         self.assertEqual(vault_upgrade.verify_upgraded(self.vault, report), [])
-        self.assertTrue(report.vacuumed)  # rattrapé par la vérification
+        self.assertTrue(report.vacuumed)  # caught up by the verification
         self.assertEqual(VaultMetaRepository(self.vault.connection).get().schema_version, 4)
 
     def test_during_the_final_verification(self):
@@ -309,7 +308,7 @@ class TestSigkillOutsideTheTransaction(UpgradeTestCase):
             "_vu.verify_upgraded = verify\n"))
         self.assert_integrity(manifest)
         self.assertEqual(schema_of(self.db(manifest)), 4)
-        self.assertEqual(freelist(self.db(manifest)), 0)  # VACUUM fait avant l'arrêt
+        self.assertEqual(freelist(self.db(manifest)), 0)  # VACUUM done before the stop
         self.vault = Vault.unlock(manifest["vault_id"], manifest["master_password"])
         self.assert_matches_manifest(manifest)
         self.assertEqual(vault_upgrade.verify_upgraded(self.vault, self.rebuilt_report(manifest)),

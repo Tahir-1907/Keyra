@@ -1,10 +1,10 @@
-"""Panneau de détail d'un compte (coffre, corbeille, versions de l'historique).
+"""Details panel of an entry (Vault, Trash, history versions).
 
-Entre depuis la droite à chaque sélection. Les secrets sont masqués par
-défaut ; « afficher » les révèle par un simple fondu (150 ms) — jamais
-d'animation qui exposerait le secret plus longtemps que nécessaire. La copie
-passe par le signal `copy_requested` (presse-papiers sécurisé géré par
-l'appelant) et l'icône du bouton devient ✓.
+Slides in from the right on every selection. Secrets are hidden by default;
+"show" reveals them with a simple fade (150 ms) — never an animation that
+would expose the secret longer than necessary. Copying goes through the
+`copy_requested` signal (secure clipboard handled by the caller) and the
+button icon turns into ✓.
 """
 
 from __future__ import annotations
@@ -37,13 +37,13 @@ _MASK = "•" * 14
 
 def _format_date(iso: str) -> str:
     try:
-        return datetime.fromisoformat(iso).astimezone().strftime("%d/%m/%Y à %H:%M")
+        return datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
     except (TypeError, ValueError):
         return iso
 
 
 class _FieldBox(QFrame):
-    """Valeur dans une boîte arrondie, suivie de ses boutons d'action."""
+    """Value in a rounded box, followed by its action buttons."""
 
     def __init__(self, value: str, secret: bool, mono: bool = False) -> None:
         super().__init__()
@@ -57,10 +57,10 @@ class _FieldBox(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(12, 4, 4, 4)
         row.setSpacing(2)
-        # Valeur longue : passage à la ligne n'importe où, jamais d'élargissement du
-        # panneau (les boutons Afficher / Copier restent toujours visibles). Pas de
-        # sélection à la souris : elle copierait les points de coupure invisibles ;
-        # la copie passe par le bouton, qui copie la valeur exacte.
+        # Long value: wraps anywhere, never widens the panel (the Show / Copy
+        # buttons always stay visible). No mouse selection: it would copy the
+        # invisible break points; copying goes through the button, which copies
+        # the exact value.
         self.value = QLabel(_MASK if secret else ui.breakable(value))
         self.value.setMinimumHeight(30)
         self.value.setMinimumWidth(40)
@@ -90,8 +90,8 @@ class DetailPanel(QFrame):
     restore_requested = Signal(int)
     purge_requested = Signal(int)
     favorite_toggled = Signal(int, bool)
-    copy_requested = Signal(str, str, bool)  # valeur, libellé, sensible
-    tag_clicked = Signal(str)  # tag d'un badge (vue « Coffre » uniquement)
+    copy_requested = Signal(str, str, bool)  # value, label, sensitive
+    tag_clicked = Signal(str)  # tag of a badge ("Vault" view only)
 
     def __init__(self, parent: QWidget | None = None, mode: str = MODE_NORMAL) -> None:
         super().__init__(parent)
@@ -102,8 +102,8 @@ class DetailPanel(QFrame):
         self._tag_widgets: list[QWidget] = []
 
         self.placeholder = ui.EmptyState(
-            "key-round", "Sélectionnez un compte",
-            "Ses identifiants, sa robustesse et son historique s'afficheront ici.")
+            "key-round", "Select an entry",
+            "Its credentials, strength and history will appear here.")
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -133,25 +133,25 @@ class DetailPanel(QFrame):
         return self._entry.id if self._entry else None
 
     def tag_widgets(self) -> list[QWidget]:
-        """Badges des tags affichés (boutons en vue « Coffre », étiquettes ailleurs)."""
+        """Displayed tag badges (buttons in the "Vault" view, labels elsewhere)."""
         return list(self._tag_widgets)
 
     def clear(self) -> None:
-        """Efface toute donnée affichée (sélection vide, verrouillage)."""
+        """Clears every displayed value (empty selection, locking)."""
         self._entry = None
         self._secret_boxes = []
         self._tag_widgets = []
         self._clear_layout(self.content_layout)
         self._clear_layout(self.footer)
         self.scroll.hide()
-        self.placeholder.set_text("Sélectionnez un compte",
-                                  "Ses identifiants, sa robustesse et son historique "
-                                  "s'afficheront ici.")
+        self.placeholder.set_text("Select an entry",
+                                  "Its credentials, strength and history "
+                                  "will appear here.")
         self.placeholder.show()
 
     def show_error(self, message: str) -> None:
         self.clear()
-        self.placeholder.set_text("Entrée illisible", message)
+        self.placeholder.set_text("Unreadable entry", message)
 
     def set_favorite_state(self, is_favorite: bool) -> None:
         if self._entry is not None:
@@ -164,7 +164,7 @@ class DetailPanel(QFrame):
         spec = ENTRY_TYPES[entry.entry_type]
         layout = self.content_layout
 
-        # En-tête : avatar, nom, domaine, favori, modifier.
+        # Header: avatar, name, domain, favorite, edit.
         header = QHBoxLayout()
         header.setSpacing(14)
         header.addWidget(ui.Avatar(entry.service_name, 48), 0, Qt.AlignTop)
@@ -180,11 +180,11 @@ class DetailPanel(QFrame):
         header.addLayout(titles, 1)
         if self._mode == self.MODE_NORMAL:
             self._favorite = ui.icon_button(
-                "star", "Retirer des favoris" if entry.is_favorite else "Ajouter aux favoris",
+                "star", "Remove from favorites" if entry.is_favorite else "Add to favorites",
                 on_click=lambda: self.favorite_toggled.emit(entry.id, not entry.is_favorite))
             self._favorite.setIcon(self._star_icon(entry.is_favorite))
             header.addWidget(self._favorite, 0, Qt.AlignTop)
-            header.addWidget(ui.icon_button("square-pen", "Modifier", "Ctrl+E",
+            header.addWidget(ui.icon_button("square-pen", "Edit", "Ctrl+E",
                                             lambda: self.edit_requested.emit(entry.id)),
                              0, Qt.AlignTop)
         layout.addLayout(header)
@@ -192,9 +192,9 @@ class DetailPanel(QFrame):
         badges = QHBoxLayout()
         badges.setSpacing(6)
         badges.addWidget(ui.label(spec.label, "Badge"))
-        badges.addWidget(ui.label(category_name or "Sans catégorie", "Badge"))
+        badges.addWidget(ui.label(category_name or "Uncategorized", "Badge"))
         if entry.deleted_at:
-            badges.addWidget(ui.label("Dans la corbeille", "BadgeDanger"))
+            badges.addWidget(ui.label("In the Trash", "BadgeDanger"))
         badges.addStretch(1)
         layout.addLayout(badges)
         if entry.tags:
@@ -202,7 +202,7 @@ class DetailPanel(QFrame):
         layout.addWidget(ui.divider())
 
         if spec.uses_username:
-            self._field("Identifiant", entry.username, copy_label="Nom d'utilisateur",
+            self._field("Username", entry.username, copy_label="Username",
                         sensitive=False)
         if spec.uses_email:
             self._field("Email", entry.email, copy_label="Email")
@@ -219,7 +219,7 @@ class DetailPanel(QFrame):
             box = self._field("URL", entry.url, copy_label="URL", sensitive=False)
             if box is not None:
                 box.add(ui.icon_button(
-                    "external-link", "Ouvrir dans le navigateur", size=16,
+                    "external-link", "Open in the browser", size=16,
                     on_click=lambda: QDesktopServices.openUrl(QUrl(
                         entry.url if "://" in entry.url else f"https://{entry.url}"))))
         if entry.notes:
@@ -232,13 +232,13 @@ class DetailPanel(QFrame):
 
         meta = []
         if entry.created_at:
-            meta.append(f"Créé le {_format_date(entry.created_at)}")
+            meta.append(f"Created {_format_date(entry.created_at)}")
         if entry.updated_at:
-            meta.append(f"modifié le {_format_date(entry.updated_at)}")
+            meta.append(f"modified {_format_date(entry.updated_at)}")
         if spec.uses_password and entry.password and entry.password_changed_at:
-            meta.append(f"mot de passe changé le {_format_date(entry.password_changed_at)}")
+            meta.append(f"password changed {_format_date(entry.password_changed_at)}")
         if entry.deleted_at:
-            meta.append(f"supprimé le {_format_date(entry.deleted_at)}")
+            meta.append(f"deleted {_format_date(entry.deleted_at)}")
         layout.addWidget(ui.label(" · ".join(meta), "Faint", wrap=True))
         layout.addStretch(1)
 
@@ -253,7 +253,7 @@ class DetailPanel(QFrame):
                 box.set_revealed(False)
 
     def secret_buttons(self, index: int = 0):
-        """(bouton Afficher, bouton Copier) du n-ième champ secret (tests, accessibilité)."""
+        """(Show button, Copy button) of the n-th secret field (tests, accessibility)."""
         box = self._secret_boxes[index]
         widgets = [box.actions.itemAt(i).widget() for i in range(box.actions.count())]
         buttons = [w for w in widgets if isinstance(w, QToolButton)]
@@ -265,10 +265,10 @@ class DetailPanel(QFrame):
         host = QWidget()
         flow = FlowLayout(host)
         for tag in tags:
-            if self._mode == self.MODE_NORMAL:  # clic : recherche de ce tag
-                widget = tag_chip(tag, f"Rechercher {tag_search_query(tag)}")
+            if self._mode == self.MODE_NORMAL:  # click: search for this tag
+                widget = tag_chip(tag, f"Search {tag_search_query(tag)}")
                 widget.clicked.connect(lambda _checked=False, t=tag: self.tag_clicked.emit(t))
-            else:  # corbeille, historique : simple étiquette
+            else:  # Trash, history: plain label
                 widget = ui.label(tag, "Badge")
             flow.addWidget(widget)
             self._tag_widgets.append(widget)
@@ -281,20 +281,20 @@ class DetailPanel(QFrame):
         self.content_layout.addWidget(ui.label(title, "FieldLabel"))
         box = _FieldBox(value, secret)
         if secret:
-            # Champ secret : boutons libellés « Afficher » / « Copier », bien visibles.
-            eye = ui.icon_button("eye", f"Afficher {title.lower()}", size=16)
-            eye.setText("Afficher")
+            # Secret field: clearly visible "Show" / "Copy" labeled buttons.
+            eye = ui.icon_button("eye", f"Show {title.lower()}", size=16)
+            eye.setText("Show")
             eye.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
             def toggle(_checked=False, b=box, e=eye) -> None:
                 b.set_revealed(not b.revealed)
                 e.setIcon(ui.lucide.icon("eye-off" if b.revealed else "eye", theme.TEXT_2, 16))
-                e.setText("Masquer" if b.revealed else "Afficher")
+                e.setText("Hide" if b.revealed else "Show")
 
             eye.clicked.connect(toggle)
             box.add(eye)
             self._secret_boxes.append(box)
-        copy = ui.CopyButton(f"Copier {copy_label.lower() or title.lower()}", labeled=secret)
+        copy = ui.CopyButton(f"Copy {copy_label.lower() or title.lower()}", labeled=secret)
 
         def do_copy(_checked=False, b=box, c=copy) -> None:
             self.copy_requested.emit(b.real_value, copy_label or title, sensitive)
@@ -308,7 +308,7 @@ class DetailPanel(QFrame):
     def _strength(self, password: str) -> None:
         result = estimate_strength(password)
         row = QHBoxLayout()
-        row.addWidget(ui.label("Robustesse", "FieldLabel"))
+        row.addWidget(ui.label("Strength", "FieldLabel"))
         row.addStretch(1)
         row.addWidget(ui.label(f"{result.label} · ~{result.entropy_bits:.0f} bits", "Faint"))
         self.content_layout.addLayout(row)
@@ -318,26 +318,25 @@ class DetailPanel(QFrame):
 
     def _build_footer(self, entry: Entry, history_count: int) -> None:
         if self._mode == self.MODE_NORMAL:
-            versions = f"{history_count} version{'s' if history_count > 1 else ''} précédente" \
-                       f"{'s' if history_count > 1 else ''}"
-            history = ui.icon_button("history", f"Historique — {versions}" if history_count
-                                     else "Historique — aucune version précédente",
+            versions = f"{history_count} previous version{'s' if history_count > 1 else ''}"
+            history = ui.icon_button("history", f"History — {versions}" if history_count
+                                     else "History — no previous version",
                                      on_click=lambda: self.history_requested.emit(entry.id))
             if history_count:
                 history.setText(str(history_count))
                 history.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             history.setEnabled(history_count > 0)
             self.footer.addWidget(history)
-            self.footer.addWidget(ui.icon_button("copy-plus", "Dupliquer", "Ctrl+D",
+            self.footer.addWidget(ui.icon_button("copy-plus", "Duplicate", "Ctrl+D",
                                                  lambda: self.duplicate_requested.emit(entry.id)))
             self.footer.addStretch(1)
-            self.footer.addWidget(ui.button("Supprimer", "trash-2", "Danger", tooltip="Suppr",
+            self.footer.addWidget(ui.button("Delete", "trash-2", "Danger", tooltip="Del",
                                             on_click=lambda: self.delete_requested.emit(entry.id)))
         elif self._mode == self.MODE_TRASH:
-            self.footer.addWidget(ui.button("Restaurer", "archive-restore", "Primary",
+            self.footer.addWidget(ui.button("Restore", "archive-restore", "Primary",
                                             on_click=lambda: self.restore_requested.emit(entry.id)))
             self.footer.addStretch(1)
-            self.footer.addWidget(ui.button("Supprimer définitivement", "trash-2", "Danger",
+            self.footer.addWidget(ui.button("Delete permanently", "trash-2", "Danger",
                                             on_click=lambda: self.purge_requested.emit(entry.id)))
 
     @staticmethod

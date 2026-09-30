@@ -19,7 +19,7 @@ from app.database.repositories import VaultMetaRepository
 
 
 class VaultTestCase(unittest.TestCase):
-    """Isole chaque test dans un répertoire XDG temporaire dédié."""
+    """Isolates each test in its own temporary XDG directory."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -98,14 +98,14 @@ class TestVaultCorruptionDetection(VaultTestCase):
     def setUp(self):
         super().setUp()
         v = Vault.create(self.vault_id, "Personnel", "mot-de-passe-maitre-solide")
-        self.db_path = v._db_path  # accès direct pour altérer volontairement le fichier
+        self.db_path = v._db_path  # direct access to deliberately tamper with the file
         v.close()
 
     def test_detects_corrupted_wrapped_key(self):
         conn = database.connect(self.db_path)
         repo = VaultMetaRepository(conn)
         meta = repo.get()
-        # On tronque le blob de clé enveloppée pour simuler une corruption structurelle.
+        # Truncate the wrapped key blob to simulate structural corruption.
         corrupted = meta.wrapped_key_blob[:3]
         conn.execute(
             "UPDATE vault_meta SET wrapped_key_blob = ? WHERE id = 1;", (corrupted,)
@@ -133,8 +133,8 @@ class TestVaultCorruptionDetection(VaultTestCase):
             Vault.unlock(self.vault_id, "mot-de-passe-maitre-solide")
 
     def test_garbage_database_file_does_not_leak_connection(self):
-        # sqlite3.connect() est paresseux : l'erreur n'apparaît qu'au premier
-        # PRAGMA. La connexion doit être fermée, pas laissée au ramasse-miettes.
+        # sqlite3.connect() is lazy: the error only appears at the first
+        # PRAGMA. The connection must be closed, not left to the garbage collector.
         with open(self.db_path, "wb") as f:
             f.write(b"ceci n'est pas un fichier sqlite valide")
 
@@ -153,11 +153,11 @@ class TestChangeMasterPassword(VaultTestCase):
         vault.change_master_password("ancien-mot-de-passe-1", "nouveau-mot-de-passe-2")
         vault.close()
 
-        # L'ancien mot de passe ne doit plus fonctionner.
+        # The old password must no longer work.
         with self.assertRaises(WrongMasterPasswordError):
             Vault.unlock(self.vault_id, "ancien-mot-de-passe-1")
 
-        # Le nouveau doit fonctionner.
+        # The new one must work.
         vault2 = Vault.unlock(self.vault_id, "nouveau-mot-de-passe-2")
         self.assertFalse(vault2.is_locked)
         vault2.close()

@@ -1,15 +1,14 @@
-"""Presse-papiers sécurisé.
+"""Secure clipboard.
 
-* Les valeurs sensibles sont effacées du presse-papiers après
-  `CLEAR_AFTER_SECONDS`, au verrouillage et à la fermeture de l'application.
-* On n'efface que si le presse-papiers contient *encore* notre valeur (on ne
-  détruit pas ce que l'utilisateur a copié entre-temps). Pour le vérifier,
-  on ne garde pas la valeur elle-même mais une empreinte HMAC-SHA256 avec
-  une clé aléatoire propre à cette instance.
-* L'indicateur `x-kde-passwordManagerHint: secret` demande aux gestionnaires
-  d'historique du presse-papiers (Klipper, GPaste, extensions GNOME…) de ne
-  pas mémoriser la valeur. Tous ne le respectent pas : c'est une limite
-  connue, documentée dans le README.
+* Sensitive values are cleared from the clipboard after `CLEAR_AFTER_SECONDS`,
+  when locking and when the application closes.
+* The clipboard is cleared only if it *still* contains our value (whatever the
+  user copied in the meantime is not destroyed). To check this, the value
+  itself is not kept, only an HMAC-SHA256 fingerprint with a random key
+  specific to this instance.
+* The `x-kde-passwordManagerHint: secret` hint asks clipboard history managers
+  (Klipper, GPaste, GNOME extensions…) not to remember the value. Not all of
+  them honor it: this is a known limitation, documented in the README.
 """
 
 from __future__ import annotations
@@ -24,12 +23,12 @@ from PySide6.QtGui import QClipboard, QGuiApplication
 from app.utils.logging import get_logger
 
 CLEAR_AFTER_SECONDS = 30
-PASSWORD_MANAGER_HINT = "x-kde-passwordManagerHint"  # noqa: S105 - nom de type MIME
+PASSWORD_MANAGER_HINT = "x-kde-passwordManagerHint"  # noqa: S105 - MIME type name
 
 
 class SecureClipboard(QObject):
-    copied = Signal(str)   # message à afficher
-    copied_item = Signal(str, bool, int)  # libellé, sensible, secondes avant effacement
+    copied = Signal(str)   # message to display
+    copied_item = Signal(str, bool, int)  # label, sensitive, seconds before clearing
     cleared = Signal()
 
     def __init__(self, clear_after_seconds: int = CLEAR_AFTER_SECONDS, parent=None) -> None:
@@ -56,15 +55,15 @@ class SecureClipboard(QObject):
             self._digest = self._fingerprint(text)
             self._timer.start(self.clear_after_seconds * 1000)
             self.copied.emit(
-                f"{label} copié — effacé du presse-papiers dans {self.clear_after_seconds} s."
+                f"{label} copied — cleared from the clipboard in {self.clear_after_seconds} s."
             )
             self.copied_item.emit(label, True, self.clear_after_seconds)
         else:
-            self.copied.emit(f"{label} copié.")
+            self.copied.emit(f"{label} copied.")
             self.copied_item.emit(label, False, 0)
 
     def clear_if_ours(self) -> None:
-        """Efface le presse-papiers (et la sélection X11) s'il contient notre secret."""
+        """Clears the clipboard (and the X11 selection) if it contains our secret."""
         self._timer.stop()
         if self._digest is None:
             return

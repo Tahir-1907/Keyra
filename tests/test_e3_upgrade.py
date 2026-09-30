@@ -1,7 +1,7 @@
-"""E3 : mise à niveau des coffres v1/v2/v3 (préflight, migration, vérification, UI).
+"""E3: upgrade of v1/v2/v3 vaults (preflight, migration, verification, UI).
 
-Uniquement des COPIES des coffres de référence (tests/fixtures) dans des
-répertoires XDG temporaires : aucun vrai coffre n'est jamais ouvert.
+Only COPIES of the reference vaults (tests/fixtures) in temporary XDG
+directories: no real vault is ever opened.
 """
 
 import hashlib
@@ -43,8 +43,8 @@ from tests.test_ui import UiTestCase
 V3, V2 = "v3-app-1.6.0", "v2-app-1.0.0"
 ROOT = Path(__file__).resolve().parent.parent
 NEW_MASTER = "nouveau-mot-de-passe-de-test-E3"
-# Tables dont le contenu ne dépend pas du mot de passe (la récupération ne réécrit que
-# vault_meta et vault_recovery).
+# Tables whose content does not depend on the password (recovery only rewrites
+# vault_meta and vault_recovery).
 DATA_TABLES = ("categories", "entries", "entry_history", "entry_tags")
 
 
@@ -73,7 +73,7 @@ class UpgradeTestCase(FixtureVaultTestCase):
     def setUp(self):
         super().setUp()
         root = Path(self._tmp.name)
-        self.assertTrue(str(vault_path("x")).startswith(str(root)))  # jamais un vrai coffre
+        self.assertTrue(str(vault_path("x")).startswith(str(root)))  # never a real vault
         self.backup_dir = root / "sauvegardes"
 
     def db(self, manifest) -> Path:
@@ -104,7 +104,7 @@ class UpgradeTestCase(FixtureVaultTestCase):
         return sorted(self.backup_dir.glob("*.mcfbak")) if self.backup_dir.exists() else []
 
 
-# --- Réussites ---------------------------------------------------------------------------
+# --- Successes ---------------------------------------------------------------------------
 
 
 class TestSuccessfulUpgrade(UpgradeTestCase):
@@ -154,7 +154,7 @@ class TestSuccessfulUpgrade(UpgradeTestCase):
         self.assertEqual(copy.read_bytes(), b"ancienne copie en clair (fictive)")
 
 
-# --- Refus et échecs : coffre intact ---------------------------------------------------------
+# --- Refusals and failures: vault intact ---------------------------------------------------------
 
 
 class TestRefusals(UpgradeTestCase):
@@ -188,9 +188,9 @@ class TestRefusals(UpgradeTestCase):
         dump = logical_dump(self.db(manifest))
         with self.assertRaises(MigrationError) as ctx:
             self.upgrade(manifest)
-        self.assertIn("historique", str(ctx.exception))
+        self.assertIn("history", str(ctx.exception))
         self.assert_untouched(manifest, None, dump)
-        (path,) = self.backups()  # sauvegarde faite avant la tentative, conservée
+        (path,) = self.backups()  # backup made before the attempt, kept
         vault = Vault.open_for_migration(manifest["vault_id"], manifest["master_password"])
         try:
             backup.verify_backup(path, vault._require_unlocked_key())
@@ -199,23 +199,23 @@ class TestRefusals(UpgradeTestCase):
 
     def test_unexpected_structures_are_refused_never_dropped(self):
         cases = {
-            "table inconnue": ("CREATE TABLE intrus (secret TEXT)", "intrus"),
-            "vue inconnue": ("CREATE VIEW vue_intruse AS SELECT service_name FROM entries",
+            "unknown table": ("CREATE TABLE intrus (secret TEXT)", "intrus"),
+            "unknown view": ("CREATE VIEW vue_intruse AS SELECT service_name FROM entries",
                              "vue_intruse"),
-            "déclencheur inconnu": (
+            "unknown trigger": (
                 "CREATE TRIGGER trg_intrus AFTER UPDATE ON entries BEGIN SELECT 1; END",
                 "trg_intrus"),
-            "index inattendu": ("CREATE INDEX idx_intrus ON entries(url)", "idx_intrus"),
-            "colonne inattendue (table reconstruite)": (
+            "unexpected index": ("CREATE INDEX idx_intrus ON entries(url)", "idx_intrus"),
+            "unexpected column (rebuilt table)": (
                 "ALTER TABLE entries ADD COLUMN commentaire TEXT", "entries.commentaire"),
-            "colonne inattendue (table conservée)": (
+            "unexpected column (kept table)": (
                 "ALTER TABLE vault_recovery ADD COLUMN indice TEXT", "vault_recovery.indice"),
-            "table SQLite interne inattendue": ("ANALYZE", "sqlite_stat1"),
-            "index légitime absent": ("DROP INDEX idx_entries_category",
-                                      "idx_entries_category"),
+            "unexpected internal SQLite table": ("ANALYZE", "sqlite_stat1"),
+            "legitimate index missing": ("DROP INDEX idx_entries_category",
+                                         "idx_entries_category"),
         }
         for label, (sql, marker) in cases.items():
-            with self.subTest(cas=label):
+            with self.subTest(case=label):
                 manifest = self.prepared(V3, lambda c, sql=sql: c.execute(sql))
                 sha, dump = file_sha(self.db(manifest)), logical_dump(self.db(manifest))
                 check = vault_upgrade.inspect(manifest["vault_id"])
@@ -225,8 +225,8 @@ class TestRefusals(UpgradeTestCase):
                     self.upgrade(manifest)
                 self.assertIn(marker, str(ctx.exception))
                 self.assert_untouched(manifest, sha, dump)
-                self.assertEqual(self.backups(), [])  # refusé avant la sauvegarde
-                if "absent" not in label:  # la structure inconnue est toujours là
+                self.assertEqual(self.backups(), [])  # refused before the backup
+                if "missing" not in label:  # the unknown structure is still there
                     conn = sqlite3.connect(self.db(manifest))
                     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
                     columns = {f"{t}.{r[1]}" for t in ("entries", "vault_recovery")
@@ -240,16 +240,16 @@ class TestRefusals(UpgradeTestCase):
 
         def fault(step):
             if step == "entry":
-                raise RuntimeError("panne simulée")
+                raise RuntimeError("simulated failure")
 
         with self.assertRaises(MigrationError):
             self.upgrade(manifest, _fault=fault)
         self.assert_untouched(manifest, None, dump)
-        with self.assertRaises(VaultMigrationRequiredError):  # toujours un coffre v3
+        with self.assertRaises(VaultMigrationRequiredError):  # still a v3 vault
             Vault.unlock(manifest["vault_id"], manifest["master_password"])
         self.upgrade(manifest)
         self.assert_matches_manifest(manifest)
-        self.assertEqual(len(self.backups()), 2)  # une sauvegarde par tentative, conservées
+        self.assertEqual(len(self.backups()), 2)  # one backup per attempt, all kept
 
     def test_backup_impossible_leaves_the_vault_unchanged(self):
         manifest = self.install(V3)
@@ -258,12 +258,12 @@ class TestRefusals(UpgradeTestCase):
         self.backup_dir.write_text("un fichier, pas un dossier")
         with self.assertRaises(MigrationError) as ctx:
             self.upgrade(manifest)
-        self.assertIn("Sauvegarde préalable impossible", str(ctx.exception))
+        self.assertIn("Preliminary backup impossible", str(ctx.exception))
         self.assert_untouched(manifest, sha, dump)
 
     def test_verification_failure_state(self):
-        """Migration validée mais vérification en échec : coffre v4 NON ouvert, sauvegarde
-        de migration intacte et restaurable (format d'origine)."""
+        """Migration committed but verification failed: v4 vault NOT opened, migration
+        backup intact and restorable (original format)."""
         manifest = self.install(V3)
         with unittest.mock.patch.object(vault_upgrade, "verify_upgraded",
                                         side_effect=RuntimeError("écart simulé")), \
@@ -273,14 +273,14 @@ class TestRefusals(UpgradeTestCase):
         (path,) = self.backups()
         self.assertEqual(ctx.exception.backup_path, path)
         self.assertIn(path.name, str(ctx.exception))
-        with self.assertRaises(VaultError):  # déjà v4 : pas de seconde migration
+        with self.assertRaises(VaultError):  # already v4: no second migration
             self.upgrade(manifest)
         info = backup.restore_backup(path, manifest["master_password"])
         self.assertEqual(schema_of(vault_path(info.vault_id) / "vault.db"), 3)
 
 
 class TestSigkill(UpgradeTestCase):
-    """Arrêt brutal du processus PENDANT la transaction : coffre d'origine, retentable."""
+    """Abrupt process stop DURING the transaction: original vault, can be retried."""
 
     def run_and_kill(self, manifest, step):
         marker = Path(self._tmp.name) / f"etape-{step}"
@@ -301,7 +301,7 @@ class TestSigkill(UpgradeTestCase):
                 if marker.exists() or proc.poll() is not None:
                     break
                 time.sleep(0.05)
-            self.assertTrue(marker.exists(), "étape non atteinte")
+            self.assertTrue(marker.exists(), "step not reached")
         finally:
             proc.send_signal(signal.SIGKILL)
             proc.wait()
@@ -319,13 +319,13 @@ class TestSigkill(UpgradeTestCase):
                 self.assertFalse(database.has_v4_structures(conn))
                 conn.close()
                 self.assertEqual(vault_upgrade.inspect(manifest["vault_id"]).problems, ())
-                self.upgrade(manifest)  # nouvel essai complet
+                self.upgrade(manifest)  # full new attempt
                 self.assert_matches_manifest(manifest)
                 self.vault.close()
                 self.vault = None
 
 
-# --- Récupération par clé ----------------------------------------------------------------------
+# --- Recovery with a key ----------------------------------------------------------------------
 
 
 class TestRecoveryUpgrade(UpgradeTestCase):
@@ -349,7 +349,7 @@ class TestRecoveryUpgrade(UpgradeTestCase):
         with self.assertRaises(RecoveryKeyError):
             Vault.recover(vault_id, manifest["recovery_key"], "autre-mot-de-passe-de-test")
         Vault.unlock(vault_id, NEW_MASTER).close()
-        # La sauvegarde de migration (v3) s'ouvre avec le NOUVEAU mot de passe.
+        # The migration backup (v3) opens with the NEW password.
         with self.assertRaises(WrongMasterPasswordError):
             backup.restore_backup(result.report.backup_path, manifest["master_password"])
         info = backup.restore_backup(result.report.backup_path, NEW_MASTER)
@@ -362,15 +362,15 @@ class TestRecoveryUpgrade(UpgradeTestCase):
 
         def fault(step):
             if step == "history":
-                raise RuntimeError("panne simulée après récupération")
+                raise RuntimeError("simulated failure after recovery")
 
         with self.assertRaises(RecoveredNotUpgradedError) as ctx:
             self.recover(manifest, _fault=fault)
         new_key = ctx.exception.new_recovery_key
         self.assertTrue(new_key)
         self.assertNotEqual(new_key, manifest["recovery_key"])
-        self.assertIn("nouveau mot de passe", str(ctx.exception).lower())
-        # État exact : format d'origine, données identiques, NOUVELLES enveloppes.
+        self.assertIn("new master password", str(ctx.exception).lower())
+        # Exact state: original format, identical data, NEW envelopes.
         path = self.db(manifest)
         self.assertEqual(schema_of(path), 3)
         self.assertEqual(data_dump(path), data)
@@ -384,12 +384,12 @@ class TestRecoveryUpgrade(UpgradeTestCase):
         with self.assertRaises(RecoveryKeyError):
             Vault.recover(vault_id, manifest["recovery_key"], "x-mot-de-passe-de-test",
                           allow_legacy=True)
-        (kept,) = self.backups()  # sauvegarde faite avant la migration, avec le NOUVEAU mdp
+        (kept,) = self.backups()  # backup made before the migration, with the NEW password
         info = backup.restore_backup(kept, NEW_MASTER)
         self.assertEqual(schema_of(vault_path(info.vault_id) / "vault.db"), 3)
-        with self.assertRaises(VaultMigrationRequiredError):  # proposé au déverrouillage
+        with self.assertRaises(VaultMigrationRequiredError):  # offered on unlock
             Vault.unlock(vault_id, NEW_MASTER)
-        # Nouvel essai propre : nouveau mot de passe, puis migration normale.
+        # Clean retry: new password, then a normal migration.
         self.upgrade(manifest, password=NEW_MASTER)
         self.assert_matches_manifest(manifest)
         self.vault.close()
@@ -400,9 +400,9 @@ class TestRecoveryUpgrade(UpgradeTestCase):
         sha, dump = file_sha(self.db(manifest)), logical_dump(self.db(manifest))
         with self.assertRaises(UpgradeRefusedError):
             self.recover(manifest)
-        self.assert_untouched(manifest, sha, dump)  # enveloppes NON réécrites
+        self.assert_untouched(manifest, sha, dump)  # envelopes NOT rewritten
         vault, _ = Vault.recover(manifest["vault_id"], manifest["recovery_key"],
-                                 NEW_MASTER, allow_legacy=True)  # l'ancienne clé marche
+                                 NEW_MASTER, allow_legacy=True)  # the old key works
         vault.close()
 
     def test_recover_without_flag_still_refuses_old_vaults(self):
@@ -440,13 +440,13 @@ class TestOldBackups(UpgradeTestCase):
 
 
 class TestCompatibilityWith160(UpgradeTestCase):
-    """La sauvegarde faite avant migration se restaure avec le code 1.6.0 (a99f821)."""
+    """The backup made before the migration is restored by the 1.6.0 code (a99f821)."""
 
     def test_migration_backup_restored_by_1_6_0(self):
         archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "a99f821"],
                                  capture_output=True, check=False)
         if archive.returncode != 0:
-            self.skipTest("commit a99f821 indisponible")
+            self.skipTest("commit a99f821 unavailable")
         old_code = Path(self._tmp.name) / "code-1.6.0"
         with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
             tar.extractall(old_code, filter="data")
@@ -529,8 +529,8 @@ class UpgradeUiTestCase(UiTestCase):
         screen._submit()
 
     def later(self, fn, errors=None):
-        """Interagit avec la prochaine fenêtre modale (exec). Toute erreur est notée et
-        ferme les fenêtres ouvertes : un échec ne bloque jamais un exec()."""
+        """Interacts with the next modal window (exec). Any error is recorded and closes
+        the open windows: a failure never blocks an exec()."""
         from PySide6.QtCore import QTimer
 
         errors = [] if errors is None else errors
@@ -538,7 +538,7 @@ class UpgradeUiTestCase(UiTestCase):
         def run():
             try:
                 fn()
-            except Exception as exc:  # noqa: BLE001 - remonté après exec()
+            except Exception as exc:  # noqa: BLE001 - raised again after exec()
                 errors.append(exc)
                 for dialog in self.open_dialogs():
                     dialog._busy = False
@@ -579,7 +579,7 @@ class TestUpgradeUi(UpgradeUiTestCase):
         errors = self.later(confirm)
         self.unlock_with(manifest["master_password"])
         self.assertEqual(errors, [])
-        self.assertIn("1.6 ne pourra plus ouvrir", seen["text"])
+        self.assertIn("1.6 will no longer be able to open", seen["text"])
         shell = self.window._shell
         self.assertIsNotNone(shell)
         self.assertEqual(schema_of(self.path), 4)
@@ -598,7 +598,7 @@ class TestUpgradeUi(UpgradeUiTestCase):
         self.assertIsNone(self.window._shell)
         self.assertEqual(file_sha(self.path), sha)
         self.assertEqual(self.backups(), [])
-        self.assertIn("pas été modifié", self.window._unlock_screen.error.text())
+        self.assertIn("has not been modified", self.window._unlock_screen.error.text())
 
     def test_wrong_password_shows_no_upgrade(self):
         manifest = self.install()
@@ -608,7 +608,7 @@ class TestUpgradeUi(UpgradeUiTestCase):
         upgrade.assert_not_called()
         dialog.assert_not_called()
         self.assertEqual(schema_of(self.path), manifest["schema_version"])
-        self.assertIn("incorrect", self.window._unlock_screen.error.text())
+        self.assertIn("Wrong", self.window._unlock_screen.error.text())
 
     def test_failure_is_shown_then_retry_succeeds(self):
         manifest = self.install()
@@ -620,19 +620,19 @@ class TestUpgradeUi(UpgradeUiTestCase):
             if len(calls) == 1:
                 def fault(step):
                     if step == "entry":
-                        raise RuntimeError("panne simulée")
+                        raise RuntimeError("simulated failure")
                 return real(*args, _fault=fault, **kwargs)
             return real(*args, **kwargs)
 
         def interact():
             dialog = self.migration_dialog()
-            dialog.start()  # échoue (retour arrière)
+            dialog.start()  # fails (rollback)
             self.assertTrue(dialog.isVisible())
             self.assertTrue(dialog.error.isVisibleTo(dialog))
-            self.assertIn("pas été modifié", dialog.error.text())
-            self.assertEqual(dialog.ok.text(), "Réessayer")
+            self.assertIn("has not been modified", dialog.error.text())
+            self.assertEqual(dialog.ok.text(), "Retry")
             self.assertEqual(schema_of(self.path), 3)
-            dialog.start()  # nouvel essai
+            dialog.start()  # new attempt
 
         with unittest.mock.patch.object(vault_upgrade, "upgrade", side_effect=flaky):
             errors = self.later(interact)
@@ -647,13 +647,13 @@ class TestUpgradeUi(UpgradeUiTestCase):
 
         def interact():
             dialog = self.migration_dialog()
-            dialog._set_busy(True)  # état « mise à niveau en cours »
+            dialog._set_busy(True)  # "upgrade in progress" state
             dialog.reject()
             dialog.close_now()
             self.window.close()
             self.assertTrue(dialog.isVisible())
-            self.assertTrue(self.window.isVisible())  # fermeture refusée
-            self.window.lock()  # aucun effet : pas de session
+            self.assertTrue(self.window.isVisible())  # closing refused
+            self.window.lock()  # no effect: no session
             dialog._set_busy(False)
             dialog.reject()
 
@@ -698,7 +698,7 @@ class TestUpgradeUi(UpgradeUiTestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len(proposed), 1)
         self.assertEqual(self.window._shell.ctx.vault.vault_id, info.vault_id)
-        self.assertEqual(schema_of(self.path), 3)  # l'original n'a pas été touché
+        self.assertEqual(schema_of(self.path), 3)  # the original was not touched
 
 
 class TestRecoveryUpgradeUi(UpgradeUiTestCase):
@@ -718,7 +718,7 @@ class TestRecoveryUpgradeUi(UpgradeUiTestCase):
         errors = []
 
         def confirm():
-            self.migration_dialog().start()  # confirmation seule
+            self.migration_dialog().start()  # confirmation only
             self.later(lambda: self.fill_recovery(manifest["recovery_key"], new_master),
                        errors)
 
@@ -760,7 +760,7 @@ class TestRecoveryUpgradeUi(UpgradeUiTestCase):
             QTimer.singleShot(0, lambda: self.later(acknowledge_key, errors))
 
         with unittest.mock.patch.object(vault_upgrade, "migrate_to_v4",
-                                        side_effect=MigrationError("panne simulée")), \
+                                        side_effect=MigrationError("simulated failure")), \
                 unittest.mock.patch("app.ui.dialogs.alert") as alert:
             self.later(confirm, errors)
             self.window._unlock_screen.forgot.click()
@@ -769,10 +769,10 @@ class TestRecoveryUpgradeUi(UpgradeUiTestCase):
         self.assertIsNone(self.window._shell)
         self.assertTrue(shown.get("key"))
         self.assertNotEqual(shown["key"], manifest["recovery_key"])
-        self.assertIn("nouveau mot de passe", alert.call_args.args[2].lower())
-        self.assertIn("nouveau mot de passe", self.window._unlock_screen.error.text())
+        self.assertIn("new master password", alert.call_args.args[2].lower())
+        self.assertIn("new master password", self.window._unlock_screen.error.text())
         self.assertEqual(schema_of(self.path), 3)
-        # Nouvel essai : déverrouillage avec le nouveau mot de passe -> mise à niveau.
+        # Retry: unlock with the new password -> upgrade.
         errors = self.later(lambda: self.migration_dialog().start())
         self.unlock_with(new_master)
         self.assertEqual(errors, [])

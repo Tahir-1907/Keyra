@@ -1,20 +1,19 @@
-"""Export PDF « à imprimer » : tous les comptes du coffre, mots de passe EN CLAIR.
+"""Printable PDF export: every entry of the vault, passwords IN PLAINTEXT.
 
-Même régime que l'export CSV non chiffré (voir import_export) :
-* le mot de passe maître est redemandé (une session ouverte ne suffit pas) ;
-* le PDF est construit entièrement en mémoire (QPdfWriter sur un QBuffer :
-  aucun fichier temporaire en clair), puis écrit d'un bloc en 0600 ;
-* la corbeille et l'historique ne sont jamais inclus.
+Same rules as the unencrypted CSV export (see import_export):
+* the master password is asked again (an open session is not enough);
+* the PDF is built entirely in memory (QPdfWriter on a QBuffer: no plaintext
+  temporary file), then written in one go as 0600;
+* the Trash and the history are never included.
 
-Protection par mot de passe (facultative, recommandée) : chiffrement PDF
-AES-256 (révision 6, PDF 2.0) par pikepdf / qpdf (paquet Debian
-python3-pikepdf), en mémoire. Le mot de passe du PDF doit différer du mot de
-passe maître : un PDF chiffré se teste bien plus vite qu'un coffre protégé
-par Argon2id. Sans protection, le fichier est en clair : à imprimer puis
-supprimer.
+Password protection (optional, recommended): AES-256 PDF encryption
+(revision 6, PDF 2.0) through pikepdf / qpdf (Debian package python3-pikepdf),
+in memory. The PDF password must differ from the master password: an
+encrypted PDF can be brute-forced much faster than an Argon2id-protected
+vault. Without protection, the file is in plaintext: print it, then delete it.
 
-Rendu : QTextDocument (HTML simple, valeurs échappées) paginé par Qt, avec
-numéros de page. Aucune dépendance en plus de QtGui.
+Rendering: QTextDocument (simple HTML, escaped values) paginated by Qt, with
+page numbers. No dependency beyond QtGui.
 """
 
 from __future__ import annotations
@@ -37,44 +36,44 @@ from app.services.import_export import EXPORT_TEMP_PREFIX, _require_master_passw
 from app.utils.files import write_private_atomic
 from app.utils.logging import get_logger
 
-try:  # dépendance du paquet Debian ; absente => protection indisponible, signalée
+try:  # Debian package dependency; missing => protection unavailable, reported
     import pikepdf
-except ImportError:  # pragma: no cover - dépend de l'installation
+except ImportError:  # pragma: no cover - depends on the installation
     pikepdf = None
 
 PDF_SUFFIX = ".pdf"
-MISSING_DEPENDENCY = ("La protection par mot de passe nécessite le paquet Debian "
+MISSING_DEPENDENCY = ("Password protection requires the Debian package "
                       "python3-pikepdf (sudo apt install python3-pikepdf).")
 
 
 class PdfProtectionUnavailable(VaultError):
-    """pikepdf (python3-pikepdf) n'est pas installé."""
+    """pikepdf (python3-pikepdf) is not installed."""
 
 
 def protection_available() -> bool:
     return pikepdf is not None
 
 
-# Norme PDF (révision 6) : au-delà, le mot de passe est tronqué et le fichier
-# pourrait ne plus s'ouvrir avec le mot de passe tapé.
+# PDF standard (revision 6): beyond this, the password is truncated and the file
+# might no longer open with the password typed.
 MAX_PDF_PASSWORD_BYTES = 127
 
 
 def check_pdf_password_length(password: str) -> None:
     if len(password) < MIN_MASTER_PASSWORD_LENGTH:
         raise InvalidMasterPasswordPolicyError(
-            f"Le mot de passe du PDF doit contenir au moins {MIN_MASTER_PASSWORD_LENGTH} "
-            "caractères.")
+            f"The PDF password must contain at least {MIN_MASTER_PASSWORD_LENGTH} "
+            "characters.")
     if len(password.encode("utf-8")) > MAX_PDF_PASSWORD_BYTES:
         raise InvalidMasterPasswordPolicyError(
-            "Mot de passe trop long pour un PDF (127 octets au maximum).")
+            "Password too long for a PDF (127 bytes maximum).")
 
 
 def protect(pdf: bytes, password: str) -> bytes:
-    """Chiffre le PDF en AES-256 (R6) ; le mot de passe est exigé à l'ouverture.
+    """Encrypts the PDF with AES-256 (R6); the password is required to open it.
 
-    Le résultat est rouvert avec le mot de passe avant d'être rendu : un PDF
-    qui ne s'ouvrirait pas n'est jamais écrit.
+    The result is reopened with the password before being returned: a PDF that
+    would not open is never written.
     """
     if pikepdf is None:
         raise PdfProtectionUnavailable(MISSING_DEPENDENCY)
@@ -87,11 +86,11 @@ def protect(pdf: bytes, password: str) -> bytes:
     try:
         with pikepdf.open(io.BytesIO(data), password=password) as check:
             if not check.is_encrypted or len(check.pages) == 0:
-                raise VaultError("Le PDF chiffré est invalide.")
+                raise VaultError("The encrypted PDF is invalid.")
     except pikepdf.PdfError as exc:
-        raise VaultError("Le PDF chiffré n'a pas pu être vérifié ; rien n'a été écrit.") from exc
+        raise VaultError("The encrypted PDF could not be verified; nothing was written.") from exc
     return data
-_NO_CATEGORY = "Sans catégorie"
+_NO_CATEGORY = "Uncategorized"
 
 _CSS = """
 body { font-family: 'Inter', 'DejaVu Sans', 'Liberation Sans', sans-serif; font-size: 10pt;
@@ -115,15 +114,15 @@ def _cell(value: str, secret: bool = False) -> str:
 
 
 def _rows(entry: Entry) -> list[tuple[str, str, bool]]:
-    """(libellé, valeur, secret) des champs non vides, dans l'ordre de l'interface."""
+    """(label, value, secret) of the non-empty fields, in interface order."""
     spec = ENTRY_TYPES.get(entry.entry_type) or ENTRY_TYPES[DEFAULT_ENTRY_TYPE]
     rows: list[tuple[str, str, bool]] = []
     if spec.uses_url:
-        rows.append(("Adresse (URL)", entry.url, False))
+        rows.append(("Address (URL)", entry.url, False))
     if spec.uses_username:
-        rows.append(("Identifiant", entry.username, True))
+        rows.append(("Username", entry.username, True))
     if spec.uses_email:
-        rows.append(("E-mail", entry.email, False))
+        rows.append(("Email", entry.email, False))
     if spec.uses_password:
         rows.append((spec.password_label, entry.password, True))
     for field in spec.extra_fields:
@@ -134,7 +133,7 @@ def _rows(entry: Entry) -> list[tuple[str, str, bool]]:
 
 def build_html(vault_name: str, entries: list[Entry], category_names: dict[int, str],
                generated_at: datetime | None = None) -> str:
-    """Document HTML (toutes les valeurs sont échappées)."""
+    """HTML document (every value is escaped)."""
     generated_at = generated_at or datetime.now().astimezone()
     groups: dict[str, list[Entry]] = {}
     for entry in entries:
@@ -142,20 +141,20 @@ def build_html(vault_name: str, entries: list[Entry], category_names: dict[int, 
         groups.setdefault(name or _NO_CATEGORY, []).append(entry)
     parts = [
         f"<html><head><style>{_CSS}</style></head><body>",
-        f"<h1>Mon Coffre-Fort — {html.escape(vault_name)}</h1>",
-        f'<p class="meta">{len(entries)} compte{"s" if len(entries) > 1 else ""} · '
-        f"document généré le {generated_at:%d/%m/%Y à %H:%M}</p>",
-        '<p class="warning"><b>Document confidentiel.</b> Il contient vos mots de passe EN '
-        "CLAIR. Conservez-le sous clé, loin de l'ordinateur ; détruisez-le (broyeur) quand il "
-        "ne sert plus, et supprimez le fichier PDF après impression.<br>Un mot de passe long "
-        "peut continuer à la ligne suivante : aucun caractère (tiret, espace) n'est ajouté à "
-        "la coupure.</p>",
+        f"<h1>Keyra — {html.escape(vault_name)}</h1>",
+        f'<p class="meta">{len(entries)} entr{"ies" if len(entries) > 1 else "y"} · '
+        f"generated on {generated_at:%Y-%m-%d at %H:%M}</p>",
+        '<p class="warning"><b>Confidential document.</b> It contains your passwords IN '
+        "PLAINTEXT. Keep it locked away, far from the computer; destroy it (shredder) when it "
+        "is no longer needed, and delete the PDF file after printing.<br>A long password "
+        "may continue on the next line: no character (hyphen, space) is added at the "
+        "break.</p>",
     ]
     ordered = sorted(groups, key=lambda g: (g == _NO_CATEGORY, g.casefold()))
     for group in ordered:
         parts.append(f"<h2>{html.escape(group)}</h2>")
-        # Un tableau par catégorie, colonnes de largeur fixe (Qt ignore la largeur CSS
-        # des cellules) ; chaque compte commence par un bandeau grisé.
+        # One table per category, fixed-width columns (Qt ignores the CSS width of
+        # cells); each entry starts with a grey band.
         parts.append('<table cellspacing="0" cellpadding="3" width="100%">')
         for entry in sorted(groups[group], key=lambda e: e.service_name.casefold()):
             spec = ENTRY_TYPES.get(entry.entry_type) or ENTRY_TYPES[DEFAULT_ENTRY_TYPE]
@@ -169,32 +168,32 @@ def build_html(vault_name: str, entries: list[Entry], category_names: dict[int, 
             parts.append('<tr><td colspan="2" height="6"></td></tr>')
         parts.append("</table>")
     if not entries:
-        parts.append("<p>Ce coffre ne contient aucun compte.</p>")
+        parts.append("<p>This vault contains no entries.</p>")
     parts.append("</body></html>")
     return "".join(parts)
 
 
 def render_pdf(document_html: str, title: str) -> bytes:
-    """PDF A4 en mémoire (nécessite une QGuiApplication, comme toute l'interface)."""
+    """A4 PDF in memory (requires a QGuiApplication, like the whole interface)."""
     data = QByteArray()
     buffer = QBuffer(data)
     buffer.open(QIODevice.WriteOnly)
     writer = QPdfWriter(buffer)
     writer.setTitle(title)
-    writer.setCreator("Mon Coffre-Fort")
-    # Marges de Qt (2 cm) ajoutées par QTextDocument.print_, avec numéros de page.
+    writer.setCreator("Keyra")
+    # Qt margins (2 cm) added by QTextDocument.print_, with page numbers.
     writer.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Portrait,
                                      QMarginsF(0, 0, 0, 0), QPageLayout.Millimeter))
     document = QTextDocument()
-    # Police propre au document, en POINTS : sinon il hérite de celle de l'interface,
-    # définie en pixels (taille en points = -1), et les titres h1/h2 — calculés à
-    # partir de la taille en points — deviennent invisibles.
+    # Document-specific font, in POINTS: otherwise it inherits the interface font,
+    # defined in pixels (point size = -1), and the h1/h2 headings — computed from
+    # the point size — become invisible.
     base = QFont(["Inter", "DejaVu Sans", "Liberation Sans"])
     base.setPointSizeF(10)
     document.setDefaultFont(base)
     document.setHtml(document_html)
     document.print_(writer)
-    del writer  # termine le PDF (écrit la fin du fichier dans le tampon)
+    del writer  # finishes the PDF (writes the end of the file into the buffer)
     buffer.close()
     document.clear()
     return bytes(data)
@@ -202,9 +201,9 @@ def render_pdf(document_html: str, title: str) -> bytes:
 
 def export_pdf(service: EntryService, vault: Vault, master_password: str,
                destination: Path, pdf_password: str | None = None) -> int:
-    """Écrit le PDF (0600) et retourne le nombre de comptes. Mot de passe maître exigé.
+    """Writes the PDF (0600) and returns the number of entries. Master password required.
 
-    `pdf_password` : PDF chiffré (AES-256) ; None : PDF en clair.
+    `pdf_password`: encrypted PDF (AES-256); None: plaintext PDF.
     """
     _require_master_password(vault, master_password)
     if pdf_password is not None:
@@ -213,10 +212,10 @@ def export_pdf(service: EntryService, vault: Vault, master_password: str,
         check_pdf_password_length(pdf_password)
         if vault.verify_master_password(pdf_password, log_failure=False):
             raise InvalidMasterPasswordPolicyError(
-                "Choisissez un mot de passe différent du mot de passe maître : un PDF "
-                "protégé résiste bien moins longtemps qu'un coffre aux tentatives.")
+                "Choose a password different from the master password: a protected PDF "
+                "withstands guessing attempts for much less time than a vault.")
     document_html, count = vault_html(service, vault)
-    data = render_pdf(document_html, f"Mon Coffre-Fort — {vault.info.vault_name}")
+    data = render_pdf(document_html, f"Keyra — {vault.info.vault_name}")
     if pdf_password is not None:
         data = protect(data, pdf_password)
     write_private_atomic(destination, data, temp_prefix=EXPORT_TEMP_PREFIX)
@@ -227,16 +226,16 @@ def export_pdf(service: EntryService, vault: Vault, master_password: str,
 
 
 def vault_html(service: EntryService, vault: Vault) -> tuple[str, int]:
-    """Document des comptes actifs (ni corbeille, ni historique) et leur nombre."""
+    """Document of the active entries (no Trash, no history) and their number."""
     entries = [service.get_entry(summary.id) for summary in service.list_entries()]
     names = {c.id: c.name for c in CategoryService(vault).list_categories()}
     return build_html(vault.info.vault_name, entries, names), len(entries)
 
 
-# --- Clé de récupération -----------------------------------------------------------------------
+# --- Recovery key -----------------------------------------------------------------------
 
-# La clé ouvre le coffre à elle seule : son PDF est TOUJOURS chiffré, avec un mot de
-# passe au moins « fort » (le chiffrement PDF se teste vite, contrairement à Argon2id).
+# The key opens the vault on its own: its PDF is ALWAYS encrypted, with a password
+# rated at least "strong" (PDF encryption is fast to test, unlike Argon2id).
 RECOVERY_PDF_MIN_SCORE = 3
 
 
@@ -249,50 +248,50 @@ def recovery_html(vault_name: str, key: str, generated_at: datetime | None = Non
         f"<html><head><style>{_CSS}"
         ".key { font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 22pt;"
         " font-weight: 600; }</style></head><body>"
-        "<h1>Clé de récupération</h1>"
-        f'<p class="meta">Mon Coffre-Fort · coffre « {html.escape(vault_name)} » · '
-        f"créée le {generated_at:%d/%m/%Y à %H:%M}</p>"
+        "<h1>Recovery key</h1>"
+        f'<p class="meta">Keyra · vault "{html.escape(vault_name)}" · '
+        f"created on {generated_at:%Y-%m-%d at %H:%M}</p>"
         '<table cellpadding="14" width="100%"><tr><td bgcolor="#EEF2F6" align="center">'
         f'<span class="key">{lines}</span></td></tr></table>'
-        "<h2>En cas d'oubli du mot de passe maître</h2>"
-        "<ol><li>Ouvrez Mon Coffre-Fort : sur l'écran de verrouillage, cliquez sur "
-        "<b>« Mot de passe oublié ? »</b>.</li>"
-        "<li>Saisissez cette clé (majuscules ou minuscules, avec ou sans tirets).</li>"
-        "<li>Choisissez un nouveau mot de passe maître. Une <b>nouvelle</b> clé vous est alors "
-        "donnée : celle-ci ne fonctionnera plus.</li></ol>"
-        '<p class="warning"><b>Cette clé ouvre votre coffre SANS le mot de passe maître.</b> '
-        "Conservez ce document hors de l'ordinateur (clé USB, copie imprimée rangée sous clé). "
-        "Seule la clé la plus récente de ce coffre fonctionne.</p>"
+        "<h2>If you forget the master password</h2>"
+        "<ol><li>Open Keyra: on the lock screen, click "
+        "<b>\"Forgot password?\"</b>.</li>"
+        "<li>Enter this key (upper or lower case, with or without dashes).</li>"
+        "<li>Choose a new master password. A <b>new</b> key is then given to you: "
+        "this one will no longer work.</li></ol>"
+        '<p class="warning"><b>This key opens your vault WITHOUT the master password.</b> '
+        "Keep this document away from the computer (USB drive, printed copy kept locked "
+        "away). Only the most recent key of this vault works.</p>"
         "</body></html>")
 
 
 def check_recovery_pdf_password(pdf_password: str, key: str, vault: Vault | None = None) -> None:
-    """Refuse un mot de passe de PDF trop faible, égal à la clé ou au mot de passe maître."""
+    """Rejects a PDF password that is too weak, equal to the key or to the master password."""
     if pikepdf is None:
         raise PdfProtectionUnavailable(MISSING_DEPENDENCY)
     check_pdf_password_length(pdf_password)
     if estimate_strength(pdf_password).score < RECOVERY_PDF_MIN_SCORE:
         raise InvalidMasterPasswordPolicyError(
-            "Ce mot de passe est trop faible pour protéger une clé de récupération : "
-            "une phrase de passe de 5 à 6 mots est recommandée.")
+            "This password is too weak to protect a recovery key: "
+            "a passphrase of 5 to 6 words is recommended.")
     try:
         same_as_key = recovery.normalize(pdf_password) == recovery.normalize(key)
     except VaultError:
         same_as_key = False
     if same_as_key:
-        raise InvalidMasterPasswordPolicyError("Le mot de passe du PDF ne peut pas être la clé.")
+        raise InvalidMasterPasswordPolicyError("The PDF password cannot be the key itself.")
     if vault is not None and not vault.is_locked and \
             vault.verify_master_password(pdf_password, log_failure=False):
         raise InvalidMasterPasswordPolicyError(
-            "Choisissez un mot de passe différent du mot de passe maître.")
+            "Choose a password different from the master password.")
 
 
 def export_recovery_pdf(key: str, vault_name: str, destination: Path, pdf_password: str,
                         vault: Vault | None = None) -> None:
-    """PDF de la clé de récupération, toujours chiffré (AES-256), écrit en 0600."""
+    """Recovery key PDF, always encrypted (AES-256), written as 0600."""
     check_recovery_pdf_password(pdf_password, key, vault)
     data = render_pdf(recovery_html(vault_name, key),
-                      f"Clé de récupération — {vault_name}")
+                      f"Recovery key — {vault_name}")
     write_private_atomic(destination, protect(data, pdf_password),
                          temp_prefix=EXPORT_TEMP_PREFIX)
     get_logger().info("Password-protected recovery key PDF written")

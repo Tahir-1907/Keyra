@@ -1,20 +1,18 @@
-"""Écriture privée et atomique de fichiers (sauvegardes, exports, PDF, paramètres).
+"""Private, atomic file writes (backups, exports, PDF, settings).
 
-Une seule implémentation pour tous les fichiers écrits par l'application :
+A single implementation for every file written by the application:
 
-1. fichier temporaire créé dans le MÊME dossier que la destination (le
-   renommage final doit rester sur le même système de fichiers) ;
-2. permissions 0600 avant d'écrire le moindre octet ;
-3. écriture, puis fsync du fichier ;
-4. os.replace : la destination est remplacée d'un seul coup — jamais un
-   fichier à moitié écrit, et un fichier existant reste intact si une étape
-   précédente échoue ;
-5. fsync du dossier (best effort), pour que le renommage survive à une
-   coupure de courant.
+1. temporary file created in the SAME folder as the destination (the final
+   rename must stay on the same file system);
+2. permissions 0600 before a single byte is written;
+3. write, then fsync the file;
+4. os.replace: the destination is replaced in one go — never a half-written
+   file, and an existing file stays intact if an earlier step fails;
+5. fsync the folder (best effort), so that the rename survives a power cut.
 
-En cas d'échec, le temporaire est supprimé. Limite : si le processus est tué
-brutalement (SIGKILL, coupure) entre les étapes 1 et 4, un fichier caché
-`<préfixe>XXXX` (0600) peut rester dans le dossier.
+On failure, the temporary file is deleted. Limitation: if the process is
+killed abruptly (SIGKILL, power cut) between steps 1 and 4, a hidden
+`<prefix>XXXX` file (0600) may remain in the folder.
 """
 
 from __future__ import annotations
@@ -27,13 +25,13 @@ from pathlib import Path
 
 def write_private_atomic(path: Path, data: bytes, temp_prefix: str = ".tmp-",
                          temp_suffix: str = "") -> None:
-    """Écrit `data` dans `path` (0600), de façon atomique. Lève OSError en cas d'échec."""
+    """Writes `data` to `path` (0600), atomically. Raises OSError on failure."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=temp_prefix, suffix=temp_suffix)
     try:
         with os.fdopen(fd, "wb") as f:
-            os.fchmod(f.fileno(), 0o600)  # mkstemp crée déjà en 0600 : garantie explicite
+            os.fchmod(f.fileno(), 0o600)  # mkstemp already creates 0600: explicit guarantee
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -46,7 +44,7 @@ def write_private_atomic(path: Path, data: bytes, temp_prefix: str = ".tmp-",
 
 
 def _fsync_directory(directory: Path) -> None:
-    """Rend le renommage durable ; sans effet si le système ne le permet pas."""
+    """Makes the rename durable; no effect if the system does not allow it."""
     try:
         fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     except OSError:

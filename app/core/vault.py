@@ -1,31 +1,30 @@
-"""Le coffre (Vault) : création, déverrouillage, verrouillage.
+"""The vault: creation, unlocking, locking.
 
-Modèle de sécurité (chiffrement en enveloppe) :
+Security model (envelope encryption):
 
-    mot de passe maître --Argon2id(salt)--> KEK (clé de chiffrement de clé)
-    KEK --AES-256-GCM--> déchiffre/chiffre la DEK (clé de données, aléatoire)
-    DEK --AES-256-GCM--> chiffre/déchiffre chaque champ sensible d'une entrée
+    master password --Argon2id(salt)--> KEK (key encryption key)
+    KEK --AES-256-GCM--> decrypts/encrypts the DEK (random data key)
+    DEK --AES-256-GCM--> encrypts/decrypts each sensitive field of an entry
 
-La DEK n'existe jamais sur disque en clair. Le mot de passe maître
-n'existe jamais sur disque, même dérivé (seul son résultat de dérivation
-sert de KEK éphémère, en mémoire, le temps de dé-envelopper la DEK).
+The DEK never exists on disk in plaintext. The master password never exists
+on disk, not even derived (only its derivation result is used as an
+ephemeral KEK, in memory, while the DEK is unwrapped).
 
-Clé de récupération (facultative) : une SECONDE enveloppe de la même DEK.
+Recovery key (optional): a SECOND envelope of the same DEK.
 
-    clé de récupération --Argon2id(salt)--> KEK de récupération
-    KEK de récupération --AES-256-GCM--> DEK   (table vault_recovery)
+    recovery key --Argon2id(salt)--> recovery KEK
+    recovery KEK --AES-256-GCM--> DEK   (vault_recovery table)
 
-Elle ouvre donc le coffre à elle seule. Elle n'est jamais stockée (affichée
-une fois, voir app.core.recovery). Après usage, elle est remplacée : la
-clé tapée a pu être vue, elle ne doit plus rien ouvrir.
+It therefore opens the vault on its own. It is never stored (shown once, see
+app.core.recovery). After use, it is replaced: the typed key may have been
+seen, so it must no longer open anything.
 
-Limite connue et assumée (documentée dans le README) : comme pour tout
-gestionnaire de mots de passe basé sur un chiffrement authentifié, un échec
-d'authentification GCM lors du dé-enveloppement de la DEK est traité comme
-un « mauvais mot de passe maître », car ce cas est cryptographiquement
-indissociable d'une corruption ciblée du blob de clé enveloppée. Les autres
-formes de corruption (structure de fichier, version de format) sont, elles,
-détectées et rapportées distinctement.
+Known and accepted limitation (documented in the README): as with any
+password manager based on authenticated encryption, a GCM authentication
+failure while unwrapping the DEK is treated as a "wrong master password",
+because this case is cryptographically indistinguishable from targeted
+corruption of the wrapped key blob. Other forms of corruption (file
+structure, format version) are detected and reported separately.
 """
 
 from __future__ import annotations
@@ -65,12 +64,12 @@ CURRENT_FORMAT_VERSION = 1
 MIN_MASTER_PASSWORD_LENGTH = 8
 MAX_VAULT_NAME_LENGTH = 60
 
-# Valeur constante utilisée uniquement pour vérifier, après dé-enveloppement,
-# que la DEK obtenue est bien exploitable. Ce n'est pas un secret.
+# Constant value used only to check, after unwrapping, that the DEK obtained
+# is actually usable. It is not a secret.
 _VERIFIER_PLAINTEXT = b"MON-COFFRE-FORT-VERIFIER-V1"
 _VERIFIER_AAD = b"mon-coffre-fort:verifier"
 _WRAPPED_KEY_AAD = b"mon-coffre-fort:wrapped-dek"
-# Donnée associée distincte : une enveloppe ne peut pas être prise pour l'autre.
+# Distinct associated data: one envelope cannot be mistaken for the other.
 _RECOVERY_KEY_AAD = b"mon-coffre-fort:recovery-wrapped-dek"
 
 _DB_FILENAME = "vault.db"
@@ -83,14 +82,14 @@ def _utc_now_iso() -> str:
 def _validate_master_password_policy(password: str) -> None:
     if len(password) < MIN_MASTER_PASSWORD_LENGTH:
         raise InvalidMasterPasswordPolicyError(
-            f"Le mot de passe maître doit contenir au moins "
-            f"{MIN_MASTER_PASSWORD_LENGTH} caractères."
+            f"The master password must contain at least "
+            f"{MIN_MASTER_PASSWORD_LENGTH} characters."
         )
 
 
 @dataclass(slots=True)
 class VaultInfo:
-    """Informations non sensibles sur un coffre, utilisables coffre verrouillé."""
+    """Non-sensitive information about a vault, usable while the vault is locked."""
 
     vault_id: str
     vault_name: str
@@ -102,55 +101,54 @@ class VaultInfo:
 def check_supported_versions(meta: VaultMeta) -> None:
     if meta.format_version > CURRENT_FORMAT_VERSION:
         raise UnsupportedVaultVersionError(
-            f"Ce coffre utilise un format plus récent "
-            f"(v{meta.format_version}) que celui supporté par l'application "
+            f"This vault uses a newer format "
+            f"(v{meta.format_version}) than the one supported by this application "
             f"(v{CURRENT_FORMAT_VERSION})."
         )
     if meta.schema_version > database.SCHEMA_VERSION:
         raise UnsupportedVaultVersionError(
-            f"Ce coffre a été créé par une version plus récente de l'application "
-            f"(schéma v{meta.schema_version}, supporté : v{database.SCHEMA_VERSION})."
+            f"This vault was created by a newer version of the application "
+            f"(schema v{meta.schema_version}, supported: v{database.SCHEMA_VERSION})."
         )
 
 
 def unwrap_data_key(master_password: str, meta: VaultMeta) -> bytes:
-    """Dérive la KEK et dé-enveloppe la DEK décrite par `meta`.
+    """Derives the KEK and unwraps the DEK described by `meta`.
 
-    Utilisé au déverrouillage, pour revérifier le mot de passe maître
-    (export, changement de mot de passe) et pour restaurer une sauvegarde
-    (dont l'en-tête contient les mêmes métadonnées).
+    Used when unlocking, to re-check the master password (export, password
+    change) and to restore a backup (whose header contains the same metadata).
     """
     kek = crypto.derive_key(master_password, meta.kdf_salt, meta.kdf_params)
 
     try:
         _version, nonce, ciphertext = crypto.unpack_blob(meta.wrapped_key_blob)
     except ValueError as exc:
-        raise VaultCorruptedError("Clé de coffre enveloppée invalide.") from exc
+        raise VaultCorruptedError("Invalid wrapped vault key.") from exc
 
     try:
         dek = crypto.aes_gcm_decrypt(kek, nonce, ciphertext, _WRAPPED_KEY_AAD)
     except crypto.AuthenticationFailed as exc:
-        raise WrongMasterPasswordError("Mot de passe maître incorrect.") from exc
+        raise WrongMasterPasswordError("Wrong master password.") from exc
     _check_verifier(dek, meta)
     return dek
 
 
 def _check_verifier(dek: bytes, meta: VaultMeta) -> None:
-    """Défense en profondeur : la DEK obtenue doit déchiffrer le vérificateur du coffre."""
+    """Defense in depth: the DEK obtained must decrypt the vault verifier."""
     try:
         _v_version, v_nonce, v_ciphertext = crypto.unpack_blob(meta.verifier_blob)
         plaintext = crypto.aes_gcm_decrypt(dek, v_nonce, v_ciphertext, _VERIFIER_AAD)
     except (ValueError, crypto.AuthenticationFailed) as exc:
         raise VaultCorruptedError(
-            "La vérification d'intégrité du coffre a échoué après déverrouillage."
+            "The vault integrity check failed after unlocking."
         ) from exc
 
     if plaintext != _VERIFIER_PLAINTEXT:
-        raise VaultCorruptedError("Vérificateur de coffre invalide.")
+        raise VaultCorruptedError("Invalid vault verifier.")
 
 
 def _wrap_for_password(dek: bytes, password: str) -> dict:
-    """Nouvelle enveloppe de la DEK pour `password` (sel et paramètres neufs)."""
+    """New envelope of the DEK for `password` (fresh salt and parameters)."""
     salt = crypto.generate_salt()
     params = crypto.Argon2Params()
     kek = crypto.derive_key(password, salt, params)
@@ -162,7 +160,7 @@ def _wrap_for_password(dek: bytes, password: str) -> dict:
 
 
 def _new_recovery(dek: bytes) -> tuple[str, RecoveryRecord]:
-    """Tire une clé de récupération et enveloppe la DEK avec : (clé affichable, ligne)."""
+    """Draws a recovery key and wraps the DEK with it: (displayable key, row)."""
     key = recovery.generate()
     salt = crypto.generate_salt()
     params = crypto.Argon2Params()
@@ -178,53 +176,53 @@ def _unwrap_with_recovery(secret: str, record: RecoveryRecord, meta: VaultMeta) 
     try:
         _version, nonce, ciphertext = crypto.unpack_blob(record.wrapped_key_blob)
     except ValueError as exc:
-        raise VaultCorruptedError("Enveloppe de récupération invalide.") from exc
+        raise VaultCorruptedError("Invalid recovery envelope.") from exc
     try:
         dek = crypto.aes_gcm_decrypt(kek, nonce, ciphertext, _RECOVERY_KEY_AAD)
     except crypto.AuthenticationFailed as exc:
-        raise RecoveryKeyError("Clé de récupération incorrecte pour ce coffre.") from exc
+        raise RecoveryKeyError("Wrong recovery key for this vault.") from exc
     _check_verifier(dek, meta)
     return dek
 
 
 def _require_current_schema(meta: VaultMeta) -> None:
-    """Un coffre v1 à v3 doit d'abord être migré (app.services.migration_v4) ; rien
-    n'est modifié ici. Plus aucune copie .bak en clair n'est jamais créée."""
+    """A v1 to v3 vault must be migrated first (app.services.migration_v4); nothing
+    is modified here. No plaintext .bak copy is ever created anymore."""
     if meta.schema_version < database.SCHEMA_VERSION:
         raise VaultMigrationRequiredError(
-            f"Ce coffre utilise un ancien format (v{meta.schema_version}) : il doit être mis "
-            "à niveau vers le format de la version 1.7 avant d'être ouvert. "
-            "Il n'a pas été modifié.")
+            f"This vault uses an older format (v{meta.schema_version}): it must be "
+            "upgraded to the version 1.7 format before it can be opened. "
+            "It has not been modified.")
 
 
 def _read_recovery(conn: sqlite3.Connection) -> RecoveryRecord | None:
-    """Enveloppe de récupération, ou None ; VaultCorruptedError si elle est malformée."""
+    """Recovery envelope, or None; VaultCorruptedError if it is malformed."""
     try:
         return RecoveryRepository(conn).get()
     except (sqlite3.DatabaseError, ValueError, KeyError, TypeError) as exc:
-        raise VaultCorruptedError("L'enveloppe de récupération du coffre est corrompue.") from exc
+        raise VaultCorruptedError("The vault recovery envelope is corrupted.") from exc
 
 
 def _open_existing(vault_id: str) -> tuple[sqlite3.Connection, Path, VaultMeta]:
-    """Connexion au fichier d'un coffre existant et lecture de ses métadonnées."""
+    """Connects to the file of an existing vault and reads its metadata."""
     db_path = vault_path(vault_id) / _DB_FILENAME
     if not db_path.exists():
-        raise VaultNotFoundError(f"Le coffre « {vault_id} » est introuvable.")
+        raise VaultNotFoundError(f"The vault \"{vault_id}\" cannot be found.")
     try:
         conn = database.connect(db_path)
     except sqlite3.DatabaseError as exc:
-        raise VaultCorruptedError("Impossible d'ouvrir le fichier du coffre.") from exc
+        raise VaultCorruptedError("Cannot open the vault file.") from exc
     try:
         meta = VaultMetaRepository(conn).get()
     except (sqlite3.DatabaseError, ValueError, KeyError, TypeError) as exc:
         conn.close()
-        raise VaultCorruptedError("Le fichier du coffre est corrompu.") from exc
+        raise VaultCorruptedError("The vault file is corrupted.") from exc
     if meta is None:
         conn.close()
-        raise VaultCorruptedError("Métadonnées du coffre absentes ou corrompues.")
+        raise VaultCorruptedError("Vault metadata missing or corrupted.")
     try:
-        # Un schéma plus récent que tous ceux connus ne peut pas être vérifié ici :
-        # check_supported_versions le refusera explicitement (version non prise en charge).
+        # A schema newer than every known one cannot be checked here:
+        # check_supported_versions will reject it explicitly (unsupported version).
         problems = (database.structure_problems(conn, meta.schema_version)
                     if meta.schema_version <= database.V4_SCHEMA_VERSION else [])
     except sqlite3.DatabaseError:
@@ -232,15 +230,15 @@ def _open_existing(vault_id: str) -> tuple[sqlite3.Connection, Path, VaultMeta]:
     if problems:
         conn.close()
         get_logger().error("Vault structure invalid: %s (%s)", vault_id, "; ".join(problems))
-        raise VaultCorruptedError("La structure du fichier du coffre est endommagée.")
+        raise VaultCorruptedError("The structure of the vault file is damaged.")
     return conn, db_path, meta
 
 
 class Vault:
-    """Représente un coffre, verrouillé ou déverrouillé.
+    """Represents a vault, locked or unlocked.
 
-    Instancier cette classe directement n'est pas prévu : utiliser
-    `Vault.create(...)` ou `Vault.unlock(...)`.
+    This class is not meant to be instantiated directly: use
+    `Vault.create(...)` or `Vault.unlock(...)`.
     """
 
     def __init__(self, vault_id: str, db_path: Path, conn: sqlite3.Connection) -> None:
@@ -248,11 +246,11 @@ class Vault:
         self._db_path = db_path
         self._conn = conn
         self._meta_repo = VaultMetaRepository(conn)
-        self._dek: bytearray | None = None  # None => verrouillé
-        self._metadata: MetadataStore | None = None  # cache v4, détruit au verrouillage
+        self._dek: bytearray | None = None  # None => locked
+        self._metadata: MetadataStore | None = None  # v4 cache, destroyed on lock
         self._logger = get_logger()
 
-    # --- Propriétés ----------------------------------------------------------
+    # --- Properties ----------------------------------------------------------
 
     @property
     def is_locked(self) -> bool:
@@ -262,7 +260,7 @@ class Vault:
     def info(self) -> VaultInfo:
         meta = self._meta_repo.get()
         if meta is None:
-            raise VaultCorruptedError("Métadonnées du coffre introuvables.")
+            raise VaultCorruptedError("Vault metadata not found.")
         return VaultInfo(
             vault_id=self.vault_id,
             vault_name=meta.vault_name,
@@ -271,18 +269,18 @@ class Vault:
             updated_at=meta.updated_at,
         )
 
-    # --- Cycle de vie ----------------------------------------------------------
+    # --- Lifecycle ----------------------------------------------------------
 
     @classmethod
     def create(cls, vault_id: str, vault_name: str, master_password: str) -> Vault:
-        """Crée un nouveau coffre chiffré et le retourne déverrouillé."""
+        """Creates a new encrypted vault and returns it unlocked."""
         vault_name = validate_vault_name(vault_name)
         _validate_master_password_policy(master_password)
 
         directory = vault_path(vault_id)
         db_path = directory / _DB_FILENAME
         if db_path.exists():
-            raise VaultAlreadyExistsError(f"Le coffre « {vault_id} » existe déjà.")
+            raise VaultAlreadyExistsError(f"The vault \"{vault_id}\" already exists.")
 
         conn = database.connect(db_path)
         database.initialize_schema(conn)
@@ -299,7 +297,7 @@ class Vault:
             vault_name=vault_name,
             created_at=now,
             updated_at=now,
-            vault_uuid=new_vault_uuid(),  # identité du coffre, immuable (AAD des métadonnées)
+            vault_uuid=new_vault_uuid(),  # vault identity, immutable (metadata AAD)
         )
         repo = VaultMetaRepository(conn)
         repo.insert(meta)
@@ -312,7 +310,7 @@ class Vault:
     @classmethod
     def create_with_recovery(cls, vault_id: str, vault_name: str,
                              master_password: str) -> tuple[Vault, str]:
-        """Crée le coffre et sa clé de récupération (retournée pour affichage unique)."""
+        """Creates the vault and its recovery key (returned to be shown once)."""
         vault = cls.create(vault_id, vault_name, master_password)
         try:
             return vault, vault._install_recovery_key(vault._require_unlocked_key())
@@ -322,7 +320,7 @@ class Vault:
 
     @classmethod
     def unlock(cls, vault_id: str, master_password: str) -> Vault:
-        """Ouvre un coffre existant. Lève une exception métier explicite en cas d'échec."""
+        """Opens an existing vault. Raises an explicit domain exception on failure."""
         conn, db_path, meta = _open_existing(vault_id)
         try:
             check_supported_versions(meta)
@@ -339,17 +337,17 @@ class Vault:
 
     @classmethod
     def open_for_migration(cls, vault_id: str, master_password: str) -> Vault:
-        """Ouvre un coffre v1 à v3 SANS mise à niveau automatique (donc sans copie .bak).
+        """Opens a v1 to v3 vault WITHOUT automatic upgrade (hence without a .bak copy).
 
-        Réservé à la migration v4 (app.services.migration_v4), qui fait d'abord une
-        sauvegarde CHIFFRÉE puis inclut les étapes v1/v2 -> v3 dans sa propre
-        transaction. Le schéma du fichier n'est pas modifié ici.
+        Reserved for the v4 migration (app.services.migration_v4), which first
+        makes an ENCRYPTED backup and then includes the v1/v2 -> v3 steps in its
+        own transaction. The file schema is not modified here.
         """
         conn, db_path, meta = _open_existing(vault_id)
         try:
             check_supported_versions(meta)
             if meta.schema_version >= database.V4_SCHEMA_VERSION:
-                raise VaultError("Ce coffre est déjà au format v4.")
+                raise VaultError("This vault is already in the v4 format.")
             dek = unwrap_data_key(master_password, meta)
         except Exception:
             conn.close()
@@ -361,21 +359,21 @@ class Vault:
 
     @property
     def metadata(self) -> MetadataStore:
-        """Cache des métadonnées déchiffrées (coffre v4 déverrouillé uniquement).
+        """Cache of the decrypted metadata (unlocked v4 vault only).
 
-        Créé au premier accès après le déverrouillage ; détruit par `lock()`.
+        Created on first access after unlocking; destroyed by `lock()`.
         """
         dek = self._require_unlocked_key()
         if self._metadata is None:
             meta = self._meta_repo.get()
             if (meta is None or meta.schema_version < database.V4_SCHEMA_VERSION
                     or meta.vault_uuid is None):
-                raise VaultError("Métadonnées chiffrées indisponibles : coffre non migré (v4).")
+                raise VaultError("Encrypted metadata unavailable: vault not migrated (v4).")
             self._metadata = MetadataStore(self._conn, dek, meta.vault_uuid)
         return self._metadata
 
     def lock(self) -> None:
-        """Efface la DEK et le cache des métadonnées (best-effort), verrouille le coffre."""
+        """Erases the DEK and the metadata cache (best effort), locks the vault."""
         if self._metadata is not None:
             self._metadata.clear()
             self._metadata = None
@@ -385,87 +383,86 @@ class Vault:
             self._logger.info("Vault locked: %s", self.vault_id)
 
     def close(self) -> None:
-        """Verrouille le coffre et ferme la connexion à la base."""
+        """Locks the vault and closes the database connection."""
         self.lock()
         self._conn.close()
 
-    # --- Accès à la clé de données (réservé aux couches internes) --------------
+    # --- Access to the data key (reserved for internal layers) --------------
 
     def _require_unlocked_key(self) -> bytes:
         if self._dek is None:
-            raise VaultLockedError("Le coffre est verrouillé.")
+            raise VaultLockedError("The vault is locked.")
         return bytes(self._dek)
 
     @property
     def connection(self) -> sqlite3.Connection:
-        """Connexion SQLite brute, utilisée par les repositories et services.
+        """Raw SQLite connection, used by the repositories and services.
 
-        Accessible même verrouillé, pour ce que le fichier garde lisible par
-        conception (`vault_meta` : nom du coffre, paramètres de dérivation ; dates
-        `entry_history.created_at`, D3). Les métadonnées d'entrées et les noms de
-        catégories, eux, sont chiffrés (v4) : les services qui les lisent passent
-        par `_require_unlocked_key()` ou le cache `metadata`.
+        Accessible even when locked, for what the file keeps readable by design
+        (`vault_meta`: vault name, derivation parameters; `entry_history.created_at`
+        dates, D3). Entry metadata and category names are encrypted (v4): the
+        services that read them go through `_require_unlocked_key()` or the
+        `metadata` cache.
         """
         return self._conn
 
-    # --- Nom du coffre ---------------------------------------------------------------
+    # --- Vault name ---------------------------------------------------------------
 
     def rename(self, new_name: str) -> None:
         self._require_unlocked_key()
         self._meta_repo.rename_vault(validate_vault_name(new_name), _utc_now_iso())
         self._logger.info("Vault renamed: %s", self.vault_id)
 
-    # --- Revérification du mot de passe maître -----------------------------------
+    # --- Master password re-check -----------------------------------
 
     def verify_master_password(self, password: str, log_failure: bool = True) -> bool:
-        """Revérifie le mot de passe maître indépendamment de l'état déverrouillé.
+        """Re-checks the master password independently of the unlocked state.
 
-        Exigé avant les opérations sensibles (export, changement de mot de
-        passe) : une session laissée ouverte ne suffit pas pour les réaliser.
+        Required before sensitive operations (export, password change): a
+        session left open is not enough to perform them.
         """
         meta = self._meta_repo.get()
         if meta is None:
-            raise VaultCorruptedError("Métadonnées du coffre absentes.")
+            raise VaultCorruptedError("Vault metadata missing.")
         try:
             unwrap_data_key(password, meta)
         except WrongMasterPasswordError:
-            if log_failure:  # False : simple comparaison (ex. mot de passe d'un PDF)
+            if log_failure:  # False: plain comparison (e.g. the password of a PDF)
                 self._logger.warning("Master password re-verification failed: %s",
                                      self.vault_id)
             return False
         return True
 
-    # --- Changement de mot de passe maître --------------------------------------
+    # --- Master password change --------------------------------------
 
     def change_master_password(self, current_password: str, new_password: str) -> None:
-        """Ré-enveloppe la DEK existante sous un nouveau mot de passe maître.
+        """Re-wraps the existing DEK under a new master password.
 
-        Les données déjà chiffrées avec la DEK n'ont pas besoin d'être
-        touchées : seule l'enveloppe (KEK) change. C'est l'intérêt du
-        chiffrement en enveloppe.
+        Data already encrypted with the DEK does not need to be touched: only
+        the envelope (KEK) changes. This is the point of envelope encryption.
         """
         _validate_master_password_policy(new_password)
         dek = self._require_unlocked_key()
 
         meta = self._meta_repo.get()
         if meta is None:
-            raise VaultCorruptedError("Métadonnées du coffre absentes.")
+            raise VaultCorruptedError("Vault metadata missing.")
 
-        # On revérifie l'ancien mot de passe indépendamment de l'état déverrouillé
-        # en mémoire, pour éviter qu'une session laissée ouverte ne permette de
-        # changer le mot de passe sans le connaître.
+        # The old password is re-checked independently of the in-memory unlocked
+        # state, so that a session left open does not allow the password to be
+        # changed without knowing it.
         if not self.verify_master_password(current_password):
-            raise WrongMasterPasswordError("Le mot de passe maître actuel est incorrect.")
+            raise WrongMasterPasswordError("The current master password is wrong.")
 
         self._meta_repo.update_wrapped_key(**_wrap_for_password(dek, new_password),
                                            updated_at=_utc_now_iso())
         self._logger.info("Master password changed for vault: %s", self.vault_id)
 
-    # --- Clé de récupération ---------------------------------------------------------
+    # --- Recovery key ---------------------------------------------------------
 
     @property
     def recovery_created_at(self) -> str | None:
-        """Date de création de la clé de récupération (ISO), ou None s'il n'y en a pas."""
+        """Creation date of the recovery key (ISO), or None if there is none."""
         record = _read_recovery(self._conn)
         return record.created_at if record else None
 
@@ -474,14 +471,14 @@ class Vault:
         return self.recovery_created_at is not None
 
     def create_recovery_key(self, master_password: str) -> str:
-        """Crée (ou remplace) la clé de récupération et la retourne, pour affichage UNIQUE.
+        """Creates (or replaces) the recovery key and returns it, to be shown ONCE.
 
-        Le mot de passe maître est exigé : une session laissée ouverte ne doit
-        pas permettre de se fabriquer un accès permanent au coffre.
+        The master password is required: a session left open must not make it
+        possible to forge permanent access to the vault.
         """
         dek = self._require_unlocked_key()
         if not self.verify_master_password(master_password):
-            raise WrongMasterPasswordError("Mot de passe maître incorrect.")
+            raise WrongMasterPasswordError("Wrong master password.")
         return self._install_recovery_key(dek)
 
     def _install_recovery_key(self, dek: bytes) -> str:
@@ -493,14 +490,14 @@ class Vault:
     def remove_recovery_key(self, master_password: str) -> None:
         self._require_unlocked_key()
         if not self.verify_master_password(master_password):
-            raise WrongMasterPasswordError("Mot de passe maître incorrect.")
+            raise WrongMasterPasswordError("Wrong master password.")
         RecoveryRepository(self._conn).delete()
         self._logger.info("Recovery key removed for vault: %s", self.vault_id)
 
     def discard_recovery_key(self) -> None:
-        """Supprime une clé que l'utilisateur n'a pas confirmé avoir notée.
+        """Removes a key that the user did not confirm writing down.
 
-        Sans mot de passe : supprimer une clé ne fait que RETIRER un accès.
+        No password needed: removing a key only TAKES AWAY an access.
         """
         self._require_unlocked_key()
         RecoveryRepository(self._conn).delete()
@@ -509,33 +506,33 @@ class Vault:
     @classmethod
     def recover(cls, vault_id: str, recovery_key: str,
                 new_master_password: str, allow_legacy: bool = False) -> tuple[Vault, str]:
-        """Ouvre le coffre avec sa clé de récupération et fixe un nouveau mot de passe maître.
+        """Opens the vault with its recovery key and sets a new master password.
 
-        Retourne le coffre déverrouillé et la NOUVELLE clé de récupération (l'ancienne
-        ne fonctionne plus). Enveloppe du mot de passe et enveloppe de récupération
-        sont remplacées dans une même transaction : jamais l'une sans l'autre.
+        Returns the unlocked vault and the NEW recovery key (the old one no longer
+        works). The password envelope and the recovery envelope are replaced in a
+        single transaction: never one without the other.
 
-        `allow_legacy` : accepte un coffre v1 à v3, pour le seul enchaînement
-        « récupération puis mise à niveau » (app.services.vault_upgrade). Seules les
-        deux enveloppes sont réécrites, comme en 1.6 ; le coffre rendu n'est
-        utilisable que par la migration, jamais par les services v4.
+        `allow_legacy`: accepts a v1 to v3 vault, only for the "recovery then
+        upgrade" sequence (app.services.vault_upgrade). Only the two envelopes are
+        rewritten, as in 1.6; the returned vault is usable only by the migration,
+        never by the v4 services.
         """
         _validate_master_password_policy(new_master_password)
-        secret = recovery.normalize(recovery_key)  # RecoveryKeyFormatError : faute de frappe
+        secret = recovery.normalize(recovery_key)  # RecoveryKeyFormatError: typo
         conn, db_path, meta = _open_existing(vault_id)
         try:
             check_supported_versions(meta)
             if not allow_legacy:
                 _require_current_schema(meta)
             elif meta.schema_version >= database.SCHEMA_VERSION:
-                raise VaultError("Ce coffre est déjà au format actuel.")
+                raise VaultError("This vault is already in the current format.")
             record = _read_recovery(conn)
             if record is None:
-                raise NoRecoveryKeyError("Ce coffre n'a pas de clé de récupération.")
+                raise NoRecoveryKeyError("This vault has no recovery key.")
             dek = _unwrap_with_recovery(secret, record, meta)
             new_key, new_record = _new_recovery(dek)
             password_envelope = _wrap_for_password(dek, new_master_password)
-            with conn:  # une seule transaction
+            with conn:  # a single transaction
                 VaultMetaRepository(conn).update_wrapped_key(
                     **password_envelope, updated_at=_utc_now_iso(), commit=False)
                 RecoveryRepository(conn).set(new_record, commit=False)
@@ -548,14 +545,15 @@ class Vault:
         return vault, new_key
 
 
-# --- Découverte des coffres (sans mot de passe) --------------------------------------
+# --- Vault discovery (no password) --------------------------------------
 
 
 def generate_vault_id(vault_name: str) -> str:
-    """Identifiant de coffre sûr pour le système de fichiers, dérivé du nom.
+    """File-system-safe vault identifier, derived from the name.
 
-    Ex. « Coffre Perso » -> « coffre-perso-3fa9c1 ». Le suffixe aléatoire
-    (CSPRNG) évite les collisions entre coffres de même nom.
+    E.g. "My Vault" -> "my-vault-3fa9c1". The random suffix (CSPRNG) avoids
+    collisions between vaults with the same name. A name with no usable ASCII
+    character falls back to the historical "coffre" prefix.
     """
     ascii_name = (
         unicodedata.normalize("NFKD", vault_name).encode("ascii", "ignore").decode("ascii")
@@ -565,10 +563,10 @@ def generate_vault_id(vault_name: str) -> str:
 
 
 def list_vaults() -> list[VaultInfo]:
-    """Liste les coffres présents localement, avec leurs métadonnées non sensibles.
+    """Lists the vaults present locally, with their non-sensitive metadata.
 
-    Un coffre illisible est tout de même listé (sous son identifiant) : c'est
-    au déverrouillage qu'une erreur explicite sera présentée à l'utilisateur.
+    An unreadable vault is still listed (under its identifier): an explicit
+    error is shown to the user when unlocking it.
     """
     infos: list[VaultInfo] = []
     for directory in sorted(vaults_dir().iterdir()):
@@ -602,7 +600,7 @@ def list_vaults() -> list[VaultInfo]:
 
 
 def vault_has_recovery_key(vault_id: str) -> bool:
-    """Le coffre a-t-il une clé de récupération ? (lecture seule, sans mot de passe)"""
+    """Does the vault have a recovery key? (read-only, no password)"""
     db_path = vaults_dir() / vault_id / _DB_FILENAME
     if not re.fullmatch(r"[A-Za-z0-9._-]+", vault_id) or not db_path.is_file():
         return False
@@ -620,26 +618,26 @@ def vault_has_recovery_key(vault_id: str) -> bool:
 def validate_vault_name(name: str) -> str:
     clean = " ".join(name.split())
     if not clean:
-        raise VaultError("Le nom du coffre est obligatoire.")
+        raise VaultError("A vault name is required.")
     if len(clean) > MAX_VAULT_NAME_LENGTH:
         raise VaultError(
-            f"Le nom du coffre ne doit pas dépasser {MAX_VAULT_NAME_LENGTH} caractères."
+            f"The vault name must not exceed {MAX_VAULT_NAME_LENGTH} characters."
         )
     return clean
 
 
 def delete_vault(vault_id: str, master_password: str) -> None:
-    """Supprime définitivement un coffre (répertoire complet), mot de passe maître exigé.
+    """Permanently deletes a vault (whole directory); the master password is required.
 
-    Le coffre ne doit pas être ouvert. Les sauvegardes .mcfbak, stockées
-    ailleurs, ne sont pas touchées.
+    The vault must not be open. The .mcfbak backups, stored elsewhere, are not
+    touched.
     """
     if not re.fullmatch(r"[A-Za-z0-9._-]+", vault_id) or vault_id in (".", ".."):
-        raise VaultNotFoundError("Identifiant de coffre invalide.")
+        raise VaultNotFoundError("Invalid vault identifier.")
     directory = vaults_dir() / vault_id
     db_path = directory / _DB_FILENAME
     if not db_path.is_file():
-        raise VaultNotFoundError(f"Le coffre « {vault_id} » est introuvable.")
+        raise VaultNotFoundError(f"The vault \"{vault_id}\" cannot be found.")
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -649,11 +647,11 @@ def delete_vault(vault_id: str, master_password: str) -> None:
     finally:
         conn.close()
     if meta is None:
-        # Coffre illisible : impossible de vérifier le mot de passe, on refuse
-        # (supprimer le dossier reste possible manuellement, en connaissance de cause).
+        # Unreadable vault: the password cannot be checked, so deletion is refused
+        # (deleting the folder manually remains possible, knowingly).
         raise VaultCorruptedError(
-            "Ce coffre est illisible : sa suppression ne peut pas être vérifiée."
+            "This vault is unreadable: its deletion cannot be verified."
         )
-    unwrap_data_key(master_password, meta)  # WrongMasterPasswordError si faux
+    unwrap_data_key(master_password, meta)  # WrongMasterPasswordError if wrong
     shutil.rmtree(directory)
     get_logger().info("Vault deleted: %s", vault_id)

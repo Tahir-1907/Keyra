@@ -1,15 +1,15 @@
-"""Instance unique par utilisateur.
+"""Single instance per user.
 
-Deux instances ouvertes sur le même coffre afficheraient des données
-désynchronisées (et doubleraient les sauvegardes automatiques). Au
-lancement, on tente de joindre une instance existante via un socket local :
-si elle répond, on lui demande de s'afficher et on quitte ; sinon on
-devient l'instance principale.
+Two instances open on the same vault would show out-of-sync data (and
+double the automatic backups). At startup, the application tries to reach an
+existing instance through a local socket: if it answers, it is asked to show
+itself and this process quits; otherwise this process becomes the main
+instance.
 
-Le socket est créé dans $XDG_RUNTIME_DIR (répertoire 0700 propre à
-l'utilisateur, géré par systemd-logind), à défaut dans le cache de
-l'application (0700), avec l'option « accès propriétaire uniquement ».
-Aucune donnée n'y transite hormis la commande « show ».
+The socket is created in $XDG_RUNTIME_DIR (a 0700 per-user directory managed
+by systemd-logind), otherwise in the application cache (0700), with the
+"owner access only" option. No data goes through it apart from the "show"
+command.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ from app.utils.paths import cache_dir
 _SOCKET_NAME = "mon-coffre-fort.sock"
 _SHOW_COMMAND = b"show\n"
 _TIMEOUT_MS = 500
-# Limite des chemins de socket Unix (sun_path : 108 octets, zéro final compris).
+# Unix socket path limit (sun_path: 108 bytes, trailing zero included).
 _MAX_SOCKET_PATH = 107
 
 
 def _socket_path() -> str | None:
-    """Chemin du socket, ou None si aucun emplacement privé n'est utilisable.
+    """Socket path, or None if no private location is usable.
 
-    Pas de repli sur /tmp : un nom prévisible y serait réservable par un
-    autre utilisateur (qui pourrait alors empêcher l'application de démarrer).
+    No fallback to /tmp: a predictable name there could be reserved by another
+    user (who could then prevent the application from starting).
     """
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     candidates = [Path(runtime)] if runtime and Path(runtime).is_dir() else []
@@ -47,7 +47,7 @@ def _socket_path() -> str | None:
 
 
 def notify_running_instance() -> bool:
-    """True si une instance tourne déjà (et a été priée de s'afficher)."""
+    """True if an instance is already running (and was asked to show itself)."""
     path = _socket_path()
     if path is None:
         return False
@@ -73,7 +73,7 @@ class SingleInstanceServer(QObject):
             get_logger().warning("Single-instance disabled: socket path too long")
             return
         if not self._server.listen(path):
-            # Socket orphelin (instance précédente tuée) : on le remplace.
+            # Orphaned socket (previous instance killed): replace it.
             QLocalServer.removeServer(path)
             if not self._server.listen(path):
                 get_logger().warning("Single-instance socket unavailable")

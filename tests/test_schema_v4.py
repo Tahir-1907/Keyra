@@ -1,9 +1,9 @@
-"""Structures du schéma v4 : transition (dans la migration) et coffres v4 neufs.
+"""v4 schema structures: transition (inside the migration) and new v4 vaults.
 
-Les ajouts (vault_meta.vault_uuid, entries.metadata_enc, categories.builtin_key et
-name_enc, index, déclencheur) ne sont appliqués que par add_v4_structures, que
-seule la future migration appellera. Ces tests vérifient qu'ils ne changent rien
-au fonctionnement v3, et que leurs contraintes tiennent.
+The additions (vault_meta.vault_uuid, entries.metadata_enc, categories.builtin_key
+and name_enc, index, trigger) are applied only by add_v4_structures, which only the
+migration calls. These tests check that they change nothing in the v3 behavior, and
+that their constraints hold.
 """
 
 import sqlite3
@@ -15,8 +15,10 @@ from app.core import metadata
 from app.core.builtin_categories import (
     BUILTIN_CATEGORY_KEYS,
     BUILTIN_CATEGORY_NAMES,
+    LEGACY_BUILTIN_NAMES,
     builtin_key_for_v3_row,
     builtin_name,
+    legacy_builtin_name,
 )
 from app.core.categories import BUILTIN_CATEGORIES, CategoryService
 from app.core.entries import Entry
@@ -43,13 +45,20 @@ def add_structures(vault: Vault) -> None:
 
 
 class TestBuiltinCategoryMapping(unittest.TestCase):
-    def test_names_and_order_are_unchanged(self):
-        self.assertEqual(BUILTIN_CATEGORIES, ("Personnel", "Travail", "Finances",
-                                              "Réseaux sociaux", "Courriel", "Achats"))
+    def test_display_names_and_order(self):
+        self.assertEqual(BUILTIN_CATEGORIES, ("Personal", "Work", "Finance",
+                                              "Social", "Email", "Shopping"))
         self.assertEqual(tuple(BUILTIN_CATEGORY_NAMES.values()), BUILTIN_CATEGORIES)
 
+    def test_legacy_names_are_frozen(self):
+        # Names stored in plaintext by v1 to v3 vaults: the migration relies on them.
+        self.assertEqual(LEGACY_BUILTIN_NAMES, {
+            "personal": "Personnel", "work": "Travail", "finance": "Finances",
+            "social": "Réseaux sociaux", "email": "Courriel", "shopping": "Achats"})
+        self.assertEqual(tuple(LEGACY_BUILTIN_NAMES), BUILTIN_CATEGORY_KEYS)
+
     def test_keys_are_frozen_generic_ascii(self):
-        # Clés stockées sur disque : ne jamais les renommer.
+        # Keys stored on disk: never rename them.
         self.assertEqual(BUILTIN_CATEGORY_KEYS,
                          ("personal", "work", "finance", "social", "email", "shopping"))
         for key in BUILTIN_CATEGORY_KEYS:
@@ -57,18 +66,21 @@ class TestBuiltinCategoryMapping(unittest.TestCase):
 
     def test_v3_row_mapping(self):
         self.assertEqual(builtin_key_for_v3_row("Travail", is_builtin=True), "work")
-        self.assertEqual(builtin_name("social"), "Réseaux sociaux")
-        # Une catégorie personnelle homonyme reste personnelle : pas de déduction par le nom.
+        self.assertEqual(builtin_name("social"), "Social")
+        self.assertEqual(legacy_builtin_name("social"), "Réseaux sociaux")
+        # A custom category with the same name stays custom: no deduction from the name.
         self.assertIsNone(builtin_key_for_v3_row("Travail", is_builtin=False))
         with self.assertRaises(ValueError):
             builtin_key_for_v3_row("Inconnue", is_builtin=True)
+        with self.assertRaises(ValueError):  # v3 vaults never stored the English labels
+            builtin_key_for_v3_row("Work", is_builtin=True)
 
     def test_uuid_size_is_consistent(self):
         self.assertEqual(models.VAULT_UUID_SIZE, metadata.VAULT_UUID_SIZE)
 
 
 class TestNewVaultsAreV4(EntryTestCase):
-    """v1.7 : un nouveau coffre est créé directement au schéma v4 définitif."""
+    """v1.7: a new vault is created directly at the final v4 schema."""
 
     def test_new_vault_structure(self):
         conn = self.vault.connection
@@ -91,7 +103,7 @@ class TestNewVaultsAreV4(EntryTestCase):
 
 
 class TestVaultUuidLifecycle(EntryTestCase):
-    """Immuable de bout en bout, via les vrais services (D1)."""
+    """Immutable end to end, through the real services (D1)."""
 
     def uuid(self, vault: Vault) -> bytes:
         return VaultMetaRepository(vault.connection).get().vault_uuid
@@ -106,7 +118,7 @@ class TestVaultUuidLifecycle(EntryTestCase):
         self.assertEqual(self.uuid(self.vault), original)
 
     def test_metadata_survive_backup_and_restore_with_the_same_uuid(self):
-        # D1 : création -> chiffrement -> sauvegarde -> restauration -> déchiffrement.
+        # D1: creation -> encryption -> backup -> restore -> decryption.
         from app.core.entries import EntryService
 
         entry_id = self.entries.create_entry(Entry(
@@ -114,10 +126,10 @@ class TestVaultUuidLifecycle(EntryTestCase):
             password="secret", is_favorite=True, tags=("Finances",)))
         directory = Path(tempfile.mkdtemp(dir=self._tmpdir.name))
         info = backup.restore_backup(backup.create_backup(self.vault, directory), MASTER)
-        self.assertNotEqual(info.vault_id, self.vault_id)  # nouveau dossier…
+        self.assertNotEqual(info.vault_id, self.vault_id)  # new folder…
         restored = Vault.unlock(info.vault_id, MASTER)
         try:
-            self.assertEqual(self.uuid(restored), self.uuid(self.vault))  # … même identité
+            self.assertEqual(self.uuid(restored), self.uuid(self.vault))  # … same identity
             entry = EntryService(restored).get_entry(entry_id)
             self.assertEqual((entry.service_name, entry.url, entry.tags, entry.password),
                              ("Banque", "https://banque.example", ("Finances",), "secret"))
@@ -126,7 +138,7 @@ class TestVaultUuidLifecycle(EntryTestCase):
 
 
 class TestV4StructuresOnTheV3Fixture(FixtureVaultTestCase):
-    """Phase de transition (dans la migration) : ajouts seulement, rien de modifié."""
+    """Transition phase (inside the migration): additions only, nothing modified."""
 
     def _install_with_structures(self) -> dict:
         from app.utils.paths import vault_path
@@ -148,7 +160,7 @@ class TestV4StructuresOnTheV3Fixture(FixtureVaultTestCase):
         for table, rows in self.before.items():
             if table == "__schema__":
                 continue
-            # ADD COLUMN ajoute les colonnes en fin de ligne (NULL) : le reste est identique.
+            # ADD COLUMN appends the columns at the end of the row (NULL): the rest is identical.
             self.assertEqual([tuple(r[:len(old)]) for r, old in zip(after[table], rows,
                                                                     strict=True)],
                              [tuple(r) for r in rows], table)
@@ -164,7 +176,7 @@ class TestV4StructuresOnTheV3Fixture(FixtureVaultTestCase):
                             for c in CategoryRepository(conn).list_all_v4()))
 
     def test_services_refuse_a_v3_vault(self):
-        # v1.7 : les services ne lisent plus JAMAIS les colonnes v3 en clair.
+        # v1.7: the services NEVER read the plaintext v3 columns anymore.
         from app.core.entries import EntryService
 
         self._install_with_structures()
@@ -182,7 +194,7 @@ class TestV4StructuresOnTheV3Fixture(FixtureVaultTestCase):
 
 
 class V4TestCase(FixtureVaultTestCase):
-    """Copie du coffre 1.6.0 (v3) avec les structures v4 ajoutées, comme dans la migration."""
+    """Copy of the 1.6.0 (v3) vault with the v4 structures added, as in the migration."""
 
     def setUp(self):
         super().setUp()
@@ -236,7 +248,7 @@ class TestVaultUuid(V4TestCase):
                              "vault_uuid": value})
 
     def test_malformed_uuid_without_sqlite_check_is_corruption(self):
-        # Fichier forgé : colonne ajoutée SANS la contrainte, valeur de 5 octets.
+        # Forged file: column added WITHOUT the constraint, 5-byte value.
         import shutil
 
         from app.utils.paths import vault_path
@@ -292,7 +304,7 @@ class TestCategoryColumns(V4TestCase):
         super().setUp()
         self.repo = CategoryRepository(self.conn)
         self.by_name = {c.name: c for c in self.repo.list_all()}
-        self.custom = self.by_name["Projets BTS"].id  # catégorie personnelle du coffre 1.6.0
+        self.custom = self.by_name["Projets BTS"].id  # custom category of the 1.6.0 vault
 
     def test_builtin_key_only_on_builtin_rows(self):
         with self.conn:

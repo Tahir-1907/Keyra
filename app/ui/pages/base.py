@@ -1,4 +1,4 @@
-"""Socle commun des vues et contexte partagé (services, presse-papiers, navigation)."""
+"""Shared base of the views and shared context (services, clipboard, navigation)."""
 
 from __future__ import annotations
 
@@ -16,18 +16,18 @@ from app.ui.secure_clipboard import SecureClipboard
 
 @dataclass
 class AppContext:
-    """Ce dont une vue a besoin, sans connaître la fenêtre principale."""
+    """What a view needs, without knowing the main window."""
 
     session: SessionManager
     entries: EntryService
     categories: CategoryService
     clipboard: SecureClipboard
     settings: Callable[[], Settings]
-    notify: Callable[..., None]  # notify(titre, message="", kind="success", icon=None)
+    notify: Callable[..., None]  # notify(title, message="", kind="success", icon=None)
     navigate: Callable[..., None]               # navigate("vault", entry_id=…)
-    changed: Callable[[], None]                 # données modifiées : rafraîchir compteurs/vues
+    changed: Callable[[], None]                 # data changed: refresh counters/views
     vault_action: Callable[[str], None]         # "new", "switch", "password", "delete", "lock"
-    update_settings: Callable[[Settings], None]  # enregistre et applique de nouveaux paramètres
+    update_settings: Callable[[Settings], None]  # saves and applies new settings
 
     @property
     def vault(self):
@@ -35,7 +35,7 @@ class AppContext:
 
 
 class Page(QWidget):
-    """Une vue : titre + sous-titre (affichés dans l'en-tête), `refresh()`, `on_show()`."""
+    """A view: title + subtitle (shown in the header), `refresh()`, `on_show()`."""
 
     key = ""
     title = ""
@@ -48,18 +48,18 @@ class Page(QWidget):
         self.ctx = ctx
 
     def on_show(self, **kwargs) -> None:
-        """Appelé à chaque affichage de la vue (kwargs : paramètres de navigation)."""
+        """Called every time the view is shown (kwargs: navigation parameters)."""
         self.refresh()
 
     def refresh(self) -> None:
         pass
 
     def wipe(self) -> None:
-        """Retire toute donnée affichée (verrouillage)."""
+        """Removes every displayed value (locking)."""
 
 
 def scrolling(page: QWidget, margins=(32, 28, 32, 32), spacing: int = 20) -> QVBoxLayout:
-    """Contenu défilant de la vue ; retourne la mise en page du contenu."""
+    """Scrolling content of the view; returns the content layout."""
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     content = QWidget()

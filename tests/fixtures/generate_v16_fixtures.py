@@ -1,17 +1,18 @@
-"""Génère un coffre de test avec une version EXISTANTE de l'application.
+"""Generates a test vault with an EXISTING version of the application.
 
-Sert aux tests de migration : les coffres de tests/fixtures/ ont été produits
-par le vrai code des versions précédentes (et non imités), avec des données
-100 % fictives. À n'exécuter que sur le code de la version à figer :
+Used by the migration tests: the vaults in tests/fixtures/ were produced by the
+real code of earlier versions (not imitated), with 100% fictitious data (in
+French, as the application was at the time). Run it only on the code of the
+version to freeze:
 
-    # coffre schéma v2, produit par Mon Coffre-Fort 1.0.0 (archive « avant refonte »)
-    python tests/fixtures/generate_v16_fixtures.py <racine-1.0.0> tests/fixtures/v2-app-1.0.0
-    # coffre schéma v3, produit par Mon Coffre-Fort 1.6.0 (commit 2d4fde0)
+    # schema v2 vault, produced by Mon Coffre-Fort 1.0.0 (the application's former name)
+    python tests/fixtures/generate_v16_fixtures.py <root-1.0.0> tests/fixtures/v2-app-1.0.0
+    # schema v3 vault, produced by Mon Coffre-Fort 1.6.0 (commit 2d4fde0)
     python tests/fixtures/generate_v16_fixtures.py . tests/fixtures/v3-app-1.6.0
 
-Le manifeste (manifest.json) décrit le contenu attendu après déchiffrement et
-les résultats de recherche calculés PAR CETTE VERSION : après migration, la
-nouvelle version doit restituer exactement les mêmes données et résultats.
+The manifest (manifest.json) describes the expected content after decryption and
+the search results computed BY THAT VERSION: after migration, the new version
+must return exactly the same data and results.
 """
 
 import json
@@ -78,14 +79,14 @@ def main(app_root: str, output: str) -> None:
         category_id=cat["Santé & Mutuelle"])
     orphan = add(service_name="Compte sans catégorie", url="https://orphelin.example",
                  username="orphelin", password="", category_id=doomed)
-    categories.delete_category(doomed)  # l'entrée passe « sans catégorie »
+    categories.delete_category(doomed)  # the entry becomes "uncategorized"
     recent_trash = add(service_name="Ancien compte (corbeille)", username="ancien",
                        password="Old-FICTIF-006")
     old_trash = add(service_name="Très ancien compte (corbeille)", password="Old-FICTIF-007")
     entries.delete_entry(recent_trash)
     entries.delete_entry(old_trash)
 
-    # Historique : 2 versions pour la banque, 1 pour le forum.
+    # History: 2 versions for the bank, 1 for the forum.
     for new_password in ("Mdp-Banque-FICTIF-001-b", "Mdp-Banque-FICTIF-001-c"):
         e = entries.get_entry(bank)
         e.password = new_password
@@ -96,7 +97,7 @@ def main(app_root: str, output: str) -> None:
     entries.update_entry(e)
     del orphan
 
-    # Entrée mise à la corbeille il y a longtemps (sinon impossible à produire).
+    # Entry moved to the Trash long ago (otherwise impossible to produce).
     with vault.connection as conn:
         conn.execute("UPDATE entries SET deleted_at = ? WHERE id = ?", (OLD_DELETION, old_trash))
 
@@ -147,7 +148,7 @@ def main(app_root: str, output: str) -> None:
     }
     db_path = Path(vault.connection.execute("PRAGMA database_list").fetchone()[2])
     vault.close()
-    conn = sqlite3.connect(db_path)  # fichier autonome : aucun -wal/-shm à fournir
+    conn = sqlite3.connect(db_path)  # self-contained file: no -wal/-shm to ship
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
     conn.close()
 

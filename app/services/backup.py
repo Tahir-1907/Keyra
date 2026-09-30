@@ -1,29 +1,32 @@
-"""Sauvegardes chiffrées du coffre.
+"""Encrypted vault backups.
 
-Format d'un fichier `.mcfbak` (corps chiffré, en-tête technique lisible, autonome) :
+Format of a `.mcfbak` file (encrypted body, readable technical header,
+self-contained):
 
-    MAGIC (8 o) | longueur de l'en-tête (4 o, big-endian) | en-tête JSON
-    | nonce (12 o) | AES-256-GCM( zlib( base SQLite complète ) )
+    MAGIC (8 B) | header length (4 B, big-endian) | JSON header
+    | nonce (12 B) | AES-256-GCM( zlib( complete SQLite database ) )
 
-* L'en-tête JSON est LISIBLE sans mot de passe (non secret, mais pas caché) :
-  identifiant et nom du coffre, type et date de la sauvegarde, version de
-  l'application, versions du schéma et du format, et ce qu'il faut pour le
-  déverrouillage — paramètres Argon2id, sel, DEK enveloppée, vérificateur,
-  exactement comme `vault_meta`. La sauvegarde s'ouvre donc avec le mot de
-  passe maître **en vigueur au moment de la sauvegarde**, même si le coffre
-  d'origine a disparu.
-* Clé de chiffrement du corps : HKDF-SHA256(DEK, "mon-coffre-fort:backup:v1") —
-  séparée de la clé des données.
-* Donnée associée AES-GCM = MAGIC + en-tête : toute modification de
-  l'en-tête est détectée.
-* Le corps (la base complète : entrées, métadonnées, historique, catégories)
-  n'est lisible qu'avec le mot de passe maître ; une sauvegarde peut être
-  copiée sur un support externe, en sachant que son en-tête révèle les
-  informations ci-dessus. Une sauvegarde d'un coffre v1 à v3 contient la base
-  dans son ancien format (métadonnées en clair À L'INTÉRIEUR du corps chiffré).
+* The JSON header is READABLE without the password (not secret, but not
+  hidden either): vault identifier and name, backup type and date,
+  application version, schema and format versions, and what unlocking
+  needs — Argon2id parameters, salt, wrapped DEK, verifier, exactly like
+  `vault_meta`. The backup therefore opens with the master password **in
+  effect when the backup was made**, even if the original vault is gone.
+* Body encryption key: HKDF-SHA256(DEK, "mon-coffre-fort:backup:v1") —
+  separate from the data key.
+* AES-GCM associated data = MAGIC + header: any change to the header is
+  detected.
+* The body (the complete database: entries, metadata, history, categories)
+  is readable only with the master password; a backup can be copied to
+  external media, keeping in mind that its header reveals the information
+  above. A backup of a v1 to v3 vault contains the database in its old
+  format (plaintext metadata INSIDE the encrypted body).
 
-Restaurer une sauvegarde crée toujours un **nouveau** coffre : rien n'est
-écrasé.
+Restoring a backup always creates a **new** vault: nothing is overwritten.
+
+The backup kinds ("manuelle", "auto", "migration") are written into the
+header and the file name: they are persisted values and must never change.
+`kind_label()` gives their English display label.
 """
 
 from __future__ import annotations
@@ -61,22 +64,28 @@ MAGIC = b"MCFBAK\x00\x01"
 BACKUP_SUFFIX = ".mcfbak"
 _BACKUP_KEY_INFO = b"mon-coffre-fort:backup:v1"
 _MAX_HEADER_SIZE = 64 * 1024
-# Temporaires d'écriture (« .tmp-XXXX.mcfbak ») : ignorés au listage.
+# Write temporaries (".tmp-XXXX.mcfbak"): ignored when listing.
 _TEMP_PREFIX = ".tmp-"
 DEFAULT_AUTO_BACKUPS_KEPT = 10
 
 KIND_MANUAL = "manuelle"
 KIND_AUTO = "auto"
-KIND_MIGRATION = "migration"  # faite juste avant une migration de schéma ; jamais tournée
+KIND_MIGRATION = "migration"  # made just before a schema migration; never rotated
+KIND_LABELS = {KIND_MANUAL: "Manual", KIND_AUTO: "Automatic", KIND_MIGRATION: "Migration"}
+
+
+def kind_label(kind: str) -> str:
+    """English display label of a persisted backup kind (unknown kinds shown as is)."""
+    return KIND_LABELS.get(kind, kind)
 
 
 class BackupError(VaultError):
-    """Fichier de sauvegarde invalide, illisible ou restauration impossible."""
+    """Invalid or unreadable backup file, or restore impossible."""
 
 
 @dataclass(frozen=True, slots=True)
 class BackupInfo:
-    """Informations lisibles sans mot de passe (en-tête)."""
+    """Information readable without the password (header)."""
 
     path: Path
     vault_id: str
@@ -92,14 +101,14 @@ def _b64(data: bytes) -> str:
 
 def _unb64(value: object) -> bytes:
     if not isinstance(value, str):
-        raise ValueError("Valeur base64 attendue.")
+        raise ValueError("Base64 value expected.")
     return base64.b64decode(value.encode("ascii"), validate=True)
 
 
 def _header_for(vault: Vault, kind: str) -> dict:
     meta = VaultMetaRepository(vault.connection).get()
     if meta is None:
-        raise VaultCorruptedError("Métadonnées du coffre absentes.")
+        raise VaultCorruptedError("Vault metadata missing.")
     return {
         "format": "mon-coffre-fort-backup",
         "version": 1,
@@ -121,7 +130,7 @@ def _header_for(vault: Vault, kind: str) -> dict:
 def _meta_from_header(header: dict) -> VaultMeta:
     try:
         return VaultMeta(
-            # Entiers stricts : validés par VaultMeta (pas de conversion « 3.7 » -> 3).
+            # Strict integers: validated by VaultMeta (no "3.7" -> 3 conversion).
             schema_version=header["schema_version"],
             format_version=header["format_version"],
             kdf_name=str(header["kdf_name"]),
@@ -134,33 +143,33 @@ def _meta_from_header(header: dict) -> VaultMeta:
             updated_at=str(header["created_at"]),
         )
     except (KeyError, TypeError, ValueError) as exc:
-        raise BackupError("En-tête de sauvegarde invalide.") from exc
+        raise BackupError("Invalid backup header.") from exc
 
 
 def _read(path: Path) -> tuple[bytes, dict, bytes]:
-    """Retourne (octets de l'en-tête, en-tête décodé, reste du fichier)."""
+    """Returns (header bytes, decoded header, rest of the file)."""
     try:
         data = path.read_bytes()
     except OSError as exc:
-        raise BackupError(f"Impossible de lire {path.name}.") from exc
+        raise BackupError(f"Cannot read {path.name}.") from exc
     if not data.startswith(MAGIC) or len(data) < len(MAGIC) + 4:
-        raise BackupError(f"{path.name} n'est pas une sauvegarde Mon Coffre-Fort.")
+        raise BackupError(f"{path.name} is not a Keyra backup.")
     (length,) = struct.unpack(">I", data[len(MAGIC):len(MAGIC) + 4])
     start = len(MAGIC) + 4
     if length > _MAX_HEADER_SIZE or start + length > len(data):
-        raise BackupError("Sauvegarde tronquée ou invalide.")
+        raise BackupError("Truncated or invalid backup.")
     header_bytes = data[start:start + length]
     try:
         header = json.loads(header_bytes)
     except json.JSONDecodeError as exc:
-        raise BackupError("En-tête de sauvegarde illisible.") from exc
+        raise BackupError("Unreadable backup header.") from exc
     if not isinstance(header, dict) or header.get("format") != "mon-coffre-fort-backup":
-        raise BackupError("Format de sauvegarde inconnu.")
+        raise BackupError("Unknown backup format.")
     version = header.get("version")
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
-        raise BackupError("Version de sauvegarde invalide.")
+        raise BackupError("Invalid backup version.")
     if version > 1:
-        raise BackupError("Sauvegarde créée par une version plus récente de l'application.")
+        raise BackupError("Backup created by a newer version of the application.")
     return header_bytes, header, data[start + length:]
 
 
@@ -169,20 +178,20 @@ def _read(path: Path) -> tuple[bytes, dict, bytes]:
 
 def create_backup(vault: Vault, directory: Path | None = None, kind: str = KIND_MANUAL,
                   destination: Path | None = None) -> Path:
-    """Crée une sauvegarde chiffrée du coffre (déverrouillé) et retourne son chemin."""
+    """Creates an encrypted backup of the (unlocked) vault and returns its path."""
     dek = vault._require_unlocked_key()
     header = _header_for(vault, kind)
     header_bytes = json.dumps(header, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    database_bytes = vault.connection.serialize()  # instantané cohérent (WAL inclus)
+    database_bytes = vault.connection.serialize()  # consistent snapshot (WAL included)
     key = crypto.derive_subkey(dek, _BACKUP_KEY_INFO)
     nonce, ciphertext = crypto.aes_gcm_encrypt(
         key, zlib.compress(database_bytes, 9), MAGIC + header_bytes
     )
     if destination is None:
-        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")  # heure locale
+        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")  # local time
         directory = directory or default_backup_dir()
         destination = directory / f"{vault.vault_id}_{stamp}_{kind}{BACKUP_SUFFIX}"
-        # Deux sauvegardes dans la même seconde : jamais d'écrasement silencieux.
+        # Two backups in the same second: never a silent overwrite.
         counter = 2
         while destination.exists():
             destination = directory / f"{vault.vault_id}_{stamp}-{counter}_{kind}{BACKUP_SUFFIX}"
@@ -207,15 +216,15 @@ def read_backup_info(path: Path) -> BackupInfo:
 
 
 def list_backups(directory: Path | None = None, vault_id: str | None = None) -> list[BackupInfo]:
-    """Sauvegardes présentes dans un dossier, les plus récentes d'abord."""
+    """Backups present in a folder, most recent first."""
     directory = directory or default_backup_dir()
     infos = []
     for path in directory.glob(f"*{BACKUP_SUFFIX}"):
-        if path.name.startswith(_TEMP_PREFIX):  # écriture en cours ou interrompue
+        if path.name.startswith(_TEMP_PREFIX):  # write in progress or interrupted
             continue
         try:
             info = read_backup_info(path)
-        except (BackupError, OSError):  # fichier invalide, ou supprimé entre-temps
+        except (BackupError, OSError):  # invalid file, or deleted in the meantime
             continue
         if vault_id is None or info.vault_id == vault_id:
             infos.append(info)
@@ -225,7 +234,7 @@ def list_backups(directory: Path | None = None, vault_id: str | None = None) -> 
 
 def rotate_auto_backups(vault_id: str, directory: Path | None = None,
                         keep: int = DEFAULT_AUTO_BACKUPS_KEPT) -> int:
-    """Ne conserve que les `keep` sauvegardes automatiques les plus récentes du coffre."""
+    """Keeps only the `keep` most recent automatic backups of the vault."""
     autos = [i for i in list_backups(directory, vault_id) if i.kind == KIND_AUTO]
     removed = 0
     for info in autos[keep:]:
@@ -238,22 +247,22 @@ def rotate_auto_backups(vault_id: str, directory: Path | None = None,
 
 
 def delete_backup(path: Path, vault_id: str) -> None:
-    """Supprime UNE sauvegarde du coffre `vault_id`.
+    """Deletes ONE backup of vault `vault_id`.
 
-    L'en-tête est relu d'abord : un fichier qui n'est pas une sauvegarde valide
-    de CE coffre n'est jamais supprimé (BackupError).
+    The header is read first: a file that is not a valid backup of THIS vault
+    is never deleted (BackupError).
     """
     path = Path(path)
     if path.suffix != BACKUP_SUFFIX or not path.is_file():
-        raise BackupError("Ce fichier n'est pas une sauvegarde.")
+        raise BackupError("This file is not a backup.")
     if read_backup_info(path).vault_id != vault_id:
-        raise BackupError("Cette sauvegarde appartient à un autre coffre.")
+        raise BackupError("This backup belongs to another vault.")
     path.unlink()
 
 
 def delete_backups(vault_id: str, directory: Path | None = None,
                    kind: str | None = None) -> int:
-    """Supprime les sauvegardes du coffre (toutes, ou d'un seul type) ; retourne leur nombre."""
+    """Deletes the vault backups (all of them, or of one kind); returns how many."""
     removed = 0
     for info in list_backups(directory, vault_id):
         if kind is not None and info.kind != kind:
@@ -267,64 +276,64 @@ def delete_backups(vault_id: str, directory: Path | None = None,
 
 
 def verify_backup(path: Path, dek: bytes) -> None:
-    """Vérifie qu'une sauvegarde est COMPLÈTEMENT restaurable avec la clé de données `dek`.
+    """Checks that a backup is FULLY restorable with the data key `dek`.
 
-    Relit le fichier, authentifie et déchiffre le corps, décompresse la base et
-    contrôle son intégrité SQLite, en mémoire uniquement (aucun fichier écrit).
-    Lève BackupError sinon. Utilisé avant une migration : on ne migre jamais sans
-    sauvegarde vérifiée.
+    Reads the file back, authenticates and decrypts the body, decompresses the
+    database and checks its SQLite integrity, in memory only (no file written).
+    Raises BackupError otherwise. Used before a migration: a migration never
+    runs without a verified backup.
     """
     header_bytes, header, rest = _read(path)
     meta = _meta_from_header(header)
     if len(rest) < crypto.NONCE_SIZE + crypto.TAG_SIZE:
-        raise BackupError("Sauvegarde tronquée.")
+        raise BackupError("Truncated backup.")
     key = crypto.derive_subkey(dek, _BACKUP_KEY_INFO)
     try:
         image = bytearray(zlib.decompress(crypto.aes_gcm_decrypt(
             key, rest[:crypto.NONCE_SIZE], rest[crypto.NONCE_SIZE:], MAGIC + header_bytes)))
     except (crypto.AuthenticationFailed, zlib.error) as exc:
-        raise BackupError("La sauvegarde ne se déchiffre pas avec la clé de ce coffre.") from exc
+        raise BackupError("The backup does not decrypt with the key of this vault.") from exc
     if len(image) < 100 or not image.startswith(b"SQLite format 3\x00"):
-        raise BackupError("Le contenu de la sauvegarde n'est pas une base valide.")
-    image[18] = image[19] = 1  # mode journal classique (comme à la restauration)
+        raise BackupError("The backup content is not a valid database.")
+    image[18] = image[19] = 1  # classic journal mode (as when restoring)
     conn = sqlite3.connect(":memory:")
     try:
         conn.deserialize(bytes(image))
         if conn.execute("PRAGMA integrity_check;").fetchone()[0] != "ok":
-            raise BackupError("La base contenue dans la sauvegarde est incohérente.")
+            raise BackupError("The database contained in the backup is inconsistent.")
         stored = conn.execute("SELECT schema_version FROM vault_meta WHERE id = 1;").fetchone()
         if stored is None or stored[0] != meta.schema_version:
-            raise BackupError("En-tête et contenu de la sauvegarde ne correspondent pas.")
+            raise BackupError("The backup header and content do not match.")
     except sqlite3.DatabaseError as exc:
-        raise BackupError("La base contenue dans la sauvegarde est illisible.") from exc
+        raise BackupError("The database contained in the backup is unreadable.") from exc
     finally:
         conn.close()
 
 
 def restore_backup(path: Path, master_password: str) -> VaultInfo:
-    """Restaure une sauvegarde sous forme d'un **nouveau** coffre.
+    """Restores a backup as a **new** vault.
 
-    Lève WrongMasterPasswordError (mauvais mot de passe), BackupError ou
-    VaultCorruptedError (fichier invalide ou altéré).
+    Raises WrongMasterPasswordError (wrong password), BackupError or
+    VaultCorruptedError (invalid or tampered file).
     """
     header_bytes, header, rest = _read(path)
     meta = _meta_from_header(header)
     check_supported_versions(meta)
-    dek = unwrap_data_key(master_password, meta)  # WrongMasterPasswordError si faux
+    dek = unwrap_data_key(master_password, meta)  # WrongMasterPasswordError if wrong
 
     if len(rest) < crypto.NONCE_SIZE + 16:
-        raise BackupError("Sauvegarde tronquée.")
+        raise BackupError("Truncated backup.")
     nonce, ciphertext = rest[:crypto.NONCE_SIZE], rest[crypto.NONCE_SIZE:]
     key = crypto.derive_subkey(dek, _BACKUP_KEY_INFO)
     try:
         compressed = crypto.aes_gcm_decrypt(key, nonce, ciphertext, MAGIC + header_bytes)
         database_bytes = zlib.decompress(compressed)
     except (crypto.AuthenticationFailed, zlib.error) as exc:
-        raise VaultCorruptedError("La sauvegarde a été altérée ou est corrompue.") from exc
+        raise VaultCorruptedError("The backup has been tampered with or is corrupted.") from exc
 
-    suffix = f" (restauré le {datetime.now().astimezone():%d/%m/%Y %H:%M})"
-    # Le nom vient de l'en-tête (non authentifié à ce stade) : borné et nettoyé.
-    base = " ".join(meta.vault_name.split())[:MAX_VAULT_NAME_LENGTH - len(suffix)] or "Coffre"
+    suffix = f" (restored {datetime.now().astimezone():%Y-%m-%d %H:%M})"
+    # The name comes from the header (not authenticated at this point): bounded and cleaned.
+    base = " ".join(meta.vault_name.split())[:MAX_VAULT_NAME_LENGTH - len(suffix)] or "Vault"
     restored_name = validate_vault_name(base + suffix)
     new_id = generate_vault_id(meta.vault_name)
     directory = vault_path(new_id)
@@ -332,28 +341,28 @@ def restore_backup(path: Path, master_password: str) -> VaultInfo:
     try:
         image = bytearray(database_bytes)
         if len(image) < 100 or not image.startswith(b"SQLite format 3\x00"):
-            raise BackupError("Le contenu de la sauvegarde n'est pas une base valide.")
-        # Octets 18-19 de l'en-tête SQLite = 2 en mode WAL : on repasse en mode
-        # journal classique pour que le fichier soit lisible seul (sans -wal) ;
-        # database.connect() réactive ensuite le WAL.
+            raise BackupError("The backup content is not a valid database.")
+        # Bytes 18-19 of the SQLite header = 2 in WAL mode: switch back to classic
+        # journal mode so that the file is readable on its own (without -wal);
+        # database.connect() then re-enables WAL.
         image[18] = image[19] = 1
         write_private_atomic(db_path, bytes(image), temp_prefix=_TEMP_PREFIX,
                              temp_suffix=BACKUP_SUFFIX)
         conn = database.connect(db_path)
         try:
             if conn.execute("PRAGMA integrity_check;").fetchone()[0] != "ok":
-                raise BackupError("La base contenue dans la sauvegarde est incohérente.")
+                raise BackupError("The database contained in the backup is inconsistent.")
             with conn:
                 VaultMetaRepository(conn).rename_vault(
                     restored_name, datetime.now(UTC).isoformat()
                 )
         finally:
             conn.close()
-        # Vérification complète : le coffre restauré doit se déverrouiller.
+        # Full verification: the restored vault must unlock.
         if meta.schema_version < database.SCHEMA_VERSION:
-            # Ancienne sauvegarde (v1 à v3) : coffre restauré tel quel, vérifié SANS être
-            # modifié ; sa mise à niveau sera PROPOSÉE à sa première ouverture (préflight,
-            # confirmation explicite, sauvegarde, migration, vérification : vault_upgrade).
+            # Old backup (v1 to v3): vault restored as is, verified WITHOUT being modified;
+            # its upgrade will be OFFERED when it is first opened (preflight, explicit
+            # confirmation, backup, migration, verification: vault_upgrade).
             Vault.open_for_migration(new_id, master_password).close()
         else:
             Vault.unlock(new_id, master_password).close()
@@ -361,7 +370,7 @@ def restore_backup(path: Path, master_password: str) -> VaultInfo:
         shutil.rmtree(directory, ignore_errors=True)
         if isinstance(exc, VaultError):
             raise
-        raise BackupError("La restauration a échoué ; aucun coffre n'a été créé.") from exc
+        raise BackupError("The restore failed; no vault was created.") from exc
 
     get_logger().info("Backup restored as new vault: %s", new_id)
     return VaultInfo(new_id, restored_name, meta.format_version, meta.created_at, meta.created_at)

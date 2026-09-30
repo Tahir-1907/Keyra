@@ -1,23 +1,27 @@
-"""Import et export d'entrées.
+"""Import and export of entries.
 
-Import (aperçu puis confirmation, en une seule transaction) :
-* CSV exportés par Bitwarden, KeePassXC, Chrome / Chromium / Edge / Brave,
-  Firefox, un CSV générique, ou le CSV de cette application ;
-* export chiffré de cette application (`.mcfexport`).
+Import (preview then confirmation, in a single transaction):
+* CSV files exported by Bitwarden, KeePassXC, Chrome / Chromium / Edge /
+  Brave, Firefox, a generic CSV, or this application's own CSV;
+* this application's encrypted export (`.mcfexport`).
 
-Export (le mot de passe maître est **redemandé** : une session laissée
-ouverte ne suffit pas pour tout exporter) :
-* `.mcfexport` chiffré — **recommandé** : JSON chiffré en AES-256-GCM avec
-  une clé Argon2id dérivée d'un mot de passe d'export choisi par
-  l'utilisateur (indépendant du coffre, pour transférer vers un autre coffre
-  ou une autre machine) ;
-* CSV **non chiffré** — pour migrer vers un autre logiciel ; le fichier
-  contient tous les mots de passe en clair (avertissement explicite dans
-  l'interface), il est créé en 0600.
+Export (the master password is **asked again**: a session left open is not
+enough to export everything):
+* encrypted `.mcfexport` — **recommended**: JSON encrypted with AES-256-GCM
+  using an Argon2id key derived from an export password chosen by the user
+  (independent from the vault, to transfer to another vault or machine);
+* **unencrypted** CSV — to move to other software; the file contains every
+  password in plaintext (explicit warning in the interface) and is created
+  as 0600.
 
-Les entrées de la corbeille ne sont jamais exportées. L'historique non plus.
-Les fichiers KeePass `.kdbx` ne sont pas lus directement (cela nécessiterait
-une dépendance supplémentaire) : exporter d'abord en CSV depuis KeePassXC.
+Entries in the Trash are never exported, and neither is the history.
+KeePass `.kdbx` files are not read directly (that would require an extra
+dependency): export them to CSV from KeePassXC first.
+
+Compatibility: the format keys ("moncoffre"…), the "mon-coffre-fort-export"
+container name and a few French input values written by versions 1.x
+("oui", "racine", "catégorie", built-in category names) are still accepted
+on import.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.core import crypto
+from app.core.builtin_categories import legacy_name_for_display
 from app.core.categories import CategoryService
 from app.core.entries import ENTRY_TYPES, Entry, EntryService, normalize_for_search
 from app.core.exceptions import (
@@ -48,34 +53,34 @@ from app.utils.logging import get_logger
 MAX_IMPORT_FILE_SIZE = 20 * 1024 * 1024
 EXPORT_SUFFIX = ".mcfexport"
 _EXPORT_AAD = b"mon-coffre-fort:export:v1"
-EXPORT_TEMP_PREFIX = ".tmp-export-"  # temporaires des exports (CSV, chiffré, PDF)
+EXPORT_TEMP_PREFIX = ".tmp-export-"  # export temporaries (CSV, encrypted, PDF)
 
 FORMAT_LABELS = {
-    "moncoffre": "Mon Coffre-Fort (CSV)",
-    "moncoffre_encrypted": "Mon Coffre-Fort (export chiffré)",
+    "moncoffre": "Keyra (CSV)",
+    "moncoffre_encrypted": "Keyra (encrypted export)",
     "bitwarden": "Bitwarden (CSV)",
     "keepassxc": "KeePassXC (CSV)",
     "chrome": "Chrome / Chromium / Edge / Brave (CSV)",
     "firefox": "Firefox (CSV)",
-    "generic": "CSV générique",
+    "generic": "Generic CSV",
 }
 
-# Colonnes obligatoires pour reconnaître un CSV Mon Coffre-Fort (v1.0 à v1.6) ;
-# « tags » (v1.7) est facultative à l'import : les anciens exports restent reconnus.
+# Required columns to recognize this application's CSV (v1.0 to v1.6);
+# "tags" (v1.7) is optional on import: older exports are still recognized.
 _CSV_BASE_COLUMNS = ("type", "name", "url", "username", "email", "password", "notes",
                      "category", "favorite", "extra")
 CSV_COLUMNS = (*_CSV_BASE_COLUMNS, "tags")
 
 
 class ImportExportError(VaultError):
-    """Fichier illisible, format non reconnu, options invalides…"""
+    """Unreadable file, unrecognized format, invalid options…"""
 
 
 @dataclass(slots=True)
 class ImportItem:
     entry: Entry
     category_name: str = ""
-    dropped_tags: int = 0  # tags invalides écartés (l'entrée, elle, est importée)
+    dropped_tags: int = 0  # invalid tags dropped (the entry itself is imported)
 
 
 @dataclass(slots=True)
@@ -101,7 +106,7 @@ class ImportResult:
     categories_created: list[str] = field(default_factory=list)
 
 
-# --- Lecture des CSV -------------------------------------------------------------------
+# --- CSV reading -------------------------------------------------------------------
 
 
 def _hostname(url: str) -> str:
@@ -113,12 +118,12 @@ def _hostname(url: str) -> str:
 
 
 def _notes_with(*parts: tuple[str, str]) -> str:
-    """Assemble des notes à partir de (libellé, valeur) non vides."""
+    """Builds notes from non-empty (label, value) pairs."""
     lines = []
     for label, value in parts:
         value = (value or "").strip()
         if value:
-            lines.append(value if not label else f"{label} : {value}")
+            lines.append(value if not label else f"{label}: {value}")
     return "\n".join(lines)
 
 
@@ -137,9 +142,9 @@ def _detect_format(headers: list[str]) -> str:
     if "password" in h and h & {"name", "title", "url", "username", "login"}:
         return "generic"
     raise ImportExportError(
-        "Format CSV non reconnu. Formats acceptés : Bitwarden, KeePassXC, Chrome, "
-        "Firefox, Mon Coffre-Fort, ou un CSV contenant au moins une colonne "
-        "« password » et une colonne « name », « title », « url » ou « username »."
+        "Unrecognized CSV format. Accepted formats: Bitwarden, KeePassXC, Chrome, "
+        "Firefox, Keyra, or a CSV with at least a \"password\" column and a "
+        "\"name\", \"title\", \"url\" or \"username\" column."
     )
 
 
@@ -147,7 +152,7 @@ def _row_to_item(fmt: str, row: dict[str, str]) -> ImportItem | None:
     r = {k.strip().lower(): (v or "") for k, v in row.items() if k}
 
     def get(*keys: str) -> str:
-        """Première valeur non vide parmi les colonnes `keys`."""
+        """First non-empty value among the `keys` columns."""
         return next((r[k].strip() for k in keys if r.get(k, "").strip()), "")
 
     category = ""
@@ -171,14 +176,14 @@ def _row_to_item(fmt: str, row: dict[str, str]) -> ImportItem | None:
                     extra = {}
             except json.JSONDecodeError:
                 extra = {}
-        # Tags séparés par des virgules (interdites dans un tag) ; validés à l'import.
+        # Comma-separated tags (commas are not allowed in a tag); validated on import.
         tags = [t.strip() for t in r.get("tags", "").split(",") if t.strip()]
     elif fmt == "bitwarden":
         entry_type = "secure_note" if get("type") == "note" else "login"
         name, username = get("name"), get("login_username")
         url = get("login_uri").split(",")[0].strip()
         password = r.get("login_password", "")
-        notes = _notes_with(("", r.get("notes", "")), ("Champs", r.get("fields", "")),
+        notes = _notes_with(("", r.get("notes", "")), ("Fields", r.get("fields", "")),
                             ("TOTP", r.get("login_totp", "")))
         category = get("folder")
         favorite = get("favorite") == "1"
@@ -197,7 +202,7 @@ def _row_to_item(fmt: str, row: dict[str, str]) -> ImportItem | None:
         name = _hostname(url)
         password = r.get("password", "")
         notes = ""
-    else:  # générique
+    else:  # generic
         name = get("name", "title", "service", "site")
         url = get("url", "uri", "website", "login_uri")
         username = get("username", "login", "user", "login_username")
@@ -210,7 +215,7 @@ def _row_to_item(fmt: str, row: dict[str, str]) -> ImportItem | None:
         return None
     if entry_type not in ENTRY_TYPES:
         entry_type = "login"
-    name = name or _hostname(url) or username or "Sans nom"
+    name = name or _hostname(url) or username or "Untitled"
     kept = _importable_tags(tags)
     return ImportItem(
         Entry(service_name=name, entry_type=entry_type, url=url, username=username,
@@ -222,9 +227,9 @@ def _row_to_item(fmt: str, row: dict[str, str]) -> ImportItem | None:
 
 
 def _importable_tags(raw: list[str]) -> tuple[str, ...]:
-    """Tags importés : les valides, sans doublon logique, 20 au plus.
+    """Imported tags: the valid ones, without logical duplicates, 20 at most.
 
-    Un tag invalide est écarté plutôt que de faire refuser toute l'entrée.
+    An invalid tag is dropped rather than rejecting the whole entry.
     """
     kept: list[str] = []
     for value in raw:
@@ -240,15 +245,15 @@ def _importable_tags(raw: list[str]) -> tuple[str, ...]:
 def parse_csv(path: Path) -> ImportPreview:
     try:
         if path.stat().st_size > MAX_IMPORT_FILE_SIZE:
-            raise ImportExportError("Fichier trop volumineux (20 Mo maximum).")
+            raise ImportExportError("File too large (20 MB maximum).")
         text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise ImportExportError("Le fichier doit être encodé en UTF-8.") from exc
+        raise ImportExportError("The file must be UTF-8 encoded.") from exc
     except OSError as exc:
-        raise ImportExportError(f"Impossible de lire {path.name}.") from exc
+        raise ImportExportError(f"Cannot read {path.name}.") from exc
     reader = csv.DictReader(io.StringIO(text, newline=""))
     if not reader.fieldnames:
-        raise ImportExportError("Fichier CSV vide.")
+        raise ImportExportError("Empty CSV file.")
     fmt = _detect_format(reader.fieldnames)
     items, skipped = [], 0
     try:
@@ -259,11 +264,11 @@ def parse_csv(path: Path) -> ImportPreview:
             else:
                 items.append(item)
     except csv.Error as exc:
-        raise ImportExportError(f"CSV invalide (ligne {reader.line_num}).") from exc
+        raise ImportExportError(f"Invalid CSV (line {reader.line_num}).") from exc
     return ImportPreview(fmt, items, skipped)
 
 
-# --- Export / import chiffré -------------------------------------------------------------
+# --- Encrypted export / import -------------------------------------------------------------
 
 
 def _entries_payload(service: EntryService, vault: Vault) -> list[dict]:
@@ -283,7 +288,7 @@ def _entries_payload(service: EntryService, vault: Vault) -> list[dict]:
 
 def _require_master_password(vault: Vault, master_password: str) -> None:
     if not vault.verify_master_password(master_password):
-        raise WrongMasterPasswordError("Mot de passe maître incorrect.")
+        raise WrongMasterPasswordError("Wrong master password.")
 
 
 def export_encrypted(service: EntryService, vault: Vault, master_password: str,
@@ -291,8 +296,8 @@ def export_encrypted(service: EntryService, vault: Vault, master_password: str,
     _require_master_password(vault, master_password)
     if len(export_password) < MIN_MASTER_PASSWORD_LENGTH:
         raise InvalidMasterPasswordPolicyError(
-            f"Le mot de passe d'export doit contenir au moins {MIN_MASTER_PASSWORD_LENGTH} "
-            "caractères."
+            f"The export password must contain at least {MIN_MASTER_PASSWORD_LENGTH} "
+            "characters."
         )
     entries = _entries_payload(service, vault)
     plaintext = json.dumps(
@@ -318,7 +323,7 @@ def export_encrypted(service: EntryService, vault: Vault, master_password: str,
 
 def export_csv(service: EntryService, vault: Vault, master_password: str,
                destination: Path) -> int:
-    """Export **non chiffré** (mots de passe en clair) — fichier créé en 0600."""
+    """**Unencrypted** export (plaintext passwords) — file created as 0600."""
     _require_master_password(vault, master_password)
     entries = _entries_payload(service, vault)
     buffer = io.StringIO(newline="")
@@ -350,31 +355,31 @@ def is_encrypted_export(path: Path) -> bool:
 def parse_encrypted_export(path: Path, export_password: str) -> ImportPreview:
     try:
         if path.stat().st_size > MAX_IMPORT_FILE_SIZE:
-            raise ImportExportError("Fichier trop volumineux (20 Mo maximum).")
+            raise ImportExportError("File too large (20 MB maximum).")
         container = json.loads(path.read_text(encoding="utf-8"))
         if container.get("format") != "mon-coffre-fort-export" or container.get("version") != 1:
-            raise ImportExportError("Ce fichier n'est pas un export Mon Coffre-Fort compatible.")
+            raise ImportExportError("This file is not a compatible Keyra export.")
         params = crypto.Argon2Params.from_dict(container["kdf_params"])
         salt = crypto.check_salt(base64.b64decode(container["salt"], validate=True))
         nonce = base64.b64decode(container["nonce"], validate=True)
         if len(nonce) != crypto.NONCE_SIZE:
-            raise ValueError("Nonce invalide.")
+            raise ValueError("Invalid nonce.")
         ciphertext = base64.b64decode(container["ciphertext"], validate=True)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-        raise ImportExportError("Export chiffré illisible ou invalide.") from exc
+        raise ImportExportError("Unreadable or invalid encrypted export.") from exc
     key = crypto.derive_key(export_password, salt, params)
     try:
         data = json.loads(crypto.aes_gcm_decrypt(key, nonce, ciphertext, _EXPORT_AAD))
     except crypto.AuthenticationFailed as exc:
         raise WrongMasterPasswordError(
-            "Mot de passe d'export incorrect (ou fichier altéré)."
+            "Wrong export password (or tampered file)."
         ) from exc
     items = []
     for raw in data.get("entries", []):
         row = {k: raw.get(k, "") for k in ("type", "name", "url", "username", "email",
                                             "password", "notes", "category")}
         row["favorite"] = "1" if raw.get("favorite") else "0"
-        raw_tags = raw.get("tags") or []  # valeur non textuelle : ignorée, jamais convertie
+        raw_tags = raw.get("tags") or []  # non-text value: ignored, never converted
         row["tags"] = (", ".join(t for t in raw_tags if isinstance(t, str))
                        if isinstance(raw_tags, list) else "")
         row["extra"] = json.dumps(raw.get("extra") or {}, ensure_ascii=False)
@@ -384,7 +389,7 @@ def parse_encrypted_export(path: Path, export_password: str) -> ImportPreview:
     return ImportPreview("moncoffre_encrypted", items)
 
 
-# --- Application de l'import --------------------------------------------------------------
+# --- Applying the import --------------------------------------------------------------
 
 
 def _dedup_key(e: Entry) -> tuple:
@@ -397,6 +402,11 @@ def apply_import(entries: EntryService, categories: CategoryService, preview: Im
     result = ImportResult()
     existing_categories = {normalize_for_search(c.name): c.id
                            for c in categories.list_categories()}
+    # Files written by versions 1.x name the built-in categories in French.
+    for c in categories.list_categories():
+        legacy = legacy_name_for_display(c.name) if c.is_builtin else None
+        if legacy is not None:
+            existing_categories.setdefault(normalize_for_search(legacy), c.id)
     known = set()
     if skip_duplicates:
         for summary in entries.list_entries():

@@ -58,7 +58,7 @@ class TestTrash(EntryTestCase):
         for i in ids:
             self.entries.delete_entry(i)
         old = (datetime.now(UTC) - timedelta(days=45)).isoformat()
-        store = self.vault.metadata  # v4 : la date de suppression est chiffrée
+        store = self.vault.metadata  # v4: the deletion date is encrypted
         with self.vault.connection:
             store.write_entry(ids[0], dataclasses.replace(store.entry(ids[0]), deleted_at=old))
         self.assertEqual(self.entries.purge_trash(30), 1)
@@ -83,12 +83,12 @@ class TestHistory(EntryTestCase):
         versions = self.entries.list_history(a)
         self.assertEqual(len(versions), 1)
         self.assertEqual(versions[0].entry.password, "ancien")
-        self.assertEqual(set(versions[0].changed), {"Mot de passe", "Notes"})
+        self.assertEqual(set(versions[0].changed), {"Password", "Notes"})
 
     def test_no_version_when_nothing_changed(self):
         a = self.entries.create_entry(Entry(service_name="Mail", password="x"))
         e = self.entries.get_entry(a)
-        e.is_favorite = True  # le statut favori ne crée pas de version
+        e.is_favorite = True  # the favorite status does not create a version
         self.entries.update_entry(e)
         self.assertEqual(self.entries.history_count(a), 0)
         self.assertTrue(self.entries.get_entry(a).is_favorite)
@@ -101,7 +101,7 @@ class TestHistory(EntryTestCase):
         old = self.entries.list_history(a)[0]
         self.entries.restore_version(old.id)
         self.assertEqual(self.entries.get_entry(a).password, "v1")
-        # La version remplacée (v2) est à son tour dans l'historique.
+        # The replaced version (v2) is in the history in turn.
         self.assertEqual(self.entries.list_history(a)[0].entry.password, "v2")
 
     def test_history_is_capped(self):
@@ -124,7 +124,7 @@ class TestHistory(EntryTestCase):
         raw = Path(self.vault._db_path).read_bytes()
         self.assertNotIn(b"secret-histo-1", raw)
         b = self.entries.create_entry(Entry(service_name="B"))
-        with conn:  # déplacer une version vers une autre entrée doit être détecté
+        with conn:  # moving a version to another entry must be detected
             conn.execute("UPDATE entry_history SET entry_id = ?", (b,))
         with self.assertRaises(EntryDecryptionError):
             self.entries.list_history(b)
@@ -155,9 +155,9 @@ class TestHistory(EntryTestCase):
 
 class TestMigration(EntryTestCase):
     def test_old_vault_requires_migration_and_gets_no_plaintext_copy(self):
-        # v1.6 : un coffre v1/v2 était mis à niveau au déverrouillage AVEC une copie .bak
-        # en clair. v1.7 : refus explicite, fichier intact, aucune copie ; la mise à niveau
-        # passe par la migration v4 (sauvegarde chiffrée), voir test_migration_v4.
+        # v1.6: a v1/v2 vault was upgraded on unlock WITH a plaintext .bak copy.
+        # v1.7: explicit refusal, file intact, no copy; the upgrade goes through the
+        # v4 migration (encrypted backup), see test_migration_v4.
         import hashlib
         import shutil
 
@@ -168,7 +168,7 @@ class TestMigration(EntryTestCase):
         target = vault_path("ancien-v1") / "vault.db"
         shutil.copyfile(fixture, target)
         conn = sqlite3.connect(target)
-        with conn:  # coffre v1 (Phase 1) : ni historique, ni clé de récupération
+        with conn:  # v1 vault (Phase 1): no history, no recovery key
             conn.execute("DROP TABLE entry_history;")
             conn.execute("DROP TABLE vault_recovery;")
             conn.execute("ALTER TABLE entries DROP COLUMN password_changed_at;")
@@ -187,7 +187,7 @@ class TestMigration(EntryTestCase):
         self.vault.close()
         with self.assertRaises(UnsupportedVaultVersionError):
             Vault.unlock(self.vault_id, MASTER)
-        # Remise en état pour tearDown (qui ferme self.vault).
+        # Restore the state for tearDown (which closes self.vault).
         conn = database.connect(db_path)
         with conn:
             conn.execute("UPDATE vault_meta SET schema_version = ?;", (database.SCHEMA_VERSION,))
@@ -209,7 +209,7 @@ class TestBackup(EntryTestCase):
             self.assertNotIn(plain, raw)
         info = backup.restore_backup(path, MASTER)
         self.assertNotEqual(info.vault_id, self.vault_id)
-        self.assertIn("restauré", info.vault_name)
+        self.assertIn("restored", info.vault_name)
         restored = Vault.unlock(info.vault_id, MASTER)
         from app.core.entries import EntryService
         self.assertEqual(EntryService(restored).get_entry(a).password, "pw-backup")
@@ -226,9 +226,9 @@ class TestBackup(EntryTestCase):
         stray = self.backup_dir / "notes.mcfbak"
         stray.write_bytes(b"pas une sauvegarde")
         with self.assertRaises(backup.BackupError):
-            backup.delete_backup(foreign, self.vault_id)  # autre coffre : refusé
+            backup.delete_backup(foreign, self.vault_id)  # another vault: refused
         with self.assertRaises(backup.BackupError):
-            backup.delete_backup(stray, self.vault_id)    # pas une sauvegarde : refusé
+            backup.delete_backup(stray, self.vault_id)    # not a backup: refused
         self.assertEqual(backup.delete_backups(self.vault_id, self.backup_dir,
                                                backup.KIND_AUTO), 2)
         self.assertFalse(any(p.exists() for p in autos))
@@ -254,7 +254,7 @@ class TestBackup(EntryTestCase):
         path.write_bytes(bytes(data))
         with self.assertRaises(VaultCorruptedError):
             backup.restore_backup(path, MASTER)
-        self.assertEqual(len(list_vaults()), 1)  # aucun coffre partiel laissé
+        self.assertEqual(len(list_vaults()), 1)  # no partial vault left behind
 
     def test_header_tampering_detected(self):
         path = backup.create_backup(self.vault, self.backup_dir)
@@ -309,9 +309,9 @@ class TestImportExport(EntryTestCase):
         gitlab = entries["GitLab"]
         self.assertEqual((gitlab.password, gitlab.username, gitlab.is_favorite),
                          ("pw1", "alice", True))
-        self.assertIn("TOTP : JBSWY3DP", gitlab.notes)
+        self.assertIn("TOTP: JBSWY3DP", gitlab.notes)
         self.assertEqual(entries["Code alarme"].entry_type, "secure_note")
-        self.assertEqual(self.category_id("Travail"), gitlab.category_id)
+        self.assertEqual(self.category_id("Work"), gitlab.category_id)
 
     def test_keepassxc_creates_categories(self):
         path = self.write_csv("kp.csv",
@@ -348,7 +348,7 @@ class TestImportExport(EntryTestCase):
     def test_encrypted_export_roundtrip_requires_master_password(self):
         self.entries.create_entry(Entry(service_name="Carte", entry_type="card",
                                         extra={"card_number": "4111", "cvv": "999"},
-                                        category_id=self.category_id("Finances")))
+                                        category_id=self.category_id("Finance")))
         dest = self.dir / "export.mcfexport"
         export_pw = secrets.token_urlsafe(12)
         with self.assertRaises(WrongMasterPasswordError):
@@ -363,7 +363,7 @@ class TestImportExport(EntryTestCase):
             import_export.parse_encrypted_export(dest, "mauvais-mdp-export")
         preview = import_export.parse_encrypted_export(dest, export_pw)
         item = preview.items[0]
-        self.assertEqual((item.entry.extra["cvv"], item.category_name), ("999", "Finances"))
+        self.assertEqual((item.entry.extra["cvv"], item.category_name), ("999", "Finance"))
 
     def test_csv_export_roundtrip(self):
         self.entries.create_entry(Entry(service_name="A", password="p,\"a\"\nb", notes="x"))
@@ -383,7 +383,7 @@ class TestImportExport(EntryTestCase):
 
 
 class TestMaliciousFiles(EntryTestCase):
-    """Fichiers piégés : paramètres Argon2id démesurés refusés AVANT toute dérivation."""
+    """Crafted files: oversized Argon2id parameters refused BEFORE any derivation."""
 
     HUGE: ClassVar[dict[str, int]] = {
         "time_cost": 10**9, "memory_cost": 2**40, "parallelism": 2**20, "hash_len": 32,
@@ -392,7 +392,7 @@ class TestMaliciousFiles(EntryTestCase):
     def test_params_bounds(self):
         from app.core import crypto
 
-        crypto.Argon2Params.from_dict(crypto.Argon2Params().to_dict())  # défauts acceptés
+        crypto.Argon2Params.from_dict(crypto.Argon2Params().to_dict())  # defaults accepted
         for bad in (self.HUGE,
                     {**crypto.Argon2Params().to_dict(), "memory_cost": 2 * 1024 * 1024},
                     {**crypto.Argon2Params().to_dict(), "time_cost": 0},
@@ -410,8 +410,8 @@ class TestMaliciousFiles(EntryTestCase):
         self.vault.close()
         with self.assertRaises(VaultCorruptedError):
             self.vault = Vault.unlock(self.vault_id, MASTER)
-        self.assertEqual([v.vault_name for v in list_vaults()], [self.vault_id])  # listé, illisible
-        # Remise en état pour tearDown.
+        self.assertEqual([v.vault_name for v in list_vaults()], [self.vault_id])  # unreadable
+        # Restore the state for tearDown.
         conn = database.connect(Path(self.vault._db_path))
         with conn:
             conn.execute("UPDATE vault_meta SET kdf_params_json = ?",

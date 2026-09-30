@@ -1,12 +1,11 @@
-"""Configuration du logging applicatif.
+"""Application logging configuration.
 
-Règle absolue : aucun secret (mot de passe maître, mots de passe stockés,
-clés dérivées, tokens, contenu de notes sécurisées, numéros de carte...)
-ne doit jamais atteindre un log, même en niveau DEBUG.
+Absolute rule: no secret (master password, stored passwords, derived keys,
+tokens, secure note content, card numbers...) must ever reach a log, not
+even at DEBUG level.
 
-Les modules métier ne doivent journaliser que des événements
-(ex: "Vault opened", "Entry created", "Failed unlock attempt"), jamais
-les valeurs sensibles associées.
+Domain modules must only log events (e.g. "Vault opened", "Entry created",
+"Failed unlock attempt"), never the associated sensitive values.
 """
 
 from __future__ import annotations
@@ -19,11 +18,11 @@ from app.utils.paths import log_file
 
 _LOGGER_NAME = "mon_coffre"
 
-# Filet de sécurité : si une valeur sensible finissait accidentellement dans
-# un message de log (bug de développement), on tente de la masquer via des
-# motifs génériques plutôt que de faire confiance uniquement à la discipline
-# des appelants. Ce n'est PAS une garantie absolue, seulement une défense
-# en profondeur.
+# Safety net: if a sensitive value ever ended up in a log message by accident
+# (development bug), try to redact it through generic patterns instead of
+# relying only on the discipline of the callers. This is NOT an absolute
+# guarantee, only defense
+# in depth.
 _SENSITIVE_KEY_PATTERN = re.compile(
     r"(?i)(password|mot_de_passe|master_password|secret|token|cvv|private_key)"
     r"\s*[=:]\s*\S+"
@@ -31,20 +30,20 @@ _SENSITIVE_KEY_PATTERN = re.compile(
 
 
 class RedactingFilter(logging.Filter):
-    """Filtre défensif masquant les motifs `cle=valeur` évoquant un secret.
+    """Defensive filter that redacts `key=value` patterns suggesting a secret.
 
-    Le message est d'abord **formaté avec ses arguments**, puis masqué, et les
-    arguments sont retirés : un secret passé en argument (`"password=%s"`)
-    est donc lui aussi masqué. (Masquer seulement le gabarit rendait le
-    formatage impossible, et le module logging affichait alors les arguments
-    bruts — donc le secret — dans son message d'erreur.)
+    The message is first **formatted with its arguments**, then redacted, and
+    the arguments are removed: a secret passed as an argument (`"password=%s"`)
+    is therefore redacted too. (Redacting only the template made formatting
+    impossible, and the logging module then printed the raw arguments — hence
+    the secret — in its error message.)
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # noqa: BLE001 - gabarit invalide : ne rien laisser passer
-            message = f"[message de log illisible, arguments masqués] {record.msg!s:.80}"
+        except Exception:  # noqa: BLE001 - invalid template: let nothing through
+            message = f"[unreadable log message, arguments redacted] {record.msg!s:.80}"
         record.msg = _SENSITIVE_KEY_PATTERN.sub(
             lambda m: m.group(0).split("=")[0].split(":")[0] + "=[REDACTED]",
             message,
@@ -56,7 +55,7 @@ class RedactingFilter(logging.Filter):
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     logger = logging.getLogger(_LOGGER_NAME)
     if logger.handlers:
-        return logger  # déjà configuré
+        return logger  # already configured
 
     logger.setLevel(level)
 

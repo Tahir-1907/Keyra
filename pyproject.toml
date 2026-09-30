@@ -1,69 +1,69 @@
-# Configuration des outils de développement de Mon Coffre-Fort.
+# Keyra development tool configuration.
 #
-# Pas de table [project] : l'application n'est pas un paquet pip installable
-# (elle se lance avec run.sh ou le paquet .deb), et la version a une source
-# unique, `__version__` dans app/__init__.py, lue par packaging/build-deb.sh.
-# Python 3.11 minimum (README, dépendance python3 du .deb).
+# No [project] table: the application is not a pip-installable package
+# (it runs through run.sh or the .deb package), and the version has a single
+# source, `__version__` in app/__init__.py, read by packaging/build-deb.sh.
+# Python 3.11 minimum (README, python3 dependency of the .deb).
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# Les tests restent aussi compatibles `python -m unittest discover -s tests`.
+# The tests also stay compatible with `python -m unittest discover -s tests`.
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 filterwarnings = [
-    # Une ressource non fermée (connexion SQLite, fichier) fait échouer la suite.
+    # An unclosed resource (SQLite connection, file) fails the suite.
     "error::ResourceWarning",
 ]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-# .venv, build/ et dist/ font partie des exclusions par défaut de Ruff.
+# .venv, build/ and dist/ are part of Ruff's default exclusions.
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle (erreurs)
-    "W",    # pycodestyle (avertissements)
-    "F",    # pyflakes : imports et variables inutilisés, noms indéfinis
-    "I",    # ordre des imports
-    "UP",   # syntaxe Python moderne (3.11)
-    "B",    # bugbear : pièges courants
-    "BLE",  # « except Exception » : chaque cas doit être justifié (noqa commenté)
+    "E",    # pycodestyle (errors)
+    "W",    # pycodestyle (warnings)
+    "F",    # pyflakes: unused imports and variables, undefined names
+    "I",    # import order
+    "UP",   # modern Python syntax (3.11)
+    "B",    # bugbear: common pitfalls
+    "BLE",  # "except Exception": each case must be justified (commented noqa)
     "SIM",  # simplifications
-    "DTZ",  # dates sans fuseau horaire
-    "S",    # sécurité (règles de bandit)
-    "RUF",  # règles propres à Ruff
-    # Contrôles de Bandit absents des règles stables de Ruff (voir README > Développement) :
-    "PLE2502",  # caractères Unicode bidirectionnels (« trojan source », Bandit B613)
+    "DTZ",  # dates without time zone
+    "S",    # security (Bandit rules)
+    "RUF",  # Ruff-specific rules
+    # Bandit checks missing from Ruff's stable rules (see README > Development):
+    "PLE2502",  # bidirectional Unicode characters ("trojan source", Bandit B613)
     "S401", "S402", "S403", "S404", "S405", "S406", "S407", "S408", "S409",
-    "S411", "S412", "S413", "S415",  # imports de modules sensibles (Bandit B401-B415)
+    "S411", "S412", "S413", "S415",  # imports of sensitive modules (Bandit B401-B415)
 ]
-# Les règles S4xx sont en « preview » : activées une par une, sans autre règle preview.
+# The S4xx rules are in "preview": enabled one by one, without any other preview rule.
 preview = true
 explicit-preview-rules = true
 ignore = [
-    # Libellés et textes de l'interface en français : « ’ », « « », « … » sont voulus.
+    # Typographic characters in texts, comments and test data (’, …, —, « ») are intended.
     "RUF001",
     "RUF002",
     "RUF003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Feuille de style QSS : une règle par ligne, plus lisible que découpée.
+# QSS style sheet: one rule per line, more readable than split.
 "app/ui/theme.py" = ["E501"]
 "tests/**" = [
-    "S101",  # assert : normal dans les tests
-    "S103",  # chmod permissif volontaire (test de conservation des permissions)
-    "S105",  # mots de passe « en dur » : valeurs de test
+    "S101",  # assert: normal in tests
+    "S103",  # intentionally permissive chmod (permission preservation test)
+    "S105",  # "hard-coded" passwords: test values
     "S106",
     "S107",
-    "S404",  # import de subprocess, pour appeler pdftotext
-    "S603",  # appels à pdftotext pour vérifier les PDF produits
+    "S404",  # subprocess import, to call pdftotext
+    "S603",  # pdftotext calls to check the generated PDFs
     "S607",
 ]
 
 [tool.ruff.lint.flake8-bugbear]
-# Valeurs par défaut immuables : dataclasses frozen et index Qt vide.
+# Immutable default values: frozen dataclasses and empty Qt index.
 extend-immutable-calls = [
     "app.core.generator.PasswordOptions",
     "app.core.generator.PassphraseOptions",

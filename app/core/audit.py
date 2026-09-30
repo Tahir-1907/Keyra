@@ -1,22 +1,22 @@
-"""Audit de sécurité du coffre (entièrement hors ligne).
+"""Vault security audit (fully offline).
 
-Déchiffre les entrées une à une, en mémoire, et produit un rapport qui ne
-contient **aucun secret** : uniquement des identifiants d'entrées, des noms
-de services et le motif du problème. Les noms de services ne sont pas des
-secrets (ils sont affichés dans l'interface), mais ils restent chiffrés au repos
-(métadonnées v4) : le rapport n'existe qu'en mémoire et n'est jamais écrit.
-Dans la corbeille, seules les entrées aux métadonnées illisibles sont signalées.
+Decrypts entries one at a time, in memory, and produces a report that contains
+**no secret**: only entry identifiers, service names and the reason for the
+finding. Service names are not secrets (they are shown in the interface), but
+they stay encrypted at rest (v4 metadata): the report exists only in memory
+and is never written. In the Trash, only entries with unreadable metadata are
+reported.
 
-Contrôles effectués :
-* mots de passe faibles (score ≤ 1, voir app.core.strength) ;
-* mots de passe réutilisés entre plusieurs entrées ;
-* entrées sans mot de passe (types qui en attendent un) ;
-* mots de passe inchangés depuis plus de `OLD_PASSWORD_DAYS` jours ;
-* cartes bancaires expirées ;
-* entrées illisibles (champ chiffré altéré).
+Checks performed:
+* weak passwords (score ≤ 1, see app.core.strength);
+* passwords reused across several entries;
+* entries without a password (types that expect one);
+* passwords unchanged for more than `OLD_PASSWORD_DAYS` days;
+* expired payment cards;
+* unreadable entries (tampered encrypted field).
 
-Les entrées de la corbeille ne sont pas auditées. Non couvert : la
-vérification de fuites en ligne (contraire au principe « hors ligne »).
+Entries in the Trash are not audited. Not covered: online breach checks
+(contrary to the "offline" principle).
 """
 
 from __future__ import annotations
@@ -45,12 +45,12 @@ KIND_EXPIRED_CARD = "expired_card"
 KIND_UNREADABLE = "unreadable"
 
 KIND_LABELS = {
-    KIND_UNREADABLE: "Entrées illisibles (altérées)",
-    KIND_REUSED: "Mots de passe réutilisés",
-    KIND_WEAK: "Mots de passe faibles",
-    KIND_EMPTY: "Entrées sans mot de passe",
-    KIND_OLD: "Mots de passe de plus d'un an",
-    KIND_EXPIRED_CARD: "Cartes expirées",
+    KIND_UNREADABLE: "Unreadable entries (tampered)",
+    KIND_REUSED: "Reused passwords",
+    KIND_WEAK: "Weak passwords",
+    KIND_EMPTY: "Entries without a password",
+    KIND_OLD: "Passwords older than one year",
+    KIND_EXPIRED_CARD: "Expired cards",
 }
 
 
@@ -67,7 +67,7 @@ class AuditReport:
     findings: list[AuditFinding] = field(default_factory=list)
     checked_entries: int = 0
     passwords_checked: int = 0
-    score: int = 100  # 0-100 : part des entrées sans problème
+    score: int = 100  # 0-100: share of entries without any finding
 
     def by_kind(self, kind: str) -> list[AuditFinding]:
         return [f for f in self.findings if f.kind == kind]
@@ -82,7 +82,7 @@ def _card_expired(expiry: str, today: date) -> bool:
         return False
     if year < 100:
         year += 2000
-    # Une carte est valable jusqu'au dernier jour du mois indiqué.
+    # A card is valid until the last day of the month shown.
     return (year, month) < (today.year, today.month)
 
 
@@ -94,10 +94,10 @@ def _age_in_days(iso: str, today: date) -> int | None:
 
 
 def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
-    today = today or datetime.now().astimezone().date()  # date locale de l'utilisateur
+    today = today or datetime.now().astimezone().date()  # the user's local date
     report = AuditReport()
-    # Les mots de passe sont regroupés par empreinte HMAC avec une clé
-    # éphémère propre à cet audit : aucun mot de passe en clair ne sert de clé.
+    # Passwords are grouped by HMAC fingerprint, with an ephemeral key
+    # specific to this audit: no plaintext password is ever used as a key.
     reuse_key = secrets.token_bytes(32)
     groups: dict[bytes, list[tuple[int, str]]] = {}
     entries_with_issue: set[int] = set()
@@ -110,7 +110,7 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
         except EntryDecryptionError:
             report.findings.append(
                 AuditFinding(KIND_UNREADABLE, summary.id, summary.service_name,
-                             "Un champ chiffré est corrompu ou a été altéré.")
+                             "An encrypted field is corrupted or has been tampered with.")
             )
             entries_with_issue.add(summary.id)
             continue
@@ -120,7 +120,7 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
             if not entry.password:
                 report.findings.append(
                     AuditFinding(KIND_EMPTY, summary.id, summary.service_name,
-                                 f"Aucun {spec.password_label.lower()} renseigné.")
+                                 f"No {spec.password_label.lower()} set.")
                 )
                 entries_with_issue.add(summary.id)
             else:
@@ -136,7 +136,7 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
                 if age is not None and age > OLD_PASSWORD_DAYS:
                     report.findings.append(
                         AuditFinding(KIND_OLD, summary.id, summary.service_name,
-                                     f"Inchangé depuis {age // 30} mois.")
+                                     f"Unchanged for {age // 30} months.")
                     )
                     entries_with_issue.add(summary.id)
                 digest = hmac.new(reuse_key, entry.password.encode("utf-8"),
@@ -146,16 +146,16 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
         if entry.entry_type == "card" and _card_expired(entry.extra.get("expiry", ""), today):
             report.findings.append(
                 AuditFinding(KIND_EXPIRED_CARD, summary.id, summary.service_name,
-                             f"Expirée ({entry.extra.get('expiry', '').strip()}).")
+                             f"Expired ({entry.extra.get('expiry', '').strip()}).")
             )
             entries_with_issue.add(summary.id)
 
-    # Métadonnées altérées : l'entrée n'apparaît plus dans la liste, elle est signalée ici.
+    # Tampered metadata: the entry no longer appears in the list, so it is reported here.
     for entry_id in service.unreadable_entries():
         report.checked_entries += 1
         report.findings.append(
-            AuditFinding(KIND_UNREADABLE, entry_id, f"Entrée n° {entry_id}",
-                         "Ses informations chiffrées sont corrompues ou ont été altérées.")
+            AuditFinding(KIND_UNREADABLE, entry_id, f"Entry #{entry_id}",
+                         "Its encrypted data is corrupted or has been tampered with.")
         )
         entries_with_issue.add(entry_id)
 
@@ -165,7 +165,7 @@ def run_audit(service: EntryService, today: date | None = None) -> AuditReport:
         for entry_id, name in members:
             others = ", ".join(n for i, n in members if i != entry_id)
             report.findings.append(
-                AuditFinding(KIND_REUSED, entry_id, name, f"Identique à : {others}")
+                AuditFinding(KIND_REUSED, entry_id, name, f"Same as: {others}")
             )
             entries_with_issue.add(entry_id)
 

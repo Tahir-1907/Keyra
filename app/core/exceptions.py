@@ -1,93 +1,93 @@
-"""Exceptions métier du cœur applicatif (crypto + coffre).
+"""Domain exceptions of the application core (crypto + vault).
 
-Avoir des exceptions dédiées permet à l'UI d'afficher des messages
-clairs sans jamais exposer de détails cryptographiques internes,
-et permet aux tests de vérifier précisément le comportement attendu.
+Dedicated exceptions let the UI show clear messages without ever exposing
+internal cryptographic details, and let the tests check the expected
+behavior precisely.
 """
 
 from __future__ import annotations
 
 
 class VaultError(Exception):
-    """Classe de base pour toutes les erreurs liées au coffre."""
+    """Base class for every vault-related error."""
 
 
 class WrongMasterPasswordError(VaultError):
-    """Le mot de passe maître fourni ne permet pas de déchiffrer le coffre."""
+    """The master password provided cannot decrypt the vault."""
 
 
 class VaultCorruptedError(VaultError):
-    """Le fichier/la base du coffre est corrompu ou a été altéré.
+    """The vault file/database is corrupted or has been tampered with.
 
-    Levée notamment quand la vérification d'authenticité AES-GCM échoue
-    pour une raison autre qu'un mauvais mot de passe (ex: octets tronqués,
-    fichier modifié par un tiers).
+    Raised in particular when AES-GCM authentication fails for a reason other
+    than a wrong password (e.g. truncated bytes, file modified by a third
+    party).
     """
 
 
 class UnsupportedVaultVersionError(VaultError):
-    """Le format du coffre est d'une version que cette application ne sait pas lire."""
+    """The vault format is a version that this application cannot read."""
 
 
 class VaultMigrationRequiredError(VaultError):
-    """Coffre d'un ancien format (v1 à v3) : il doit être mis à niveau vers v4 avant usage.
+    """Vault in an older format (v1 to v3): it must be upgraded to v4 before use.
 
-    Levée AVANT toute modification : le fichier du coffre n'est pas touché.
+    Raised BEFORE any modification: the vault file is not touched.
     """
 
 
 class VaultAlreadyExistsError(VaultError):
-    """Un coffre portant ce nom/identifiant existe déjà."""
+    """A vault with this name/identifier already exists."""
 
 
 class VaultNotFoundError(VaultError):
-    """Le coffre demandé est introuvable."""
+    """The requested vault cannot be found."""
 
 
 class VaultLockedError(VaultError):
-    """Tentative d'accéder aux données d'un coffre verrouillé."""
+    """Attempt to access the data of a locked vault."""
 
 
 class InvalidMasterPasswordPolicyError(VaultError):
-    """Le mot de passe maître fourni ne respecte pas la politique minimale."""
+    """The master password provided does not meet the minimum policy."""
 
 
 class RecoveryKeyError(VaultError):
-    """Clé de récupération incorrecte pour ce coffre."""
+    """Wrong recovery key for this vault."""
 
 
 class RecoveryKeyFormatError(RecoveryKeyError):
-    """Texte saisi qui ne peut pas être une clé de récupération (faute de frappe)."""
+    """Input that cannot be a recovery key (typo)."""
 
 
 class NoRecoveryKeyError(VaultError):
-    """Le coffre n'a pas de clé de récupération."""
+    """The vault has no recovery key."""
 
 
 class EntryError(VaultError):
-    """Erreur générique liée aux entrées du coffre."""
+    """Generic error related to vault entries."""
 
 
 class EntryNotFoundError(EntryError):
-    """L'entrée demandée n'existe pas (ou plus)."""
+    """The requested entry does not exist (or no longer exists)."""
 
 
 class EntryValidationError(EntryError):
-    """Les données d'une entrée sont invalides (champ obligatoire manquant...)."""
+    """An entry's data is invalid (missing required field...)."""
 
 
 class EntryDecryptionError(EntryError):
-    """Un champ chiffré d'une entrée n'a pas pu être authentifié/déchiffré.
+    """An encrypted field of an entry could not be authenticated/decrypted.
 
-    Indique une altération du fichier du coffre (ou le déplacement d'un blob
-    chiffré d'une entrée/d'un champ vers un autre, détecté grâce à la donnée
-    associée AES-GCM).
+    Indicates tampering with the vault file (or an encrypted blob moved from
+    one entry/field to another, detected thanks to the AES-GCM associated
+    data).
     """
 
 
 class CategoryError(VaultError):
-    """Erreur liée aux catégories (nom vide, doublon, catégorie intégrée...)."""
+    """Category-related error (empty name, duplicate, built-in category...)."""
 
 
 class CategoryDecryptionError(CategoryError):
-    """Le nom chiffré d'une catégorie n'a pas pu être authentifié/déchiffré (altération)."""
+    """The encrypted name of a category could not be authenticated/decrypted (tampering)."""

@@ -1,15 +1,15 @@
 [Desktop Entry]
 Type=Application
 Version=1.5
-Name=Mon Coffre-Fort
-GenericName=Gestionnaire de mots de passe
-Comment=Gestionnaire de mots de passe local, hors ligne et chiffré
+Name=Keyra
+GenericName=Password Manager
+Comment=Local, offline, encrypted password manager
 Exec=mon-coffre-fort
-# Installé en Phase 6 dans /usr/share/icons/hicolor/<taille>/apps/mon-coffre-fort.png
-# à partir de app/resources/icons/logo-<taille>.png
+# Installed in /usr/share/icons/hicolor/<size>/apps/mon-coffre-fort.png
+# from app/resources/icons/logo-<size>.png
 Icon=mon-coffre-fort
 Terminal=false
 Categories=Utility;Security;Qt;
-Keywords=mot de passe;password;coffre;vault;sécurité;
+Keywords=keyra;password;vault;security;passphrase;
 StartupWMClass=mon-coffre-fort
 StartupNotify=true

@@ -1,7 +1,7 @@
-"""Import, export et restauration de sauvegarde (modales et enchaînements).
+"""Import, export and backup restore (modals and flows).
 
-Toute la logique est dans app.services.import_export et app.services.backup ;
-ce module ne fait que demander fichiers, mots de passe et confirmations.
+All the logic lives in app.services.import_export and app.services.backup;
+this module only asks for files, passwords and confirmations.
 """
 
 from __future__ import annotations
@@ -49,25 +49,25 @@ class _BusyCursor:
 
 def _when(iso: str) -> str:
     try:
-        return datetime.fromisoformat(iso).astimezone().strftime("%d/%m/%Y à %H:%M")
+        return datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return iso
 
 
 class PasswordPrompt(PremiumDialog):
-    """Demande d'un mot de passe (champ masqué), vidé à la fermeture."""
+    """Asks for a password (masked field), cleared on close."""
 
     def __init__(self, title: str, message: str, parent: QWidget | None = None,
                  icon: str = "key-round") -> None:
         super().__init__(parent, title, icon=icon, width=460)
         self.body.addWidget(ui.label(message, "Muted", wrap=True))
-        self.password = PasswordField("Mot de passe", leading_icon="lock")
+        self.password = PasswordField("Password", leading_icon="lock")
         self.password.returnPressed.connect(self.accept)
         self.body.addWidget(self.password)
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, ok = self.add_buttons("Annuler", "Valider")
+        _, ok = self.add_buttons("Cancel", "OK")
         ok.clicked.connect(self.accept)
 
     def ask(self, error: str = "") -> str | None:
@@ -90,17 +90,17 @@ class PasswordPrompt(PremiumDialog):
 class ImportPreviewDialog(PremiumDialog):
     def __init__(self, preview: import_export.ImportPreview, parent: QWidget | None = None) -> None:
         count = len(preview.items)
-        super().__init__(parent, "Importer des comptes",
-                         f"{count} compte(s) détecté(s) — format : {preview.format_label}."
-                         + (f" {preview.skipped_rows} ligne(s) vide(s) ignorée(s)."
+        super().__init__(parent, "Import entries",
+                         f"{count} entry(ies) found — format: {preview.format_label}."
+                         + (f" {preview.skipped_rows} empty row(s) ignored."
                             if preview.skipped_rows else "")
-                         + (f" {preview.dropped_tags} tag(s) invalide(s) ou en double "
-                            "seront ignorés." if preview.dropped_tags else ""),
+                         + (f" {preview.dropped_tags} invalid or duplicate tag(s) "
+                            "will be ignored." if preview.dropped_tags else ""),
                          icon="file-down", width=760)
-        self.body.addWidget(ui.label("Les mots de passe ne sont pas affichés dans cet aperçu.",
+        self.body.addWidget(ui.label("Passwords are not shown in this preview.",
                                      "Faint"))
         table = QTableWidget(min(count, _PREVIEW_ROWS), 5)
-        table.setHorizontalHeaderLabels(["Nom", "Identifiant", "URL", "Catégorie", "Type"])
+        table.setHorizontalHeaderLabels(["Name", "Username", "URL", "Category", "Type"])
         table.verticalHeader().hide()
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -120,34 +120,34 @@ class ImportPreviewDialog(PremiumDialog):
         table.setMinimumHeight(280)
         self.body.addWidget(table)
         if count > _PREVIEW_ROWS:
-            self.body.addWidget(ui.label(f"… et {count - _PREVIEW_ROWS} autre(s).", "Faint"))
+            self.body.addWidget(ui.label(f"… and {count - _PREVIEW_ROWS} more.", "Faint"))
         self.create_categories = ui.ToggleSwitch(
-            "Créer les catégories manquantes (dossiers / groupes du fichier)")
+            "Create the missing categories (folders / groups of the file)")
         self.create_categories.setChecked(True)
         self.skip_duplicates = ui.ToggleSwitch(
-            "Ignorer les doublons (même nom, identifiant, URL et mot de passe)")
+            "Skip duplicates (same name, username, URL and password)")
         self.skip_duplicates.setChecked(True)
         self.body.addWidget(self.create_categories)
         self.body.addWidget(self.skip_duplicates)
-        _, confirm = self.add_buttons("Annuler", f"Importer {count} compte(s)",
+        _, confirm = self.add_buttons("Cancel", f"Import {count} entry(ies)",
                                       confirm_icon="file-down")
         confirm.setEnabled(count > 0)
         confirm.clicked.connect(self.accept)
 
 
 def run_import(parent: QWidget, entries: EntryService, categories: CategoryService) -> bool:
-    """Enchaînement complet ; retourne True si des comptes ont été importés."""
+    """Complete flow; returns True if entries were imported."""
     path_str, _ = QFileDialog.getOpenFileName(
-        parent, "Importer des comptes", str(Path.home()),
-        "Fichiers pris en charge (*.csv *.mcfexport);;CSV (*.csv);;"
-        "Export chiffré Mon Coffre-Fort (*.mcfexport);;Tous les fichiers (*)")
+        parent, "Import entries", str(Path.home()),
+        "Supported files (*.csv *.mcfexport);;CSV (*.csv);;"
+        "Keyra encrypted export (*.mcfexport);;All files (*)")
     if not path_str:
         return False
     path = Path(path_str)
     try:
         if import_export.is_encrypted_export(path):
-            prompt = PasswordPrompt("Export chiffré",
-                                    f"Mot de passe d'export du fichier « {path.name} ».", parent)
+            prompt = PasswordPrompt("Encrypted export",
+                                    f"Export password of the file \"{path.name}\".", parent)
             error = ""
             while True:
                 password = prompt.ask(error)
@@ -176,30 +176,30 @@ def run_import(parent: QWidget, entries: EntryService, categories: CategoryServi
                 create_categories=dialog.create_categories.isChecked(),
                 skip_duplicates=dialog.skip_duplicates.isChecked())
     except VaultError as exc:
-        dialogs.alert(parent, "Import impossible", f"{exc}\n\nAucun compte n'a été importé.")
+        dialogs.alert(parent, "Import impossible", f"{exc}\n\nNo entry was imported.")
         return False
 
-    lines = [f"{result.imported} compte(s) importé(s)."]
+    lines = [f"{result.imported} entry(ies) imported."]
     if result.duplicates:
-        lines.append(f"{result.duplicates} doublon(s) ignoré(s).")
+        lines.append(f"{result.duplicates} duplicate(s) skipped.")
     if result.invalid:
-        lines.append(f"{result.invalid} entrée(s) invalide(s) ignorée(s).")
+        lines.append(f"{result.invalid} invalid entry(ies) ignored.")
     if preview.dropped_tags:
-        lines.append(f"{preview.dropped_tags} tag(s) invalide(s) ou en double ignoré(s).")
+        lines.append(f"{preview.dropped_tags} invalid or duplicate tag(s) ignored.")
     if result.categories_created:
-        lines.append("Catégories créées : " + ", ".join(result.categories_created) + ".")
+        lines.append("Categories created: " + ", ".join(result.categories_created) + ".")
     if preview.format_key != "moncoffre_encrypted":
-        if dialogs.confirm(parent, "Import terminé — supprimer le fichier CSV ?",
-                           " ".join(lines) + "\n\nCe fichier contient vos mots de passe EN "
-                           "CLAIR. Il est recommandé de le supprimer maintenant.",
-                           "Supprimer le fichier", danger=True, icon="file-down"):
+        if dialogs.confirm(parent, "Import complete — delete the CSV file?",
+                           " ".join(lines) + "\n\nThis file contains your passwords IN "
+                           "PLAINTEXT. Deleting it now is recommended.",
+                           "Delete the file", danger=True, icon="file-down"):
             try:
                 path.unlink()
             except OSError as exc:
-                dialogs.alert(parent, "Suppression impossible",
-                              f"Le fichier n'a pas pu être supprimé : {exc.strerror}.")
+                dialogs.alert(parent, "Deletion impossible",
+                              f"The file could not be deleted: {exc.strerror}.")
     else:
-        dialogs.alert(parent, "Import terminé", " ".join(lines), kind="info")
+        dialogs.alert(parent, "Import complete", " ".join(lines), kind="info")
     return result.imported > 0
 
 
@@ -211,8 +211,8 @@ class ExportDialog(PremiumDialog):
 
     def __init__(self, entries: EntryService, vault: Vault, parent: QWidget | None = None,
                  initial: str = "encrypted") -> None:
-        super().__init__(parent, "Exporter les comptes",
-                         "La corbeille et l'historique ne sont pas exportés.",
+        super().__init__(parent, "Export entries",
+                         "The Trash and the history are not exported.",
                          icon="file-up", width=540)
         self._entries = entries
         self._vault = vault
@@ -220,22 +220,22 @@ class ExportDialog(PremiumDialog):
         self.exported_count = 0
         self.exported_protected = False
 
-        self.encrypted = QRadioButton("Export chiffré (.mcfexport) — recommandé")
-        self.plain_csv = QRadioButton("CSV non chiffré — pour migrer vers un autre logiciel")
-        self.pdf = QRadioButton("PDF — pour imprimer une copie papier")
+        self.encrypted = QRadioButton("Encrypted export (.mcfexport) — recommended")
+        self.plain_csv = QRadioButton("Unencrypted CSV — to move to other software")
+        self.pdf = QRadioButton("PDF — to print a paper copy")
         group = QButtonGroup(self)
         for button in (self.encrypted, self.plain_csv, self.pdf):
             group.addButton(button)
             self.body.addWidget(button)
         {"csv": self.plain_csv, "pdf": self.pdf}.get(initial, self.encrypted).setChecked(True)
 
-        self.master = PasswordField("Mot de passe maître du coffre", leading_icon="lock")
-        self.body.addWidget(ui.label("Mot de passe maître (requis)", "FieldLabel"))
+        self.master = PasswordField("Vault master password", leading_icon="lock")
+        self.body.addWidget(ui.label("Master password (required)", "FieldLabel"))
         self.body.addWidget(self.master)
-        self.protect_pdf = ui.ToggleSwitch("Protéger le PDF par un mot de passe (recommandé)")
+        self.protect_pdf = ui.ToggleSwitch("Protect the PDF with a password (recommended)")
         if pdf_export.protection_available():
             self.protect_pdf.setChecked(True)
-        else:  # dépendance manquante : signalée, jamais contournée
+        else:  # missing dependency: reported, never bypassed
             self.protect_pdf.setEnabled(False)
             self.protect_pdf.setToolTip(pdf_export.MISSING_DEPENDENCY)
         self.protection_missing = ui.label(pdf_export.MISSING_DEPENDENCY, "Faint", wrap=True)
@@ -245,28 +245,28 @@ class ExportDialog(PremiumDialog):
         fields = QVBoxLayout(self._export_fields)
         fields.setContentsMargins(0, 0, 0, 0)
         fields.setSpacing(8)
-        self.export_password = PasswordField("8 caractères minimum")
+        self.export_password = PasswordField("8 characters minimum")
         self.export_confirm = PasswordField("Confirmation")
-        self.export_password_label = ui.label("Mot de passe de l'export", "FieldLabel")
+        self.export_password_label = ui.label("Export password", "FieldLabel")
         fields.addWidget(self.export_password_label)
         fields.addWidget(self.export_password)
         fields.addWidget(self.export_confirm)
         self.pdf_note = ui.label(
-            "Différent du mot de passe maître. Le PDF est chiffré en AES-256 : ce mot de passe "
-            "sera demandé à l'ouverture. La copie imprimée, elle, reste lisible.",
+            "Different from the master password. The PDF is encrypted with AES-256: this "
+            "password will be asked when it is opened. The printed copy stays readable.",
             "Faint", wrap=True)
         fields.addWidget(self.pdf_note)
         self.body.addWidget(self._export_fields)
 
         self.warning = ui.label("", wrap=True)
         self.warning.setStyleSheet(f"color: {theme.DANGER};")
-        self.acknowledge = ui.ToggleSwitch("Je comprends que ce fichier ne sera pas protégé")
+        self.acknowledge = ui.ToggleSwitch("I understand that this file will not be protected")
         self.body.addWidget(self.warning)
         self.body.addWidget(self.acknowledge)
         self.error = ui.label("", "Error", wrap=True)
         self.error.hide()
         self.body.addWidget(self.error)
-        _, self.go = self.add_buttons("Annuler", "Choisir l'emplacement…",
+        _, self.go = self.add_buttons("Cancel", "Choose location…",
                                       confirm_icon="file-up")
         self.go.clicked.connect(self._export)
         for button in (self.encrypted, self.plain_csv, self.pdf):
@@ -285,18 +285,18 @@ class ExportDialog(PremiumDialog):
         self.protection_missing.setVisible(pdf and not pdf_export.protection_available())
         self.pdf_note.setVisible(self._pdf_protected)
         self.export_password_label.setText(
-            "Mot de passe du PDF" if pdf else "Mot de passe de l'export")
-        # Chiffré = export .mcfexport, ou PDF protégé : ni avertissement ni confirmation.
+            "PDF password" if pdf else "Export password")
+        # Encrypted = .mcfexport export, or protected PDF: no warning and no confirmation.
         encrypted = self.encrypted.isChecked() or self._pdf_protected
         if pdf:
             self.warning.setText(
-                "Le PDF contiendra TOUS vos mots de passe EN CLAIR, sans aucune protection. "
-                "Imprimez-le, rangez la copie papier sous clé, puis supprimez le fichier.")
+                "The PDF will contain ALL your passwords IN PLAINTEXT, without any protection. "
+                "Print it, keep the paper copy locked away, then delete the file.")
         else:
             self.warning.setText(
-                "Le fichier CSV contiendra TOUS vos mots de passe EN CLAIR : toute personne ou "
-                "tout programme y ayant accès pourra les lire. Supprimez-le dès la migration "
-                "terminée.")
+                "The CSV file will contain ALL your passwords IN PLAINTEXT: any person or "
+                "program with access to it will be able to read them. Delete it as soon as the "
+                "move is complete.")
         self._export_fields.setVisible(encrypted)
         self.warning.setVisible(not encrypted)
         self.acknowledge.setVisible(not encrypted)
@@ -312,19 +312,19 @@ class ExportDialog(PremiumDialog):
         pdf = self.pdf.isChecked()
         if (encrypted or self._pdf_protected) and \
                 self.export_password.text() != self.export_confirm.text():
-            self._fail("Les deux mots de passe " + ("du PDF" if pdf else "d'export")
-                       + " ne correspondent pas.")
+            self._fail("The two " + ("PDF" if pdf else "export")
+                       + " passwords do not match.")
             return
         if pdf:
-            suffix, name, file_filter = (pdf_export.PDF_SUFFIX, "mon-coffre-mots-de-passe",
+            suffix, name, file_filter = (pdf_export.PDF_SUFFIX, "keyra-passwords",
                                          "PDF (*.pdf)")
         elif encrypted:
-            suffix, name, file_filter = (import_export.EXPORT_SUFFIX, "mon-coffre-export",
-                                         "Export chiffré (*.mcfexport)")
+            suffix, name, file_filter = (import_export.EXPORT_SUFFIX, "keyra-export",
+                                         "Encrypted export (*.mcfexport)")
         else:
-            suffix, name, file_filter = ".csv", "mon-coffre-export", "CSV (*.csv)"
+            suffix, name, file_filter = ".csv", "keyra-export", "CSV (*.csv)"
         default = Path.home() / f"{name}-{datetime.now().astimezone():%Y%m%d}{suffix}"
-        path_str, _ = QFileDialog.getSaveFileName(self, "Enregistrer l'export", str(default),
+        path_str, _ = QFileDialog.getSaveFileName(self, "Save the export", str(default),
                                                   file_filter)
         if not path_str:
             return
@@ -348,7 +348,7 @@ class ExportDialog(PremiumDialog):
             self._fail(str(exc))
             return
         except OSError as exc:
-            self._fail(f"Écriture impossible : {exc.strerror}.")
+            self._fail(f"Write impossible: {exc.strerror}.")
             return
         self.exported_path = path
         self.exported_count = count
@@ -361,7 +361,7 @@ class ExportDialog(PremiumDialog):
         super().done(result)
 
 
-# --- Sauvegardes ------------------------------------------------------------------------------
+# --- Backups ------------------------------------------------------------------------------
 
 
 def open_backup_folder(directory: Path | None = None) -> None:
@@ -375,17 +375,17 @@ def describe_backup_location(path: Path) -> str:
 
 
 def restore_file(parent: QWidget, path: Path) -> VaultInfo | None:
-    """Restaure un fichier .mcfbak précis en tant que NOUVEAU coffre."""
+    """Restores a given .mcfbak file as a NEW vault."""
     try:
         info = backup.read_backup_info(path)
     except VaultError as exc:
-        dialogs.alert(parent, "Sauvegarde illisible", str(exc))
+        dialogs.alert(parent, "Unreadable backup", str(exc))
         return None
     prompt = PasswordPrompt(
-        "Restaurer une sauvegarde",
-        f"Sauvegarde du coffre « {info.vault_name} » du {_when(info.created_at)} "
-        f"({info.kind}). Elle sera restaurée comme un NOUVEAU coffre : le coffre actuel "
-        "n'est pas modifié. Mot de passe maître en vigueur au moment de la sauvegarde :",
+        "Restore a backup",
+        f"Backup of the vault \"{info.vault_name}\" from {_when(info.created_at)} "
+        f"({backup.kind_label(info.kind)}). It will be restored as a NEW vault: the current "
+        "vault is not modified. Master password in effect when the backup was made:",
         parent, icon="rotate-ccw")
     error = ""
     while True:
@@ -396,17 +396,17 @@ def restore_file(parent: QWidget, path: Path) -> VaultInfo | None:
             with _BusyCursor():
                 return backup.restore_backup(path, password)
         except WrongMasterPasswordError:
-            error = "Mot de passe maître incorrect pour cette sauvegarde."
+            error = "Wrong master password for this backup."
         except VaultError as exc:
-            dialogs.alert(parent, "Restauration impossible", str(exc))
+            dialogs.alert(parent, "Restore impossible", str(exc))
             return None
 
 
 def run_restore(parent: QWidget, start_dir: Path | None = None) -> VaultInfo | None:
-    """Choix d'un fichier .mcfbak puis restauration en tant que nouveau coffre."""
+    """Choice of a .mcfbak file, then restore as a new vault."""
     path_str, _ = QFileDialog.getOpenFileName(
-        parent, "Restaurer une sauvegarde", str(start_dir or default_backup_dir()),
-        "Sauvegardes Mon Coffre-Fort (*.mcfbak);;Tous les fichiers (*)")
+        parent, "Restore a backup", str(start_dir or default_backup_dir()),
+        "Keyra backups (*.mcfbak);;All files (*)")
     if not path_str:
         return None
     return restore_file(parent, Path(path_str))

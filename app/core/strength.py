@@ -1,20 +1,19 @@
-"""Estimation de la robustesse d'un mot de passe (hors ligne).
+"""Password strength estimation (offline).
 
-Approche inspirée de zxcvbn, volontairement simple et sans dépendance :
-le mot de passe est découpé de gauche à droite en motifs prévisibles
-(mot de passe courant, mot du dictionnaire éventuellement en « leet »,
-année, répétition, suite, rangée de clavier), chacun coûtant peu de bits à
-un attaquant, le reste étant compté comme caractères aléatoires de
-l'alphabet utilisé. On obtient une **estimation** d'entropie effective, pas
-une garantie : un mot de passe généré aléatoirement reste le seul moyen
-d'en être sûr.
+Approach inspired by zxcvbn, deliberately simple and dependency-free: the
+password is split from left to right into predictable patterns (common
+password, dictionary word possibly in "leet", year, repetition, sequence,
+keyboard row), each costing an attacker only a few bits, and the rest is
+counted as random characters from the alphabet in use. The result is an
+**estimate** of the effective entropy, not a guarantee: a randomly generated
+password remains the only way to be sure.
 
-Dictionnaires utilisés s'ils sont présents : /usr/share/dict/french
-(paquet `wfrench`) et /usr/share/dict/american-english (`wamerican`).
-Sans eux, seule la détection des mots de passe courants intégrée
-ci-dessous s'applique (l'estimation est alors plus optimiste).
+Dictionaries used when present: /usr/share/dict/french (package `wfrench`)
+and /usr/share/dict/american-english (`wamerican`). Without them, only the
+built-in detection of common passwords below applies (the estimate is then
+more optimistic).
 
-Aucune valeur évaluée n'est journalisée ni conservée.
+No evaluated value is logged or kept.
 """
 
 from __future__ import annotations
@@ -30,8 +29,8 @@ DICTIONARY_PATHS = (
     Path("/usr/share/dict/american-english"),
 )
 
-# Mots de passe parmi les plus répandus (listes publiques de fuites) :
-# ils seraient testés en tout premier par un attaquant.
+# Some of the most widespread passwords (public breach lists):
+# an attacker would try them first.
 COMMON_PASSWORDS = frozenset(
     """
     password motdepasse azerty qwerty qwertz azertyuiop qwertyuiop 123456 1234567
@@ -40,7 +39,7 @@ COMMON_PASSWORDS = frozenset(
     admin administrator root toor letmein welcome monkey dragon master sunshine
     princess football baseball superman batman trustno1 passw0rd changeme secret
     motdepass nicolas camille julien thomas chocolat
-    """.split()  # noqa: SIM905 - bloc de mots plus lisible qu'une liste littérale
+    """.split()  # noqa: SIM905 - a block of words reads better than a list literal
 )
 
 KEYBOARD_ROWS = (
@@ -52,14 +51,14 @@ KEYBOARD_ROWS = (
 _LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
                        "7": "t", "@": "a", "$": "s", "!": "i", "8": "b"})
 
-LABELS = ("Très faible", "Faible", "Moyen", "Fort", "Très fort")
-_SCORE_THRESHOLDS = (28, 40, 60, 80)  # bits : <28 => 0, <40 => 1, ...
+LABELS = ("Very weak", "Weak", "Fair", "Strong", "Very strong")
+_SCORE_THRESHOLDS = (28, 40, 60, 80)  # bits: <28 => 0, <40 => 1, ...
 
 
 @dataclass(frozen=True, slots=True)
 class StrengthResult:
-    score: int            # 0 (très faible) à 4 (très fort)
-    entropy_bits: float   # estimation de l'entropie effective
+    score: int            # 0 (very weak) to 4 (very strong)
+    entropy_bits: float   # estimate of the effective entropy
     label: str
     warnings: tuple[str, ...]
 
@@ -127,7 +126,7 @@ def score_for_bits(bits: float) -> int:
 
 def estimate_strength(password: str) -> StrengthResult:
     if not password:
-        return StrengthResult(0, 0.0, LABELS[0], ("Mot de passe vide.",))
+        return StrengthResult(0, 0.0, LABELS[0], ("Empty password.",))
 
     pool_bits = math.log2(_pool_size(password))
     lower = _strip_accents(password).lower()
@@ -137,32 +136,32 @@ def estimate_strength(password: str) -> StrengthResult:
 
     if unleet in COMMON_PASSWORDS or lower in COMMON_PASSWORDS:
         return StrengthResult(0, math.log2(len(COMMON_PASSWORDS)), LABELS[0],
-                              ("Ce mot de passe fait partie des plus utilisés au monde.",))
+                              ("This password is one of the most used in the world.",))
 
     bits = 0.0
     i = 0
     n = len(password)
     while i < n:
-        candidates: list[tuple[int, float, str]] = []  # (longueur, coût, avertissement)
+        candidates: list[tuple[int, float, str]] = []  # (length, cost, warning)
 
         repeat = _run_length(lower, i, lambda a, b: a == b)
         if repeat >= 3:
             candidates.append((repeat, pool_bits + math.log2(repeat),
-                               "Évitez les caractères répétés (aaa, 111…)."))
+                               "Avoid repeated characters (aaa, 111…)."))
 
         for step in (1, -1):
             seq = _run_length(lower, i, lambda a, b, s=step: ord(b) - ord(a) == s)
             if seq >= 3:
                 candidates.append((seq, pool_bits + math.log2(seq) + 1,
-                                   "Évitez les suites (abc, 123, 987…)."))
+                                   "Avoid sequences (abc, 123, 987…)."))
 
         kb = _keyboard_run(lower, i)
         if kb >= 4:
             candidates.append((kb, pool_bits + math.log2(kb) + 2,
-                               "Évitez les suites de touches du clavier (azerty, qsdf…)."))
+                               "Avoid keyboard patterns (qwerty, asdf…)."))
 
         if password[i : i + 4].isdigit() and password[i : i + 2] in ("19", "20"):
-            candidates.append((4, math.log2(150), "Évitez les années (dates de naissance…)."))
+            candidates.append((4, math.log2(150), "Avoid years (dates of birth…)."))
 
         for length in range(min(16, n - i), 3, -1):
             fragment = unleet[i : i + length]
@@ -172,15 +171,15 @@ def estimate_strength(password: str) -> StrengthResult:
                     cost = math.log2(len(COMMON_PASSWORDS))
                 original = password[i : i + length]
                 if original != original.lower():
-                    cost += 1  # variantes de majuscules
+                    cost += 1  # capitalization variants
                 if unleet[i : i + length] != lower[i : i + length]:
-                    cost += 1  # substitutions « leet » (p4ssw0rd)
+                    cost += 1  # "leet" substitutions (p4ssw0rd)
                 candidates.append((length, cost,
-                                   "Évitez les mots du dictionnaire, même modifiés (p4ssw0rd)."))
+                                   "Avoid dictionary words, even modified ones (p4ssw0rd)."))
                 break
 
         if candidates:
-            # Le motif qui couvre le plus de caractères, au moindre coût.
+            # The pattern that covers the most characters, at the lowest cost.
             length, cost, warning = max(candidates, key=lambda c: (c[0], -c[1]))
             if cost < length * pool_bits:
                 bits += cost
@@ -192,11 +191,11 @@ def estimate_strength(password: str) -> StrengthResult:
         i += 1
 
     if n < 12:
-        warnings.append("Utilisez au moins 12 caractères (16 ou plus recommandé).")
+        warnings.append("Use at least 12 characters (16 or more recommended).")
 
     score = score_for_bits(bits)
     if score >= 3:
-        # Assez robuste : les conseils n'ont plus d'intérêt (ex. une phrase de
-        # passe générée est faite de mots du dictionnaire, par conception).
+        # Strong enough: the advice is no longer useful (e.g. a generated
+        # passphrase is made of dictionary words, by design).
         warnings = []
     return StrengthResult(score, bits, LABELS[score], tuple(warnings))

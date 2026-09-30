@@ -1,13 +1,13 @@
-"""Exécution de tâches lentes (Argon2id) hors du fil de l'interface.
+"""Runs slow tasks (Argon2id) outside the interface thread.
 
-Argon2id prend ~0,5 s par dérivation : exécuté dans le fil principal, il
-figerait l'interface et ses animations. Les deux implémentations utilisées
-libèrent le GIL (mesuré : le fil principal n'est jamais bloqué plus de
-quelques millisecondes), l'interface reste donc fluide.
+Argon2id takes ~0.5 s per derivation: run on the main thread, it would freeze
+the interface and its animations. Both implementations used release the GIL
+(measured: the main thread is never blocked for more than a few
+milliseconds), so the interface stays smooth.
 
-Le résultat (ou l'exception) est renvoyé au fil principal par un signal
-Qt en file d'attente. `BACKGROUND_TASKS = False` exécute les tâches de
-façon synchrone (tests d'interface déterministes).
+The result (or the exception) is sent back to the main thread through a
+queued Qt signal. `BACKGROUND_TASKS = False` runs the tasks synchronously
+(deterministic interface tests).
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class _Task(QRunnable):
     def run(self) -> None:
         try:
             result = self._fn()
-        except Exception as exc:  # noqa: BLE001 - transmis au fil principal
+        except Exception as exc:  # noqa: BLE001 - passed on to the main thread
             self._relay.failed.emit(exc)
         else:
             self._relay.succeeded.emit(result)
@@ -44,11 +44,11 @@ _pending: set[_Relay] = set()
 
 def run_task(fn: Callable[[], object], on_success: Callable[[object], None],
              on_error: Callable[[Exception], None], parent: QObject | None = None) -> None:
-    """Exécute `fn` en arrière-plan ; les rappels s'exécutent dans le fil principal."""
+    """Runs `fn` in the background; callbacks run on the main thread."""
     if not BACKGROUND_TASKS:
         try:
             result = fn()
-        except Exception as exc:  # noqa: BLE001 - transmis à on_error
+        except Exception as exc:  # noqa: BLE001 - passed on to on_error
             on_error(exc)
         else:
             on_success(result)
@@ -67,5 +67,5 @@ def run_task(fn: Callable[[], object], on_success: Callable[[object], None],
 
 
 def wait_for_tasks(timeout_ms: int = 10_000) -> bool:
-    """Attend la fin des tâches (utilisé à la fermeture de l'application et en test)."""
+    """Waits for the tasks to finish (used when the application closes and in tests)."""
     return QThreadPool.globalInstance().waitForDone(timeout_ms)

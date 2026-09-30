@@ -1,519 +1,532 @@
-# Mon Coffre-Fort
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-horizontal-dark.svg">
+    <img src="docs/brand/logo-horizontal-light.svg" alt="Keyra" width="420">
+  </picture>
+</p>
 
-Gestionnaire de mots de passe **local et hors ligne** pour Linux : interface de bureau
-PySide6, un fichier SQLite par coffre, chiffrement Argon2id + AES-256-GCM. Aucun service
-en ligne, aucune synchronisation, aucune télémétrie.
+<p align="center">
+  A <strong>local, offline</strong> password manager for Linux desktops.<br>
+  PySide6 interface · one SQLite file per vault · Argon2id + AES-256-GCM.<br>
+  No online service, no sync, no telemetry.
+</p>
 
-> **Version 1.7.0-rc1 — version candidate, pas une version finale.**
-> Format de coffre : **schéma v4** (métadonnées chiffrées). Les coffres créés par les
-> versions précédentes (schémas v1 à v3) sont mis à niveau **après confirmation explicite**
-> (voir [Mise à niveau des anciens coffres](#mise-à-niveau-des-anciens-coffres-v1-à-v3)).
-> Un coffre mis à niveau ne s'ouvre plus avec la version 1.6.
+<p align="center">
+  <img src="docs/screenshots/02-vault.png" alt="Vault view: entry list and entry details (fictitious demo data)" width="860">
+</p>
+
+> **Version 1.7.0-rc1 — release candidate, not a final release.**
+> Vault format: **schema v4** (encrypted metadata). Vaults created by earlier versions
+> (schemas v1 to v3) are upgraded **only after explicit confirmation**
+> (see [Upgrading older vaults](#upgrading-older-vaults-v1-to-v3)).
+> An upgraded vault can no longer be opened by version 1.6.
+>
+> The user interface is in **English**. Technical identifiers keep their historical
+> names so that existing installations and vaults keep working: Debian package and
+> launcher `mon-coffre-fort`, data folders `mon-coffre` and `MonCoffre`, cryptographic
+> domains `mon-coffre-fort:…`, file extensions `.mcfbak` and `.mcfexport`.
 
 ---
 
-## Sommaire
+## Contents
 
-* [Fonctionnalités](#fonctionnalités)
+* [Screenshots](#screenshots)
+* [Features](#features)
 * [Installation](#installation)
-* [Modèle de sécurité](#modèle-de-sécurité)
-* [Ce qui est chiffré, ce qui reste lisible](#ce-qui-est-chiffré-ce-qui-reste-lisible)
-* [Stockage et schéma v4](#stockage-et-schéma-v4)
-* [Catégories, favoris, tags et recherche](#catégories-favoris-tags-et-recherche)
-* [Historique et corbeille](#historique-et-corbeille)
-* [Clé de récupération](#clé-de-récupération)
-* [Sauvegardes (.mcfbak)](#sauvegardes-mcfbak)
-* [Mise à niveau des anciens coffres (v1 à v3)](#mise-à-niveau-des-anciens-coffres-v1-à-v3)
-* [Import et export](#import-et-export)
-* [Sécurité au quotidien](#sécurité-au-quotidien)
-* [Coffres multiples, utilisateurs, paramètres](#coffres-multiples-utilisateurs-paramètres)
-* [Développement](#développement)
+* [Security model](#security-model)
+* [What is encrypted, what stays readable](#what-is-encrypted-what-stays-readable)
+* [Storage and schema v4](#storage-and-schema-v4)
+* [Categories, favorites, tags and search](#categories-favorites-tags-and-search)
+* [History and trash](#history-and-trash)
+* [Recovery key](#recovery-key)
+* [Backups (.mcfbak)](#backups-mcfbak)
+* [Upgrading older vaults (v1 to v3)](#upgrading-older-vaults-v1-to-v3)
+* [Import and export](#import-and-export)
+* [Everyday security](#everyday-security)
+* [Multiple vaults, users, settings](#multiple-vaults-users-settings)
+* [Development](#development)
 * [Tests](#tests)
-* [Structure du projet](#structure-du-projet)
-* [Limites connues](#limites-connues)
-* [Feuille de route](#feuille-de-route)
-* [Licence](#licence)
+* [Project structure](#project-structure)
+* [Known limitations](#known-limitations)
+* [Roadmap](#roadmap)
+* [License](#license)
 
 ---
 
-## Fonctionnalités
+## Screenshots
 
-| Domaine | Ce que fait l'application |
+All data shown is fictitious (demo vault, `example.com` addresses, random passwords).
+
+| Overview | Security audit | Lock screen |
+|---|---|---|
+| <img src="docs/screenshots/01-dashboard.png" alt="Overview page" width="280"> | <img src="docs/screenshots/03-security.png" alt="Local security audit" width="280"> | <img src="docs/screenshots/04-lock.png" alt="Lock screen" width="280"> |
+
+---
+
+## Features
+
+| Area | What the application does |
 |---|---|
-| Coffres | Plusieurs coffres indépendants, chacun avec son mot de passe maître et sa clé de données |
-| Entrées | 6 types : identifiant, note sécurisée, carte bancaire, identité, réseau Wi-Fi, serveur |
-| Organisation | Catégories intégrées et personnelles, favoris, tags (20 au plus par entrée) |
-| Recherche | Texte libre (sans tenir compte de la casse ni des accents) et `#tag` exact |
-| Historique | 20 versions précédentes par entrée, restauration d'une version |
-| Corbeille | Suppression restaurable, purge automatique réglable (30 jours par défaut) |
-| Accès | Mot de passe maître, clé de récupération facultative, verrouillage automatique |
-| Presse-papiers | Effacement automatique (30 s par défaut) des valeurs copiées |
-| Générateur | Mots de passe et phrases de passe, estimation de robustesse hors ligne |
-| Audit | Mots de passe faibles, réutilisés, anciens (> 1 an), absents, cartes expirées, entrées illisibles |
-| Sauvegardes | Fichiers `.mcfbak` chiffrés, automatiques et manuels ; restauration en nouveau coffre |
-| Import / export | Bitwarden, KeePassXC, Chrome, Firefox, CSV ; export chiffré, CSV, PDF |
-| Mise à niveau | Coffres v1 à v3 → v4, avec préflight, confirmation, sauvegarde et vérification |
+| Vaults | Several independent vaults, each with its own master password and data key |
+| Entries | 6 types: login, secure note, payment card, identity, Wi-Fi network, server |
+| Organization | Built-in and personal categories, favorites, tags (at most 20 per entry) |
+| Search | Free text (case- and accent-insensitive) and exact `#tag` |
+| History | 20 previous versions per entry, restore a version |
+| Trash | Restorable deletion, configurable automatic purge (30 days by default) |
+| Access | Master password, optional recovery key, automatic locking |
+| Clipboard | Automatic clearing (30 s by default) of copied values |
+| Generator | Passwords and passphrases, offline strength estimation |
+| Audit | Weak, reused, old (> 1 year) and missing passwords, expired cards, unreadable entries |
+| Backups | Encrypted `.mcfbak` files, automatic and manual; restored as a new vault |
+| Import / export | Bitwarden, KeePassXC, Chrome, Firefox, CSV; encrypted export, CSV, PDF |
+| Upgrade | v1 to v3 vaults → v4, with preflight, confirmation, backup and verification |
 
 ---
 
 ## Installation
 
-### Paquet Debian
+### Debian package
 
-Le paquet se construit depuis les sources et ne déclare que des dépendances fournies par
-Debian 13 (aucune bibliothèque embarquée). Le paquet `1.7.0~rc1` a été validé sur Debian 13
-(voir [Tests](#tests)) : construction, inspection du contenu, installation **simulée**
-(`apt-get -s`, sans nouvelle dépendance) et exécution de son code avec le Python et les
-paquets du système. Il n'a pas été installé réellement pendant cette validation.
+The package is built from source and only declares dependencies provided by Debian 13
+(no bundled library). The `1.7.0~rc1` package was validated on Debian 13
+(see [Tests](#tests)): build, content inspection, **simulated** installation
+(`apt-get -s`, no new dependency) and execution of its code with the system Python and
+packages. It was not actually installed during that validation.
 
-Procédure :
+Procedure:
 
 ```bash
 packaging/build-deb.sh                                        # -> dist/mon-coffre-fort_1.7.0~rc1_all.deb
-sudo apt install ./dist/mon-coffre-fort_1.7.0~rc1_all.deb     # installe les dépendances Debian
+sudo apt install ./dist/mon-coffre-fort_1.7.0~rc1_all.deb     # installs the Debian dependencies
 ```
 
-* Version Debian : `1.7.0-rc1` devient `1.7.0~rc1`, ce qui garantit
-  `1.6.0 < 1.7.0~rc1 < 1.7.0` pour `dpkg`.
-* Dépendances : `python3 (>= 3.11)`, `python3-cryptography (>= 43)`,
+* Debian version: `1.7.0-rc1` becomes `1.7.0~rc1`, which guarantees
+  `1.6.0 < 1.7.0~rc1 < 1.7.0` for `dpkg`.
+* Dependencies: `python3 (>= 3.11)`, `python3-cryptography (>= 43)`,
   `python3-argon2 (>= 21.1)`, `python3-pyside6.*` (QtCore, QtGui, QtWidgets, QtNetwork,
   QtDBus, QtSvg, `>= 6.8`), `python3-pikepdf (>= 9.5)`, `hicolor-icon-theme`.
-  Recommandés : `wfrench`, `wamerican`, `qt6-wayland`.
-* Contenu : code dans `/usr/lib/mon-coffre-fort`, lanceur `/usr/bin/mon-coffre-fort`,
-  entrée de menu et icônes. Le lanceur démarre Python en **mode isolé** (`python3 -I`) :
-  ni `PYTHONPATH` ni un module du dossier personnel ne peuvent injecter de code.
-* Le paquet n'exécute aucune migration de coffre : la mise à niveau éventuelle se fait
-  à l'ouverture d'un coffre, après confirmation.
-* Désinstallation : `sudo apt remove mon-coffre-fort`. Les coffres, sauvegardes et
-  paramètres ne sont jamais supprimés par le paquet (même avec `purge`).
-* Installer ce paquet **remplace** une version 1.6 installée de la même façon. Gardez de
-  quoi réinstaller la 1.6 si vous voulez pouvoir rouvrir une sauvegarde faite avant la
-  mise à niveau (voir [Irréversibilité](#irréversibilité)).
+  Recommended: `wfrench`, `wamerican`, `qt6-wayland`.
+* Contents: code in `/usr/lib/mon-coffre-fort`, launcher `/usr/bin/mon-coffre-fort`,
+  menu entry and icons. The launcher starts Python in **isolated mode** (`python3 -I`):
+  neither `PYTHONPATH` nor a module in the home directory can inject code.
+* The package runs no vault migration: any upgrade happens when a vault is opened,
+  after confirmation.
+* Uninstall: `sudo apt remove mon-coffre-fort`. Vaults, backups and settings are never
+  removed by the package (not even with `purge`).
+* Installing this package **replaces** a version 1.6 installed the same way. Keep a way
+  to reinstall 1.6 if you want to be able to reopen a backup made before the upgrade
+  (see [Irreversibility](#irreversibility)).
 
-### Depuis les sources
+### From source
 
-Voir [Développement](#développement).
+See [Development](#development).
 
 ---
 
-## Modèle de sécurité
+## Security model
 
-### Clés
+### Keys
 
 ```text
-mot de passe maître ──Argon2id (sel du coffre)──► KEK
-KEK ──AES-256-GCM (déchiffrement)──► DEK : clé de données aléatoire de 256 bits
-DEK ──AES-256-GCM──► secrets de chaque entrée (champ par champ), versions d'historique
-DEK ──HKDF-SHA256──► sous-clés dédiées (métadonnées, catégories, sauvegardes)
+master password ──Argon2id (vault salt)──► KEK
+KEK ──AES-256-GCM (decryption)──► DEK: random 256-bit data key
+DEK ──AES-256-GCM──► secrets of each entry (field by field), history versions
+DEK ──HKDF-SHA256──► dedicated subkeys (metadata, categories, backups)
 ```
 
-* **Le mot de passe maître n'est jamais stocké.** Il sert à dériver la KEK, qui
-  dé-enveloppe la DEK. Changer le mot de passe maître ré-enveloppe la DEK sans
-  rechiffrer les données.
-* **Argon2id** : 64 Mio de mémoire, 3 itérations, 4 lanes par défaut, sel aléatoire de
-  16 octets par coffre. Les paramètres sont stockés avec le coffre et relus avec des
-  bornes (1 Gio, 64 itérations, 64 lanes au plus) pour qu'un fichier piégé ne puisse
-  pas bloquer l'application. Implémentation : celle de `cryptography` (versions 44 et
-  plus), sinon `argon2-cffi` (paquet Debian `python3-argon2`, cas de Debian 13) ; les
-  tests vérifient que les deux donnent la même clé (vecteurs de la RFC 9106).
-* **AES-256-GCM** (chiffrement authentifié) : nonce aléatoire de **96 bits** tiré par
-  `secrets` pour chaque chiffrement. Format d'un blob chiffré :
-  `version (1 octet) | nonce (12 octets) | chiffré + tag GCM (16 octets)`.
-* Aucune primitive cryptographique maison : uniquement `cryptography`, `argon2-cffi` et
-  la bibliothèque standard. Le module `random` n'est importé nulle part dans `app/`
-  (vérifié par un test).
+* **The master password is never stored.** It is used to derive the KEK, which unwraps
+  the DEK. Changing the master password re-wraps the DEK without re-encrypting the data.
+* **Argon2id**: 64 MiB of memory, 3 iterations, 4 lanes by default, random 16-byte salt
+  per vault. The parameters are stored with the vault and read back within bounds
+  (at most 1 GiB, 64 iterations, 64 lanes) so that a crafted file cannot freeze the
+  application. Implementation: the one in `cryptography` (version 44 and later),
+  otherwise `argon2-cffi` (Debian package `python3-argon2`, the Debian 13 case); the tests
+  check that both produce the same key (RFC 9106 vectors).
+* **AES-256-GCM** (authenticated encryption): random **96-bit** nonce drawn from
+  `secrets` for each encryption. Format of an encrypted blob:
+  `version (1 byte) | nonce (12 bytes) | ciphertext + GCM tag (16 bytes)`.
+* No home-made cryptographic primitive: only `cryptography`, `argon2-cffi` and the
+  standard library. The `random` module is not imported anywhere in `app/`
+  (checked by a test).
 
-### Sous-clés HKDF-SHA256
+### HKDF-SHA256 subkeys
 
-Chaque usage a sa propre clé, dérivée de la DEK (sans sel, domaine distinct) :
+Each use has its own key, derived from the DEK (no salt, distinct domain):
 
-| Usage | Domaine (`info`) |
+| Use | Domain (`info`) |
 |---|---|
-| Métadonnées des entrées | `mon-coffre-fort:entry-metadata:v1` |
-| Noms des catégories personnelles | `mon-coffre-fort:category:v1` |
-| Corps des sauvegardes `.mcfbak` | `mon-coffre-fort:backup:v1` |
+| Entry metadata | `mon-coffre-fort:entry-metadata:v1` |
+| Personal category names | `mon-coffre-fort:category:v1` |
+| Body of `.mcfbak` backups | `mon-coffre-fort:backup:v1` |
 
-Les secrets des entrées et les versions d'historique sont chiffrés directement avec la DEK.
+Entry secrets and history versions are encrypted directly with the DEK.
 
-### Données associées (AAD)
+### Associated data (AAD)
 
-Chaque chiffré est lié à son contexte : déplacer un blob vers une autre entrée, un autre
-champ, une autre version ou un autre coffre fait échouer l'authentification au lieu de
-révéler la valeur ailleurs. Cette authentification porte sur chaque élément séparément :
-elle ne couvre pas l'état global du coffre (retour à une ancienne version d'un élément,
-suppression d'éléments), voir [Intégrité globale du coffre](#intégrité-globale-du-coffre).
+Each ciphertext is bound to its context: moving a blob to another entry, another field,
+another version or another vault makes authentication fail instead of revealing the
+value elsewhere. This authentication covers each element separately: it does not cover
+the global state of the vault (rollback of an element to an older version, deletion of
+elements), see [Global vault integrity](#global-vault-integrity).
 
-| Donnée | AAD |
+| Data | AAD |
 |---|---|
-| Champ secret d'une entrée | `mon-coffre-fort:entry:<id>:<champ>` |
-| Version d'historique | `mon-coffre-fort:history:<id entrée>:<id version>` |
-| Métadonnées d'une entrée | `mon-coffre-fort:entry-metadata:<vault_uuid>:<id>` |
-| Nom d'une catégorie personnelle | `mon-coffre-fort:category:<vault_uuid>:<id>` |
-| DEK enveloppée (mot de passe / clé de récupération) | domaines distincts : une enveloppe ne peut pas remplacer l'autre |
-| Sauvegarde `.mcfbak` | `MAGIC` + en-tête : toute modification de l'en-tête est détectée |
-| Export chiffré `.mcfexport` | `mon-coffre-fort:export:v1` |
+| Secret field of an entry | `mon-coffre-fort:entry:<id>:<field>` |
+| History version | `mon-coffre-fort:history:<entry id>:<version id>` |
+| Entry metadata | `mon-coffre-fort:entry-metadata:<vault_uuid>:<id>` |
+| Personal category name | `mon-coffre-fort:category:<vault_uuid>:<id>` |
+| Wrapped DEK (password / recovery key) | distinct domains: one envelope cannot replace the other |
+| `.mcfbak` backup | `MAGIC` + header: any change to the header is detected |
+| `.mcfexport` encrypted export | `mon-coffre-fort:export:v1` |
 
-`vault_uuid` est un identifiant aléatoire de 16 octets, créé avec le coffre (ou à sa
-mise à niveau), **lisible** dans le fichier et **immuable** : un déclencheur SQLite
-refuse toute modification. Il ne change ni au changement de mot de passe, ni à la
-récupération, ni à la sauvegarde puis restauration d'un coffre v4. Ce n'est pas un
-secret : il lie les métadonnées chiffrées à leur coffre.
+`vault_uuid` is a random 16-byte identifier, created with the vault (or when it is
+upgraded), **readable** in the file and **immutable**: an SQLite trigger rejects any
+change. It does not change on password change, on recovery, or when a v4 vault is backed
+up and restored. It is not a secret: it binds the encrypted metadata to its vault.
 
-### Métadonnées en mémoire (`MetadataStore`)
+### In-memory metadata (`MetadataStore`)
 
-Les métadonnées étant chiffrées, liste, recherche, filtres et tri se font **en mémoire**
-après déchiffrement : SQLite ne contient aucun index ni jeton de recherche en clair.
+Since metadata is encrypted, listing, search, filters and sorting are done **in memory**
+after decryption: SQLite contains no plaintext index or search token.
 
-* Un cache unique par coffre ouvert, partagé par tous les services, chargé
-  paresseusement au premier accès (chaque blob n'est déchiffré qu'une fois).
-* Toute écriture invalide l'élément concerné, relu depuis la base ; ce qui est lu
-  pendant une transaction est relu après, pour qu'un ROLLBACK ne laisse jamais de valeur
-  annulée en cache.
-* Le verrouillage vide le cache et oublie la sous-clé de métadonnées. Rien n'est écrit
-  sur disque.
+* A single cache per open vault, shared by all services, loaded lazily on first access
+  (each blob is decrypted only once).
+* Every write invalidates the affected element, which is read back from the database;
+  anything read during a transaction is read again afterwards, so that a ROLLBACK never
+  leaves a cancelled value in the cache.
+* Locking empties the cache and forgets the metadata subkey. Nothing is written to disk.
 
-### Détection d'erreurs
+### Error detection
 
-| Cas | Exception |
+| Case | Exception |
 |---|---|
-| Coffre inexistant | `VaultNotFoundError` |
-| Mot de passe maître incorrect | `WrongMasterPasswordError` |
-| Fichier illisible, structure invalide, vérificateur faux | `VaultCorruptedError` |
-| Coffre créé par une version plus récente | `UnsupportedVaultVersionError` |
-| Coffre v1 à v3 (mise à niveau nécessaire) | `VaultMigrationRequiredError` |
-| Blob chiffré altéré ou déplacé | `EntryDecryptionError` / `CategoryDecryptionError` |
+| Vault does not exist | `VaultNotFoundError` |
+| Wrong master password | `WrongMasterPasswordError` |
+| Unreadable file, invalid structure, wrong verifier | `VaultCorruptedError` |
+| Vault created by a newer version | `UnsupportedVaultVersionError` |
+| v1 to v3 vault (upgrade required) | `VaultMigrationRequiredError` |
+| Tampered or moved encrypted blob | `EntryDecryptionError` / `CategoryDecryptionError` |
 
-Un échec d'authentification de la DEK enveloppée est rapporté comme « mot de passe
-incorrect » : cryptographiquement, il est indissociable d'une altération de ce blob.
-Une entrée dont les métadonnées sont altérées n'empêche pas l'ouverture du coffre :
-elle est mise à l'écart et signalée par l'audit.
+An authentication failure of the wrapped DEK is reported as "wrong password":
+cryptographically, it cannot be distinguished from tampering with that blob.
+An entry whose metadata has been tampered with does not prevent the vault from opening:
+it is set aside and reported by the audit.
 
-### Ce que l'application ne fait pas
+### What the application does not do
 
-* Stocker un mot de passe (maître ou d'entrée) en clair sur disque.
-* Journaliser un secret : les journaux ne contiennent que des identifiants de coffre,
-  des compteurs, des noms de fichiers et des types d'erreur ; un filtre de masquage
-  s'ajoute en défense en profondeur.
-* Accéder au réseau.
+* Store a password (master or entry) in plaintext on disk.
+* Log a secret: logs only contain vault identifiers, counters, file names and error
+  types; a masking filter is added as defense in depth.
+* Access the network.
 
-### Limite de la mémoire Python
+### Python memory limitation
 
-CPython ne permet pas d'effacer de façon garantie une chaîne en mémoire (copies
-internes, ramasse-miettes, swap). L'application efface au mieux les tampons qu'elle
-contrôle (`crypto.wipe()` sur la DEK), supprime les références dès qu'elles ne servent
-plus (par exemple le mot de passe maître capturé par la fenêtre de mise à niveau), mais
-ne peut pas garantir que le contenu a disparu de la mémoire.
+CPython does not allow a string in memory to be erased with any guarantee (internal
+copies, garbage collector, swap). The application erases, as far as possible, the
+buffers it controls (`crypto.wipe()` on the DEK) and drops references as soon as they
+are no longer needed (for example the master password captured by the upgrade window),
+but it cannot guarantee that the content has disappeared from memory.
 
 ---
 
-## Ce qui est chiffré, ce qui reste lisible
+## What is encrypted, what stays readable
 
-Le coffre n'est pas un fichier « opaque » : certaines informations restent lisibles par
-conception.
+The vault is not an "opaque" file: some information remains readable by design.
 
-| Chiffré | Lisible sans mot de passe |
+| Encrypted | Readable without the password |
 |---|---|
-| Mots de passe, e-mails, notes, champs spécifiques (numéro de carte, CVV, PIN…) | Nom du coffre, dates de création et de modification du coffre |
-| Nom, URL, identifiant, type, catégorie, favori, tags de chaque entrée | Versions du schéma et du format, paramètres Argon2id, sels |
-| Dates de création, modification, changement de mot de passe, mise en corbeille | DEK enveloppée(s) et vérificateur (chiffrés, mais visibles comme blobs) |
-| Contenu complet de chaque version d'historique | `vault_uuid` |
-| Noms des catégories personnelles | Clés techniques des catégories intégrées (`personal`, `work`…), communes à tous les coffres |
-| Corps des sauvegardes `.mcfbak` et des exports `.mcfexport` | **`entry_history.created_at`** : date d'enregistrement de chaque version (décision D3) |
-| | Nombre d'entrées, de catégories et de versions ; lien version → entrée ; compteurs AUTOINCREMENT |
-| | Taille approximative des métadonnées (arrondie à 64 octets) |
-| | En-tête des fichiers `.mcfbak` (voir [Sauvegardes](#sauvegardes-mcfbak)) |
+| Passwords, e-mails, notes, type-specific fields (card number, CVV, PIN…) | Vault name, vault creation and modification dates |
+| Name, URL, username, type, category, favorite, tags of each entry | Schema and format versions, Argon2id parameters, salts |
+| Creation, modification, password-change and trash dates | Wrapped DEK(s) and verifier (encrypted, but visible as blobs) |
+| Full content of each history version | `vault_uuid` |
+| Personal category names | Technical keys of built-in categories (`personal`, `work`…), identical in every vault |
+| Body of `.mcfbak` backups and `.mcfexport` exports | **`entry_history.created_at`**: date each version was recorded (decision D3) |
+| | Number of entries, categories and versions; version → entry link; AUTOINCREMENT counters |
+| | Approximate metadata size (rounded to 64 bytes) |
+| | Header of `.mcfbak` files (see [Backups](#backups-mcfbak)) |
 
-**Décision D3** : `entry_history.created_at` reste en clair pour ordonner l'historique
-et appliquer son plafond (20 versions) sans rien déchiffrer. Conséquence : pour une
-entrée modifiée, la date de sa dernière modification se déduit de cette colonne.
+**Decision D3**: `entry_history.created_at` stays in plaintext so that the history can
+be ordered and capped (20 versions) without decrypting anything. Consequence: for a
+modified entry, the date of its last modification can be deduced from this column.
 
 ---
 
-## Stockage et schéma v4
+## Storage and schema v4
 
 ```text
-~/.config/mon-coffre/settings.json              # paramètres (aucun secret), 0600
+~/.config/mon-coffre/settings.json              # settings (no secret), 0600
 ~/.local/share/mon-coffre/
-├── vaults/<identifiant-du-coffre>/vault.db     # un fichier SQLite par coffre
+├── vaults/<vault-identifier>/vault.db          # one SQLite file per vault
 └── logs/mon-coffre.log
-<Documents>/MonCoffre/backup/                   # sauvegardes .mcfbak (dossier réglable)
+<Documents>/MonCoffre/backup/                   # .mcfbak backups (configurable folder)
 ```
 
-Tables d'un coffre v4 :
+Tables of a v4 vault:
 
-| Table | Contenu |
+| Table | Content |
 |---|---|
-| `vault_meta` | paramètres Argon2id, sel, DEK enveloppée, vérificateur, `vault_uuid`, nom du coffre |
-| `vault_recovery` | seconde enveloppe de la DEK (clé de récupération), facultative |
+| `vault_meta` | Argon2id parameters, salt, wrapped DEK, verifier, `vault_uuid`, vault name |
+| `vault_recovery` | second envelope of the DEK (recovery key), optional |
 | `entries` | `id`, `metadata_enc`, `email_enc`, `password_enc`, `notes_enc`, `extra_fields_enc` |
-| `categories` | `id`, `builtin_key` (catégorie intégrée) **ou** `name_enc` (catégorie personnelle) |
+| `categories` | `id`, `builtin_key` (built-in category) **or** `name_enc` (personal category) |
 | `entry_history` | `id`, `entry_id`, `snapshot_enc`, `created_at` |
 
-* **`metadata_enc`** : JSON chiffré et versionné regroupant nom, URL, identifiant, type,
-  catégorie, favori, tags, dates de création, de modification, de changement de mot de
-  passe et de mise en corbeille. Relu avec une **validation stricte** : clés exactes,
-  types, dates ISO 8601 avec fuseau, tags canoniques. Toute anomalie est traitée comme
-  une corruption, jamais comblée par une valeur par défaut. Remplissage à un multiple
-  de 64 octets pour réduire, sans la supprimer, la fuite de longueur.
-* Les champs vides sont chiffrés aussi : on ne voit pas quelles entrées ont un mot de
-  passe ou des notes.
-* La table `entry_tags` des schémas v1 à v3 n'existe plus en v4 : les tags sont dans
-  `metadata_enc`. Elle n'est lue que par la migration.
-* `PRAGMA secure_delete = ON` (les pages libérées sont remises à zéro), mode WAL,
-  `umask 077` : coffres, WAL et journaux sont créés en `0600`, les dossiers en `0700`.
-  Les fichiers exportés sont écrits de façon atomique (fichier temporaire, `fsync`,
-  renommage).
+* **`metadata_enc`**: encrypted, versioned JSON holding name, URL, username, type,
+  category, favorite, tags, and the creation, modification, password-change and trash
+  dates. Read back with **strict validation**: exact keys, types, ISO 8601 dates with
+  time zone, canonical tags. Any anomaly is treated as corruption, never filled in with
+  a default value. Padded to a multiple of 64 bytes to reduce, without removing, the
+  length leak.
+* Empty fields are encrypted too: one cannot see which entries have a password or notes.
+* The `entry_tags` table of schemas v1 to v3 no longer exists in v4: tags live in
+  `metadata_enc`. It is only read by the migration.
+* `PRAGMA secure_delete = ON` (freed pages are zeroed), WAL mode, `umask 077`: vaults,
+  WAL and logs are created as `0600`, folders as `0700`. Exported files are written
+  atomically (temporary file, `fsync`, rename).
 
 ---
 
-## Catégories, favoris, tags et recherche
+## Categories, favorites, tags and search
 
-* **Catégories intégrées** : Personnel, Travail, Finances, Réseaux sociaux, Courriel,
-  Achats. Stockées par clé technique (`builtin_key`), ni renommables ni supprimables.
-* **Catégories personnelles** : nom chiffré (60 caractères au plus, unique sans tenir
-  compte de la casse ni des accents). Supprimer une catégorie ne supprime aucune
-  entrée : ses entrées (corbeille comprise) passent « sans catégorie », dans la même
-  transaction.
-* **Favoris** : dans les métadonnées chiffrées ; changer le favori ne crée pas de
-  version d'historique.
-* **Tags** : 20 au plus par entrée, 32 caractères au plus. Espaces normalisés, `#`
-  initial retiré, forme saisie conservée. Refusés : tag vide, virgule, caractère de
-  contrôle ou invisible, doublon logique (sans tenir compte de la casse ni des
-  accents : `Linux` = `linux`, `École` = `ecole`). Éditeur à puces dans la fiche d'un
-  compte, avec complétion à partir des tags existants. Les tags s'affichent en badges
-  dans le détail ; un clic lance la recherche de ce tag.
-* **Recherche** (en-tête, appliquée 150 ms après la dernière frappe) :
-  * le texte libre porte sur le nom, l'identifiant, l'URL, la catégorie et les tags,
-    sans tenir compte de la casse ni des accents ; tous les mots doivent être présents ;
-  * `#linux` sélectionne les entrées portant exactement ce tag (casse et accents
-    ignorés : `#ecole` trouve `École`) ; `#"écoles primaires"` pour un tag avec espaces ;
-    plusieurs `#` se combinent en ET, et avec le texte libre ;
-  * un `#` seul est ignoré ; `C#` reste du texte ordinaire ;
-  * les secrets (mots de passe, notes…) ne sont jamais recherchés.
-
----
-
-## Historique et corbeille
-
-* **Historique** : chaque modification du contenu d'une entrée conserve la version
-  précédente complète (ancien mot de passe compris), chiffrée ; 20 versions au plus
-  par entrée. Une modification des seuls tags crée une version ; le favori, non.
-  Restaurer une version place la version actuelle dans l'historique. La version
-  restaurée reprend ses propres tags ; une version enregistrée avant la 1.7 (format
-  sans tags) conserve les tags actuels. Le favori actuel est conservé. On peut effacer
-  l'historique d'une entrée.
-* **Corbeille** : supprimer une entrée la place dans la corbeille (restaurable). Les
-  entrées y sont purgées à l'ouverture du coffre au-delà de 30 jours (réglable : 7, 30,
-  90 jours, 1 an, jamais) ; la date de mise en corbeille est lue dans les métadonnées
-  chiffrées. La suppression définitive efface aussi l'historique. Les entrées en
-  corbeille ne sont ni recherchées dans la vue Coffre, ni exportées ; l'audit ne les
-  analyse pas, sauf pour signaler celles dont les métadonnées sont illisibles.
+* **Built-in categories**: Personal, Work, Finance, Social, Email, Shopping. Stored by
+  technical key (`builtin_key`), they can be neither renamed nor deleted; their label is
+  chosen by the application, so it is the same in every vault. Vaults created by 1.x
+  versions stored the French names (Personnel, Travail, Finances, Réseaux sociaux,
+  Courriel, Achats): the upgrade maps them to the same keys, and an import that uses
+  one of these names files the entry under the matching built-in category.
+* **Personal categories**: encrypted name (at most 60 characters, unique regardless of
+  case and accents). Deleting a category deletes no entry: its entries (including those
+  in the trash) become "uncategorized", in the same transaction.
+* **Favorites**: stored in the encrypted metadata; changing the favorite does not create
+  a history version.
+* **Tags**: at most 20 per entry, at most 32 characters each. Whitespace is normalized,
+  a leading `#` is removed, the typed form is kept. Rejected: empty tag, comma, control
+  or invisible character, logical duplicate (case- and accent-insensitive:
+  `Linux` = `linux`, `École` = `ecole`). Chip editor in the entry form, with completion
+  from existing tags. Tags are shown as badges in the details view; clicking one searches
+  for that tag.
+* **Search** (header, applied 150 ms after the last keystroke):
+  * free text covers the name, username, URL, category and tags, case- and
+    accent-insensitive; every word must be present;
+  * `#linux` selects entries carrying exactly this tag (case and accents ignored:
+    `#ecole` finds `École`); `#"écoles primaires"` for a tag containing spaces;
+    several `#` combine with AND, and with the free text;
+  * a lone `#` is ignored; `C#` stays ordinary text;
+  * secrets (passwords, notes…) are never searched.
 
 ---
 
-## Clé de récupération
+## History and trash
 
-Facultative, proposée à la création d'un coffre (ou depuis Paramètres → Ce coffre).
-
-* **Format** : 32 caractères en 8 groupes de 4 (base32 de Crockford), dont 150 bits
-  aléatoires et 2 caractères de contrôle qui signalent une faute de frappe. Saisie
-  tolérante (casse, espaces, tirets, confusions O/0 et I/L/1).
-* **Seconde enveloppe de la DEK** : clé → Argon2id (sel propre) → AES-256-GCM, table
-  `vault_recovery`. La clé n'est jamais stockée et n'est affichée qu'une fois ; elle
-  peut être enregistrée dans un PDF toujours chiffré (AES-256, mot de passe fort exigé,
-  différent du mot de passe maître).
-* **Affichage confirmé** : si la fenêtre se ferme sans confirmation que la clé a été
-  notée, la clé est supprimée du coffre.
-* **Mot de passe oublié** : clé + nouveau mot de passe maître. La nouvelle enveloppe du
-  mot de passe et une **nouvelle** clé sont écrites dans une même transaction ;
-  **l'ancienne clé ne fonctionne plus**.
-* **Créer, remplacer, supprimer** la clé exige le mot de passe maître.
-* **Coffre v1 à v3 et mot de passe oublié** : la récupération passe par la mise à
-  niveau, confirmée au préalable. Le préflight a lieu **avant** toute écriture, puis :
-  récupération (nouveau mot de passe, nouvelle clé), sauvegarde, migration,
-  vérification, ouverture. Si la récupération réussit mais que la migration échoue, le
-  coffre reste dans son format d'origine, intact, avec le nouveau mot de passe et la
-  nouvelle clé : **la nouvelle clé est affichée quand même** et reste valide même si
-  la fenêtre est fermée sans l'avoir notée (elle peut être remplacée une fois le coffre
-  ouvert). Pour réessayer, il suffit de déverrouiller avec le nouveau mot de passe.
-* Une sauvegarde s'ouvre avec le mot de passe maître en vigueur lors de la sauvegarde ;
-  la clé de récupération sert au coffre restauré, pas au fichier `.mcfbak`.
+* **History**: every change to the content of an entry keeps the full previous version
+  (including the old password), encrypted; at most 20 versions per entry. A change to
+  the tags alone creates a version; a change to the favorite does not. Restoring a
+  version places the current version in the history. The restored version gets its own
+  tags back; a version recorded before 1.7 (format without tags) keeps the current tags.
+  The current favorite is kept. The history of an entry can be cleared.
+* **Trash**: deleting an entry moves it to the trash (restorable). Entries are purged
+  when the vault is opened after 30 days (configurable: 7, 30, 90 days, 1 year, never);
+  the date it was trashed is read from the encrypted metadata. Permanent deletion also
+  erases the history. Entries in the trash are neither searched in the Vault view nor
+  exported; the audit does not analyze them, except to report those whose metadata is
+  unreadable.
 
 ---
 
-## Sauvegardes (.mcfbak)
+## Recovery key
+
+Optional, offered when a vault is created (or from Settings → This vault).
+
+* **Format**: 32 characters in 8 groups of 4 (Crockford base32), including 150 random
+  bits and 2 check characters that catch typos. Tolerant input (case, spaces, dashes,
+  O/0 and I/L/1 confusions).
+* **Second envelope of the DEK**: key → Argon2id (own salt) → AES-256-GCM, table
+  `vault_recovery`. The key is never stored and is shown only once; it can be saved in a
+  PDF that is always encrypted (AES-256, strong password required, different from the
+  master password).
+* **Confirmed display**: if the window is closed without confirming that the key was
+  written down, the key is removed from the vault.
+* **Forgotten password**: key + new master password. The new password envelope and a
+  **new** key are written in a single transaction; **the old key no longer works**.
+* **Creating, replacing or removing** the key requires the master password.
+* **v1 to v3 vault and forgotten password**: recovery goes through the upgrade, which is
+  confirmed beforehand. The preflight runs **before** any write, then: recovery (new
+  password, new key), backup, migration, verification, opening. If the recovery succeeds
+  but the migration fails, the vault stays in its original format, intact, with the new
+  password and the new key: **the new key is shown anyway** and stays valid even if the
+  window is closed without writing it down (it can be replaced once the vault is open).
+  To try again, simply unlock with the new password.
+* A backup opens with the master password that was in effect when the backup was made;
+  the recovery key applies to the restored vault, not to the `.mcfbak` file.
+
+---
+
+## Backups (.mcfbak)
 
 ```text
-MAGIC (8 o) | longueur de l'en-tête (4 o) | en-tête JSON | nonce (12 o)
-            | AES-256-GCM( zlib( base SQLite complète ) )
+MAGIC (8 B) | header length (4 B) | JSON header | nonce (12 B)
+            | AES-256-GCM( zlib( complete SQLite database ) )
 ```
 
-* **Corps chiffré** : la base complète (entrées, métadonnées, historique, catégories),
-  compressée puis chiffrée avec la sous-clé HKDF de sauvegarde. L'en-tête est
-  authentifié (donnée associée) : il ne peut pas être modifié sans être détecté.
-* **En-tête lisible sans mot de passe** : identifiant et nom du coffre, type et date de
-  la sauvegarde, version de l'application, versions du schéma et du format, paramètres
-  Argon2id, sel, DEK enveloppée et vérificateur. Une sauvegarde n'est donc pas un
-  fichier « opaque » : ces informations sont visibles, le contenu des comptes ne l'est
-  pas. Elle peut être copiée sur un support externe ou un dossier synchronisé en
-  connaissance de cause.
-* **Autonome** : elle s'ouvre avec le mot de passe maître **en vigueur au moment où elle
-  a été faite**, même si le coffre d'origine a disparu.
-* **Automatiques** au verrouillage et à la fermeture si le coffre a été modifié pendant
-  la session (10 conservées par défaut, réglable de 1 à 100) ; **manuelles** ; **de
-  migration**, créées avant une mise à niveau, jamais supprimées automatiquement.
-* **Restauration** : crée toujours un **nouveau** coffre « … (restauré le …) », vérifié
-  avant d'être proposé ; rien n'est écrasé. Une sauvegarde d'un coffre v1 à v3 est
-  restaurée telle quelle, puis sa mise à niveau est **proposée** à sa première ouverture
-  (même processus qu'un ancien coffre).
-* **Suppression** depuis la page Sauvegardes : l'en-tête est relu avant, un fichier qui
-  n'est pas une sauvegarde de ce coffre n'est jamais effacé.
+* **Encrypted body**: the complete database (entries, metadata, history, categories),
+  compressed then encrypted with the backup HKDF subkey. The header is authenticated
+  (associated data): it cannot be modified without detection.
+* **Header readable without the password**: vault identifier and name, backup type and
+  date, application version, schema and format versions, Argon2id parameters, salt,
+  wrapped DEK and verifier. A backup is therefore not an "opaque" file: this information
+  is visible, the content of the accounts is not. It can be copied to external media or
+  a synchronized folder with that in mind.
+* **Self-contained**: it opens with the master password **in effect when it was made**,
+  even if the original vault is gone.
+* **Automatic** on locking and on closing if the vault was modified during the session
+  (10 kept by default, configurable from 1 to 100); **manual**; **migration** backups,
+  created before an upgrade and never deleted automatically.
+* **Restore**: always creates a **new** vault "… (restored YYYY-MM-DD HH:MM)", verified before being
+  offered; nothing is overwritten. A backup of a v1 to v3 vault is restored as is, and
+  its upgrade is **offered** the first time it is opened (same process as an old vault).
+* **Deletion** from the Backups page: the header is read first; a file that is not a
+  backup of this vault is never deleted.
 
 ---
 
-## Mise à niveau des anciens coffres (v1 à v3)
+## Upgrading older vaults (v1 to v3)
 
-La mise à niveau n'est **jamais automatique**. Elle est proposée au déverrouillage d'un
-coffre créé par une version précédente, une fois le mot de passe vérifié :
+The upgrade is **never automatic**. It is offered when unlocking a vault created by an
+earlier version, once the password has been verified:
 
 ```text
-détection (VaultMigrationRequiredError, mot de passe déjà vérifié)
+detection (VaultMigrationRequiredError, password already verified)
     ↓
-inspection en lecture seule + préflight strict
+read-only inspection + strict preflight
     ↓
-confirmation explicite (Annuler = coffre inchangé)
+explicit confirmation (Cancel = vault unchanged)
     ↓
-sauvegarde chiffrée .mcfbak « migration », vérifiée par déchiffrement complet
+encrypted "migration" .mcfbak backup, verified by full decryption
     ↓
-migration en une seule transaction (tout ou rien), puis VACUUM
+migration in a single transaction (all or nothing), then VACUUM
     ↓
-ouverture normale et vérification complète
+normal opening and full verification
     ↓
-session v4
+v4 session
 ```
 
-* **Préflight** : toute structure SQLite que Mon Coffre-Fort n'a pas créée (table, vue,
-  déclencheur, index ou colonne inattendus) **refuse** la mise à niveau. Rien n'est
-  supprimé ni ignoré en silence ; le coffre n'est pas modifié.
-* **Migration** (`app/services/migration_v4.py`) : mise à jour structurelle historique
-  v1/v2 → v3 (pour les plus anciens coffres, dans la même transaction), génération de
-  `vault_uuid`, chiffrement et relecture de chaque métadonnée comparée à la source,
-  catégories, tags hérités de `entry_tags`, validation de chaque version d'historique,
-  comparaison des listes et des compteurs, reconstruction des tables sans aucune
-  colonne en clair, contrôles d'intégrité, `schema_version = 4` en dernier. Toute erreur
-  annule tout (ROLLBACK) ; un arrêt brutal du processus pendant la transaction laisse le
-  coffre dans son format d'origine (testé par SIGKILL).
-* **Historique illisible, secret altéré, incohérence** : la mise à niveau est refusée et
-  le coffre reste intact. Rien n'est jamais supprimé pour « faire passer » une migration.
-* **Vérification complète** avant d'ouvrir la session : structure v4 exacte, intégrité
-  SQLite, chaque métadonnée, catégorie, secret et version d'historique relus, sauvegarde
-  de migration revérifiée.
-* En cas d'échec, l'erreur est affichée (avec chemin et cause pour un problème de
-  sauvegarde) et un nouvel essai est possible. Pendant le travail, qui s'exécute hors
-  du fil de l'interface, la fenêtre et l'application ne peuvent pas être fermées.
-* **Anciennes copies en clair** (`vault.db.avant-schema-v*.bak`, laissées par les
-  versions 1.x à côté du coffre) : signalées, jamais utilisées ni supprimées. À supprimer
-  soi-même une fois le coffre vérifié.
+* **Preflight**: any SQLite structure that Keyra did not create (unexpected
+  table, view, trigger, index or column) **blocks** the upgrade. Nothing is silently
+  deleted or ignored; the vault is not modified.
+* **Migration** (`app/services/migration_v4.py`): legacy structural update v1/v2 → v3
+  (for the oldest vaults, in the same transaction), generation of `vault_uuid`,
+  encryption and read-back of each metadata record compared with the source, categories,
+  tags inherited from `entry_tags`, validation of every history version, comparison of
+  lists and counters, rebuild of the tables without any plaintext column, integrity
+  checks, `schema_version = 4` last. Any error cancels everything (ROLLBACK); a sudden
+  kill of the process during the transaction leaves the vault in its original format
+  (tested with SIGKILL).
+* **Unreadable history, tampered secret, inconsistency**: the upgrade is refused and the
+  vault stays intact. Nothing is ever deleted to "force" a migration through.
+* **Full verification** before the session opens: exact v4 structure, SQLite integrity,
+  every metadata record, category, secret and history version read back, migration
+  backup verified again.
+* On failure, the error is displayed (with path and cause for a backup problem) and a new
+  attempt is possible. While the work runs, outside the UI thread, the window and the
+  application cannot be closed.
+* **Old plaintext copies** (`vault.db.avant-schema-v*.bak`, left next to the vault by
+  versions 1.x): reported, never used or deleted. Delete them yourself once the vault
+  has been verified.
 
-### Irréversibilité
+### Irreversibility
 
-Un coffre mis à niveau ne s'ouvre plus avec une version 1.6. La sauvegarde de migration,
-elle, est dans le format d'origine et s'ouvre avec le mot de passe maître de l'époque :
-pour revenir en arrière, il faut une version 1.6 et sa fonction « Restaurer une
-sauvegarde », qui crée un nouveau coffre (compatibilité testée avec le code 1.6.0).
+An upgraded vault can no longer be opened by a version 1.6. The migration backup,
+however, is in the original format and opens with the master password of that time: to
+go back, you need a version 1.6 and its "Restore a backup" function, which creates a new
+vault (compatibility tested with the 1.6.0 code).
 
 ---
 
-## Import et export
+## Import and export
 
-Menu « Plus » ou palette de commandes (`Ctrl+K`). L'export redemande le mot de passe
-maître. Les fichiers sont créés en `0600`. Ni la corbeille ni l'historique ne sont exportés.
+"More" menu or command palette (`Ctrl+K`). Export asks for the master password again.
+Files are created as `0600`. Neither the trash nor the history is exported.
 
 | Format | Import | Export | Tags |
 |---|---|---|---|
-| Bitwarden, KeePassXC, Chrome / Chromium / Edge / Brave, Firefox (CSV) | oui | — | — |
-| CSV générique (`name`/`title`, `url`, `username`, `password`…) | oui | — | — |
-| CSV Mon Coffre-Fort | oui | oui (**non chiffré**) | colonne `tags` facultative |
-| Export chiffré `.mcfexport` | oui | oui | oui |
-| Copie papier PDF | — | oui | **non** |
+| Bitwarden, KeePassXC, Chrome / Chromium / Edge / Brave, Firefox (CSV) | yes | — | — |
+| Generic CSV (`name`/`title`, `url`, `username`, `password`…) | yes | — | — |
+| Keyra CSV | yes | yes (**unencrypted**) | optional `tags` column |
+| `.mcfexport` encrypted export | yes | yes | yes |
+| PDF paper copy | — | yes | **no** |
 
-* **Import** : aperçu sans les mots de passe, catégories créées à partir des
-  dossiers/groupes, doublons détectés, import en une seule transaction ; 20 Mo au plus.
-  Un tag invalide ou en double est écarté (l'entrée est importée) et leur nombre est
-  affiché. Après l'import d'un CSV, l'application propose de supprimer le fichier. Les
-  fichiers `.kdbx` ne sont pas lus directement : exportez-les d'abord en CSV.
-* **`.mcfexport`** : JSON chiffré en AES-256-GCM avec une clé Argon2id dérivée d'un
-  **mot de passe d'export** distinct.
-* **CSV** : mots de passe en clair ; avertissement et confirmation obligatoires.
-* **PDF** : comptes actifs classés par catégorie, construit en mémoire. Protégé par
-  défaut (AES-256 via `python3-pikepdf`, mot de passe différent du mot de passe maître) ;
-  si pikepdf manque, l'option est désactivée, jamais de repli silencieux vers un PDF
-  en clair.
-
----
-
-## Sécurité au quotidien
-
-* **Presse-papiers** : valeurs sensibles effacées après 30 s (10 s à 5 min), au
-  verrouillage et à la fermeture, seulement si le presse-papiers contient encore notre
-  valeur (empreinte HMAC à clé éphémère). Sélection X11 nettoyée ; indicateur
-  `x-kde-passwordManagerHint: secret` pour les gestionnaires d'historique (qui ne le
-  respectent pas tous).
-* **Verrouillage automatique** : après 5 minutes d'inactivité par défaut (1, 5, 10,
-  30 min, 1 h ou jamais), au verrouillage de la session et à la mise en veille (D-Bus).
-  Le verrouillage ferme les fenêtres ouvertes, nettoie le presse-papiers, détruit la
-  vue et efface la DEK.
-* **Générateur** : mots de passe de 8 à 128 caractères, phrases de passe de 4 à 12 mots
-  (liste française de `wfrench`) ; tirages par `secrets`, entropie exacte affichée.
-* **Robustesse** : estimation hors ligne (mots courants, dictionnaires, « leet »,
-  années, répétitions, suites, rangées de clavier) ; c'est une estimation, pas une
-  garantie.
-* **Audit** : entièrement local ; le rapport ne contient aucun secret. Pas de
-  vérification de fuite en ligne.
+* **Import**: preview without the passwords, categories created from folders/groups,
+  duplicates detected, import in a single transaction; 20 MB at most. An invalid or
+  duplicate tag is dropped (the entry is imported) and their number is shown. After a
+  CSV import, the application offers to delete the file. `.kdbx` files are not read
+  directly: export them to CSV first.
+* **`.mcfexport`**: JSON encrypted with AES-256-GCM using an Argon2id key derived from a
+  separate **export password**.
+* **CSV**: passwords in plaintext; warning and confirmation required.
+* **PDF**: active accounts grouped by category, built in memory. Protected by default
+  (AES-256 through `python3-pikepdf`, password different from the master password); if
+  pikepdf is missing, the option is disabled, never a silent fallback to a plaintext PDF.
 
 ---
 
-## Coffres multiples, utilisateurs, paramètres
+## Everyday security
 
-* Chaque coffre est un fichier indépendant. Écran de verrouillage avec la liste des
-  coffres (le dernier utilisé est présélectionné). Renommer, changer le mot de passe
-  maître (suivi d'une sauvegarde protégée par le nouveau), supprimer (nom + mot de passe
-  maître exigés ; les sauvegardes ne sont pas supprimées).
-* **Un compte Linux par personne** recommandé. L'application refuse de démarrer en root
-  et vérifie que ses dossiers appartiennent à l'utilisateur. Une seule instance par
-  utilisateur (socket local réservé au propriétaire). Les noms des coffres sont visibles
-  sur l'écran de verrouillage.
-* **Paramètres** (`Ctrl+,`) : verrouillage, effacement du presse-papiers, corbeille,
-  sauvegardes automatiques (nombre, dossier), générateur. Le fichier est validé à la
-  lecture : toute valeur inconnue revient à sa valeur par défaut.
-* **Raccourcis** : `Ctrl+N` nouveau, `Ctrl+E` modifier, `Ctrl+D` dupliquer, `Ctrl+C` /
-  `Ctrl+B` copier mot de passe / identifiant, `Ctrl+F` rechercher, `Ctrl+K` palette,
-  `Ctrl+G` générateur, `Ctrl+L` verrouiller, `Alt+1`…`Alt+6` vues, `F1` aide, `F11`
-  plein écran, `Ctrl+Q` quitter.
+* **Clipboard**: sensitive values are cleared after 30 s (10 s to 5 min), on locking and
+  on closing, only if the clipboard still holds our value (HMAC fingerprint with an
+  ephemeral key). The X11 selection is cleared; the `x-kde-passwordManagerHint: secret`
+  hint is set for clipboard history managers (not all of them honor it).
+* **Automatic locking**: after 5 minutes of inactivity by default (1, 5, 10, 30 min,
+  1 h or never), when the session is locked and when the system goes to sleep (D-Bus).
+  Locking closes open windows, clears the clipboard, destroys the view and erases the DEK.
+* **Generator**: passwords of 8 to 128 characters, passphrases of 4 to 12 words (French
+  word list from `wfrench`); draws from `secrets`, exact entropy displayed.
+* **Strength**: offline estimation (common words, dictionaries, "leet", years,
+  repetitions, sequences, keyboard rows); it is an estimate, not a guarantee.
+* **Audit**: fully local; the report contains no secret. No online breach check.
 
 ---
 
-## Développement
+## Multiple vaults, users, settings
 
-Python **3.11 ou plus** (valeur retenue par Ruff et par la dépendance du paquet Debian ;
-aucune syntaxe postérieure à 3.11 dans `app/`). SQLite via la bibliothèque standard,
-sans ORM.
+* Each vault is an independent file. Lock screen with the list of vaults (the last one
+  used is preselected). Rename, change the master password (followed by a backup
+  protected by the new one), delete (name + master password required; backups are not
+  deleted).
+* **One Linux account per person** is recommended. The application refuses to start as
+  root and checks that its folders belong to the user. A single instance per user (local
+  socket restricted to its owner). Vault names are visible on the lock screen.
+* **Settings** (`Ctrl+,`): locking, clipboard clearing, trash, automatic backups
+  (number, folder), generator. The file is validated when read: any unknown value falls
+  back to its default.
+* **Shortcuts**: `Ctrl+N` new, `Ctrl+E` edit, `Ctrl+D` duplicate, `Ctrl+C` / `Ctrl+B`
+  copy password / username, `Ctrl+F` search, `Ctrl+K` palette, `Ctrl+G` generator,
+  `Ctrl+L` lock, `Alt+1`…`Alt+6` views, `F1` help, `F11` full screen, `Ctrl+Q` quit.
+
+---
+
+## Development
+
+Python **3.11 or later** (the value used by Ruff and by the Debian package dependency;
+no syntax newer than 3.11 in `app/`). SQLite through the standard library, no ORM.
 
 ```bash
-git clone <dépôt>
-cd mon-coffre-fort
+git clone https://github.com/Tahir-1907/Keyra.git
+cd Keyra
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt        # exécution : cryptography>=44, PySide6-Essentials>=6.8, pikepdf>=9.5
+pip install -r requirements.txt        # runtime: cryptography>=44, PySide6-Essentials>=6.8, pikepdf>=9.5
 pip install -r requirements-dev.txt    # + argon2-cffi, pytest, coverage, ruff
-python -m app.main                     # ou ./run.sh (crée l'environnement au premier lancement)
+python -m app.main                     # or ./run.sh (creates the environment on first launch)
 ```
 
-Optionnels : `wfrench` (phrases de passe) et `wamerican` (estimation de robustesse).
+Optional: `wfrench` (passphrases) and `wamerican` (strength estimation).
 
-Il n'y a pas de table `[project]` dans `pyproject.toml` : l'application n'est pas un
-paquet pip ; sa version a une source unique, `__version__` dans `app/__init__.py`, lue
-par `packaging/build-deb.sh`.
+There is no `[project]` table in `pyproject.toml`: the application is not a pip package;
+its version has a single source, `__version__` in `app/__init__.py`, read by
+`packaging/build-deb.sh`.
+
+The logo and application icons are generated by `docs/brand/build_brand.py`
+(see [docs/brand/BRAND.md](docs/brand/BRAND.md)).
 
 ---
 
@@ -525,132 +538,135 @@ QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p 'test_*.py'
 ruff check .
 ```
 
-* **543 tests et 188 sous-tests**, compatibles pytest et unittest (tous réussis, Ruff
-  propre, dans l'environnement indiqué plus bas). Il n'y a pas d'intégration continue :
-  les suites se lancent localement.
-* Ruff sert aussi d'analyse de sécurité : règles `S` (celles de Bandit), `PLE2502`
-  (Unicode trompeur) et `S4xx` (imports sensibles). Chaque exception (`noqa`) est
-  justifiée sur sa ligne.
-* Principales suites : cryptographie et vecteurs Argon2id, coffre, entrées,
-  métadonnées v4 et cache, catégories, tags, historique, corbeille, sauvegardes,
-  import/export, PDF, sécurité (fichiers piégés, altérations, fuites), interface Qt en
-  mode `offscreen`, migration (retour arrière à chaque étape, SIGKILL dans et hors
-  transaction, structures inattendues, confidentialité au niveau des octets),
-  compatibilité de la sauvegarde de migration avec le code 1.6.0.
-* **Coffres de référence** : `tests/fixtures/v2-app-1.0.0` et `v3-app-1.6.0`, produits par
-  les versions 1.0.0 et 1.6.0, données entièrement fictives ; les tests travaillent sur
-  des copies et vérifient que ces fichiers ne changent jamais.
-* Certains tests sont ignorés proprement si un outil manque : PySide6, `pdftotext`,
-  `pikepdf`, `wfrench`, argon2-cffi, ou le commit `a99f821` (compatibilité 1.6.0).
-* Quelques tests vérifient des durées (chargement de 2 000 entrées, par exemple) : sur
-  une machine très lente, ils peuvent échouer sans défaut du code.
-* Environnements de validation :
-  * **développement** (`.venv`) : Debian 13, Python 3.13.5, PySide6 6.11.2,
-    cryptography 50.0.1, argon2-cffi 21.1.0, pikepdf 9.11.0, SQLite 3.46.1 ; pytest et
-    unittest (543 tests, 188 sous-tests), Ruff ;
-  * **paquets Debian 13** (ceux du `.deb`) : Python système 3.13.5, PySide6 6.8.2.1 /
-    Qt 6.8.2, cryptography 43.0.0, argon2-cffi 21.1.0, pikepdf 9.5.2, SQLite 3.46.1 ;
-    `python3 -m unittest` : 543 tests réussis, 3 ignorés comme attendu (ils exigent
-    `cryptography` 44 ou plus, ou les deux implémentations d'Argon2id, et tournent dans
-    l'environnement de développement).
-* **Dépendance de test uniquement** : sous Debian 13, les tests d'interface utilisent
-  `PySide6.QtTest`, fourni par `python3-pyside6.qttest` (et `libqt6test6`). L'application
-  ne l'utilise pas et le paquet `.deb` ne l'exige pas. Pour la validation ci-dessus, ces
-  deux paquets ont été téléchargés et utilisés hors du système, sans être installés.
+* **544 tests and 188 subtests**, compatible with pytest and unittest (all passing, Ruff
+  clean, in the environments listed below). There is no continuous integration: the
+  suites are run locally.
+* Ruff is also used for security analysis: `S` rules (those of Bandit), `PLE2502`
+  (misleading Unicode) and `S4xx` (sensitive imports). Each exception (`noqa`) is
+  justified on its line.
+* Main suites: cryptography and Argon2id vectors, vault, entries, v4 metadata and cache,
+  categories, tags, history, trash, backups, import/export, PDF, security (crafted files,
+  tampering, leaks), Qt interface in `offscreen` mode, migration (rollback at every step,
+  SIGKILL inside and outside the transaction, unexpected structures, confidentiality at
+  byte level), compatibility of the migration backup with the 1.6.0 code.
+* **Reference vaults**: `tests/fixtures/v2-app-1.0.0` and `v3-app-1.6.0`, produced by
+  versions 1.0.0 and 1.6.0, with entirely fictitious data; the tests work on copies and
+  check that these files never change.
+* Some tests are skipped cleanly when a tool is missing: PySide6, `pdftotext`, `pikepdf`,
+  `wfrench`, argon2-cffi, or commit `a99f821` (1.6.0 compatibility; it is not part of the
+  public history, so this test is skipped in a clone of this repository).
+* A few tests check durations (loading 2,000 entries, for example): on a very slow
+  machine, they may fail without any defect in the code.
+* Validation environments:
+  * **development** (`.venv`): Debian 13, Python 3.13.5, PySide6 6.11.2,
+    cryptography 50.0.1, argon2-cffi 21.1.0, pikepdf 9.11.0, SQLite 3.46.1; pytest and
+    unittest, Ruff (validated for 1.7.0-rc1 before the switch to the Keyra name and the
+    English interface, with 543 tests at the time);
+  * **Debian 13 packages** (those of the `.deb`): system Python 3.13.5, PySide6 6.8.2.1 /
+    Qt 6.8.2, cryptography 43.0.0, argon2-cffi 21.1.0, pikepdf 9.5.2, SQLite 3.46.1;
+    pytest on the current code: 544 tests, 540 passed and 4 skipped as expected (3
+    require `cryptography` 44 or later, or both Argon2id implementations, and run in the
+    development environment; 1 requires commit `a99f821`, which is not in the public
+    history).
+* **Test-only dependency**: on Debian 13, the interface tests use `PySide6.QtTest`,
+  provided by `python3-pyside6.qttest` (and `libqt6test6`). The application does not use
+  it and the `.deb` package does not require it. For the validation above, these two
+  packages were downloaded and used outside the system, without being installed.
 
 ---
 
-## Structure du projet
+## Project structure
 
 ```text
 app/
-├── core/          logique métier, sans interface ni SQL
-│                  crypto (Argon2id, AES-GCM, HKDF), vault (cycle de vie, récupération),
-│                  metadata (JSON chiffré v4, tags), metadata_store (cache), entries,
-│                  categories, snapshots (historique), audit, generator, strength, session
-├── database/      SQLite : schéma et contrôles de structure, modèles, repositories
-├── services/      opérations sur fichiers : backup, import_export, pdf_export, settings,
-│                  migration_v4 (moteur tout ou rien), vault_upgrade (préflight,
-│                  orchestration, vérification)
-├── ui/            PySide6 : fenêtres, vues (pages/), dialogues, tag_editor,
-│                  migration_dialog, presse-papiers, verrouillage système, tâches de fond
-├── resources/     logo, police Inter (OFL), icônes Lucide (ISC)
-└── utils/         chemins XDG, journalisation, écriture atomique
-tests/             tests unittest/pytest et coffres de référence (fixtures/)
-packaging/         build-deb.sh, entrée de menu .desktop
+├── core/          business logic, no UI and no SQL
+│                  crypto (Argon2id, AES-GCM, HKDF), vault (lifecycle, recovery),
+│                  metadata (encrypted v4 JSON, tags), metadata_store (cache), entries,
+│                  categories, snapshots (history), audit, generator, strength, session
+├── database/      SQLite: schema and structure checks, models, repositories
+├── services/      file operations: backup, import_export, pdf_export, settings,
+│                  migration_v4 (all-or-nothing engine), vault_upgrade (preflight,
+│                  orchestration, verification)
+├── ui/            PySide6: windows, views (pages/), dialogs, tag_editor,
+│                  migration_dialog, clipboard, system lock, background tasks
+├── resources/     logo and app icons, Inter font (OFL), Lucide icons (ISC)
+└── utils/         XDG paths, logging, atomic writes
+docs/
+├── brand/         logo sources, generator script, visual identity notes
+└── screenshots/   README screenshots (fictitious data)
+tests/             unittest/pytest tests and reference vaults (fixtures/)
+packaging/         build-deb.sh, .desktop menu entry
 ```
 
-L'interface ne touche jamais SQLite ni la cryptographie : elle passe par `core/` et
-`services/`. `database/` ne manipule que des octets déjà chiffrés et ne connaît aucune clé.
+The interface never touches SQLite or cryptography directly: it goes through `core/` and
+`services/`. `database/` only handles bytes that are already encrypted and knows no key.
 
 ---
 
-## Limites connues
+## Known limitations
 
-### Intégrité globale du coffre
+### Global vault integrity
 
-La version 1.7.0-rc1 authentifie chaque donnée chiffrée **individuellement** (AES-256-GCM,
-nonce aléatoire, AAD liant chaque blob à son entrée, son champ, sa version, sa catégorie
-ou son coffre, clés séparées par usage), mais le coffre ne possède pas encore de
-**manifeste authentifié représentant son état global**.
+Version 1.7.0-rc1 authenticates each piece of encrypted data **individually**
+(AES-256-GCM, random nonce, AAD binding each blob to its entry, field, version, category
+or vault, separate keys per use), but the vault does not yet have an **authenticated
+manifest representing its global state**.
 
-Une personne capable de modifier directement le fichier SQLite peut donc, dans certaines
-conditions, faire accepter sans alerte des changements de l'état logique du coffre
-(constaté sur un coffre de test) :
+Someone able to modify the SQLite file directly can therefore, under certain conditions,
+get changes to the logical state of the vault accepted without warning (observed on a
+test vault):
 
-* remettre une entrée dans un état antérieur, à partir d'une ancienne copie du fichier ;
-* supprimer une entrée ou des versions d'historique ;
-* modifier des données techniques non chiffrées, comme les dates d'historique (D3) ;
-* échanger les clés techniques de catégories intégrées (une entrée « Travail » apparaît
-  alors dans « Finances »).
+* put an entry back into an earlier state, from an old copy of the file;
+* delete an entry or history versions;
+* modify unencrypted technical data, such as history dates (D3);
+* swap the technical keys of built-in categories (a "Work" entry then appears under
+  "Finance").
 
-Cette limitation concerne l'**intégrité globale** (retour arrière, suppression), pas la
-confidentialité. Elle ne permet pas de lire les mots de passe ni de déchiffrer les
-secrets, ne permet pas de fabriquer des données chiffrées valides, et ne contourne pas
-l'authentification AES-GCM : un blob modifié ou déplacé hors de son contexte est détecté.
-Un mécanisme d'intégrité globale authentifié est prévu pour une évolution après la RC1 ;
-il demandera une conception dédiée (format, migration, compatibilité).
+This limitation concerns **global integrity** (rollback, deletion), not confidentiality.
+It does not allow reading passwords or decrypting secrets, does not allow forging valid
+encrypted data, and does not bypass AES-GCM authentication: a blob that is modified or
+moved out of its context is detected. An authenticated global integrity mechanism is
+planned for a post-RC1 evolution; it will require a dedicated design (format, migration,
+compatibility).
 
-### Tableau récapitulatif
+### Summary table
 
-| Limite | Effet | Statut |
+| Limitation | Effect | Status |
 |---|---|---|
-| Intégrité globale | Retour arrière ou suppression d'éléments par écriture directe dans le fichier, non détectés (voir ci-dessus) | Après RC1 |
-| `entry_history.created_at` en clair (D3) | Dates des versions (donc de la dernière modification d'une entrée modifiée) lisibles dans le fichier | Choix de conception |
-| Métadonnées techniques lisibles | Nom du coffre, nombre d'entrées/catégories/versions, taille approximative, en-tête `.mcfbak` (voir plus haut) | Choix de conception |
-| Échec du VACUUM après migration | La migration est conservée et vérifiée ; un nouvel essai a lieu à la vérification ; s'il échoue aussi, un avertissement est affiché : d'anciennes pages libres restent dans le fichier (remises à zéro par `secure_delete` lors de nos essais, sans garantie formelle) | Connu |
-| Échec de la vérification finale après une migration validée | Le coffre (déjà v4) n'est pas ouvert et la sauvegarde de migration est conservée ; une ouverture ultérieure l'ouvrira normalement, sans nouvelle vérification complète | Après RC1 |
-| Sauvegardes de migration | Chaque tentative de mise à niveau crée une sauvegarde, jamais supprimée automatiquement | Après RC1 |
-| Presse-papiers et veille | Le délai d'effacement ne compte pas le temps de veille ; sans effet si « verrouiller à la veille » est actif (réglage par défaut), car le verrouillage efface le presse-papiers | Après RC1 |
-| Exports interrompus | Après un arrêt brutal pendant un export, un fichier temporaire `.tmp-export-*` (en clair pour un CSV ou un PDF non protégé) peut rester dans le dossier de destination | Après RC1 |
-| CSV exporté | Les valeurs commençant par `=`, `+`, `-` ou `@` ne sont pas neutralisées (formules dans un tableur) | Après RC1 |
-| PDF | Les tags ne figurent pas dans la copie papier | Après RC1 |
-| Recherche `#` | Un tag contenant à la fois un guillemet et un espace à certains endroits (ex. `a" b`) ne peut pas être recherché exactement | Marginal |
-| Tags d'une version antérieure à la 1.7 | Affichée, elle reprend les tags de la version plus récente ; restaurée, elle garde les tags actuels | Choix documenté |
-| Mémoire Python | Pas d'effacement garanti des chaînes (voir plus haut) | Limite du langage |
-| Récupération d'un ancien coffre | Si la mise à niveau qui suit une récupération était interrompue par une exception système (hors erreur applicative), la nouvelle clé ne serait pas affichée ; aucun cas atteignable n'est connu dans l'interface | Après RC1 |
-| Hors ligne par conception | Pas de coffre partagé ni de synchronisation | Hors périmètre |
+| Global integrity | Rollback or deletion of elements by writing directly to the file, not detected (see above) | After RC1 |
+| `entry_history.created_at` in plaintext (D3) | Version dates (hence the last modification date of a modified entry) readable in the file | Design choice |
+| Readable technical metadata | Vault name, number of entries/categories/versions, approximate size, `.mcfbak` header (see above) | Design choice |
+| VACUUM failure after migration | The migration is kept and verified; a new attempt is made during verification; if it also fails, a warning is shown: old free pages remain in the file (zeroed by `secure_delete` in our tests, without formal guarantee) | Known |
+| Final verification failure after a committed migration | The vault (already v4) is not opened and the migration backup is kept; a later opening will open it normally, without a new full verification | After RC1 |
+| Migration backups | Each upgrade attempt creates a backup, never deleted automatically | After RC1 |
+| Clipboard and sleep | The clearing delay does not count time spent asleep; no effect if "lock on sleep" is enabled (default setting), because locking clears the clipboard | After RC1 |
+| Interrupted exports | After a sudden stop during an export, a `.tmp-export-*` temporary file (plaintext for a CSV or an unprotected PDF) may remain in the destination folder | After RC1 |
+| Exported CSV | Values starting with `=`, `+`, `-` or `@` are not neutralized (spreadsheet formulas) | After RC1 |
+| PDF | Tags are not included in the paper copy | After RC1 |
+| `#` search | A tag containing both a quote and a space in certain positions (e.g. `a" b`) cannot be searched exactly | Marginal |
+| Tags of a version older than 1.7 | When displayed, it shows the tags of the more recent version; when restored, it keeps the current tags | Documented choice |
+| Python memory | No guaranteed erasure of strings (see above) | Language limitation |
+| Recovery of an old vault | If the upgrade following a recovery were interrupted by a system exception (not an application error), the new key would not be shown; no reachable case is known in the interface | After RC1 |
+| Offline by design | No shared vault and no sync | Out of scope |
 
 ---
 
-## Feuille de route
+## Roadmap
 
-**Préparation de la RC1** : faite (validation Debian 13, construction et inspection du
-paquet, audit final).
+**RC1 preparation**: done (Debian 13 validation, package build and inspection, final
+audit).
 
-**Après la RC1** (non implémenté) : manifeste d'intégrité globale authentifié du coffre ;
-tags dans le PDF ; délai du presse-papiers tenant
-compte de la veille ; nettoyage des temporaires d'export après un arrêt brutal ;
-neutralisation des formules dans l'export CSV ; gestion des sauvegardes de migration
-multiples ; revérification après un échec de vérification post-migration ; lecture de
-l'en-tête seul lors du listage des sauvegardes ; recherche `#` des tags avec guillemet et
-espace ; coffre de référence v4 pour les tests de futures migrations ; contrôle du paquet
-par `lintian`.
+**After RC1** (not implemented): authenticated global integrity manifest for the vault;
+tags in the PDF; clipboard delay that accounts for sleep; cleanup of export temporary
+files after a sudden stop; neutralization of formulas in the CSV export; handling of
+multiple migration backups; re-verification after a post-migration verification failure;
+reading only the header when listing backups; `#` search for tags with a quote and a
+space; v4 reference vault for testing future migrations; package check with `lintian`.
 
 ---
 
-## Licence
+## License
 
-Tous droits réservés : aucune licence open source n'a été choisie pour ce projet
-personnel (voir `LICENSE`). Composants tiers inclus : police Inter (SIL Open Font
-License 1.1) et icônes Lucide (ISC), avec leurs textes de licence dans `app/resources/`.
+All rights reserved: no open source license has been chosen for this project yet
+(see `LICENSE`). Bundled third-party components: Inter font (SIL Open Font License 1.1)
+and Lucide icons (ISC), with their license texts in `app/resources/`.

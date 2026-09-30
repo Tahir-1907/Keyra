@@ -24,7 +24,7 @@ MASTER = "mot-de-passe-maitre-de-test"
 
 
 class EntryTestCase(unittest.TestCase):
-    """Coffre neuf dans un répertoire XDG temporaire, services prêts à l'emploi."""
+    """New vault in a temporary XDG directory, services ready to use."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -64,7 +64,7 @@ class TestEntryCrud(EntryTestCase):
                 email="alice@example.org",
                 password="S3cr3t!-éàü",
                 notes="Code client dans le coffre",
-                category_id=self.category_id("Finances"),
+                category_id=self.category_id("Finance"),
             )
         )
         got = self.entries.get_entry(entry_id)
@@ -72,7 +72,7 @@ class TestEntryCrud(EntryTestCase):
         self.assertEqual(got.password, "S3cr3t!-éàü")
         self.assertEqual(got.email, "alice@example.org")
         self.assertEqual(got.notes, "Code client dans le coffre")
-        self.assertEqual(got.category_id, self.category_id("Finances"))
+        self.assertEqual(got.category_id, self.category_id("Finance"))
         self.assertTrue(got.created_at)
 
     def test_update_keeps_created_at_and_changes_fields(self):
@@ -144,7 +144,7 @@ class TestEntryCrud(EntryTestCase):
 class TestEncryptionAtRest(EntryTestCase):
     def test_sensitive_values_not_in_database_file(self):
         secrets_ = ["MotDePasseUltraSecret42", "note-confidentielle-xyz", "moi@secret.example"]
-        # v4 : métadonnées chiffrées elles aussi (v1.6 : nom, URL, identifiant en clair).
+        # v4: metadata encrypted too (v1.6: plaintext name, URL, username).
         metadata = ["NomDeServiceVisible", "https://url-privee.example", "identifiant-prive",
                     "TagPrive"]
         self.entries.create_entry(
@@ -205,11 +205,11 @@ class TestSearchAndFilters(EntryTestCase):
         super().setUp()
         self.gmail = self.entries.create_entry(
             Entry(service_name="Gmail", username="alice", url="https://mail.google.com",
-                  category_id=self.category_id("Courriel"), is_favorite=True)
+                  category_id=self.category_id("Email"), is_favorite=True)
         )
         self.bank = self.entries.create_entry(
             Entry(service_name="Société Générale", username="a.dupont",
-                  category_id=self.category_id("Finances"))
+                  category_id=self.category_id("Finance"))
         )
         self.misc = self.entries.create_entry(Entry(service_name="éditeur", password="zzz"))
 
@@ -226,7 +226,7 @@ class TestSearchAndFilters(EntryTestCase):
     def test_search_matches_username_url_and_category(self):
         self.assertEqual(self.names(text="dupont"), ["Société Générale"])
         self.assertEqual(self.names(text="google"), ["Gmail"])
-        self.assertEqual(self.names(text="finances"), ["Société Générale"])
+        self.assertEqual(self.names(text="finance"), ["Société Générale"])
 
     def test_search_never_matches_secret_fields(self):
         self.assertEqual(self.names(text="zzz"), [])
@@ -237,7 +237,7 @@ class TestSearchAndFilters(EntryTestCase):
         self.assertEqual(self.names(favorites_only=True), ["Gmail", "Société Générale"])
 
     def test_category_filters(self):
-        self.assertEqual(self.names(category_id=self.category_id("Finances")),
+        self.assertEqual(self.names(category_id=self.category_id("Finance")),
                          ["Société Générale"])
         self.assertEqual(self.names(category_id=UNCATEGORIZED), ["éditeur"])
 
@@ -257,12 +257,15 @@ class TestCategories(EntryTestCase):
         self.categories.rename_category(cid, "Jeux")
         self.assertIn("Jeux", [c.name for c in self.categories.list_categories()])
         self.categories.delete_category(cid)
-        # L'entrée survit, sans catégorie.
+        # The entry survives, uncategorized.
         self.assertIsNone(self.entries.get_entry(entry_id).category_id)
 
     def test_duplicate_names_rejected_case_and_accent_insensitive(self):
         with self.assertRaises(CategoryError):
-            self.categories.create_category("reseaux SOCIAUX")
+            self.categories.create_category("sOcIaL")  # built-in category
+        self.categories.create_category("Jeux vidéo")
+        with self.assertRaises(CategoryError):
+            self.categories.create_category("JEUX VIDEO")
 
     def test_rename_own_case_allowed(self):
         cid = self.categories.create_category("jeux")
@@ -270,12 +273,12 @@ class TestCategories(EntryTestCase):
 
     def test_builtin_cannot_be_modified(self):
         with self.assertRaises(CategoryError):
-            self.categories.delete_category(self.category_id("Travail"))
+            self.categories.delete_category(self.category_id("Work"))
         with self.assertRaises(CategoryError):
-            self.categories.rename_category(self.category_id("Travail"), "Boulot")
+            self.categories.rename_category(self.category_id("Work"), "Boulot")
 
     def test_overview_counts(self):
-        cid = self.category_id("Travail")
+        cid = self.category_id("Work")
         self.entries.create_entry(Entry(service_name="a", category_id=cid, is_favorite=True))
         self.entries.create_entry(Entry(service_name="b"))
         ov = self.categories.overview()
