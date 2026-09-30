@@ -15,7 +15,7 @@
   <img src="docs/screenshots/02-vault.png" alt="Vault view: entry list and entry details (fictitious demo data)" width="860">
 </p>
 
-> **Version 1.7.0-rc1 — release candidate, not a final release.**
+> **Version 1.7.0 — stable release.**
 > Vault format: **schema v4** (encrypted metadata). Vaults created by earlier versions
 > (schemas v1 to v3) are upgraded **only after explicit confirmation**
 > (see [Upgrading older vaults](#upgrading-older-vaults-v1-to-v3)).
@@ -91,20 +91,22 @@ All data shown is fictitious (demo vault, `example.com` addresses, random passwo
 ### Debian package
 
 The package is built from source and only declares dependencies provided by Debian 13
-(no bundled library). The `1.7.0~rc1` package was validated on Debian 13
+(no bundled library). The `1.7.0` package was validated on Debian 13
 (see [Tests](#tests)): build, content inspection, **simulated** installation
-(`apt-get -s`, no new dependency) and execution of its code with the system Python and
-packages. It was not actually installed during that validation.
+(`apt-get -s`, upgrade from `1.7.0~rc1`, no new dependency) and execution of its code
+(the whole test suite) with the system Python and packages. It was not actually
+installed during that validation.
 
 Procedure:
 
 ```bash
-packaging/build-deb.sh                                        # -> dist/mon-coffre-fort_1.7.0~rc1_all.deb
-sudo apt install ./dist/mon-coffre-fort_1.7.0~rc1_all.deb     # installs the Debian dependencies
+packaging/build-deb.sh                                    # -> dist/mon-coffre-fort_1.7.0_all.deb
+sudo apt install ./dist/mon-coffre-fort_1.7.0_all.deb     # installs the Debian dependencies
 ```
 
-* Debian version: `1.7.0-rc1` becomes `1.7.0~rc1`, which guarantees
-  `1.6.0 < 1.7.0~rc1 < 1.7.0` for `dpkg`.
+* Debian version: a final version keeps its number (`1.7.0`). A pre-release such as
+  `1.7.0-rc1` becomes `1.7.0~rc1`, which guarantees `1.6.0 < 1.7.0~rc1 < 1.7.0` for
+  `dpkg`: the `1.7.0` package upgrades an installed `1.7.0~rc1`.
 * Dependencies: `python3 (>= 3.11)`, `python3-cryptography (>= 43)`,
   `python3-argon2 (>= 21.1)`, `python3-pyside6.*` (QtCore, QtGui, QtWidgets, QtNetwork,
   QtDBus, QtSvg, `>= 6.8`), `python3-pikepdf (>= 9.5)`, `hicolor-icon-theme`.
@@ -684,7 +686,7 @@ The interface never touches SQLite or cryptography directly: it goes through `co
 
 ### Global vault integrity
 
-Version 1.7.0-rc1 authenticates each piece of encrypted data **individually**
+Version 1.7.0 authenticates each piece of encrypted data **individually**
 (AES-256-GCM, random nonce, AAD binding each blob to its entry, field, version, category
 or vault, separate keys per use), but the vault does not yet have an **authenticated
 manifest representing its global state**.
@@ -703,37 +705,37 @@ This limitation concerns **global integrity** (rollback, deletion), not confiden
 It does not allow reading passwords or decrypting secrets, does not allow forging valid
 encrypted data, and does not bypass AES-GCM authentication: a blob that is modified or
 moved out of its context is detected. An authenticated global integrity mechanism is
-planned for a post-RC1 evolution; it will require a dedicated design (format, migration,
+planned for a version after 1.7.0; it will require a dedicated design (format, migration,
 compatibility).
 
 ### Summary table
 
 | Limitation | Effect | Status |
 |---|---|---|
-| Global integrity | Rollback or deletion of elements by writing directly to the file, not detected (see above) | After RC1 |
+| Global integrity | Rollback or deletion of elements by writing directly to the file, not detected (see above) | After 1.7.0 |
 | `entry_history.created_at` in plaintext (D3) | Version dates (hence the last modification date of a modified entry) readable in the file | Design choice |
 | Readable technical metadata | Vault name, number of entries/categories/versions, approximate size, `.mcfbak` header (see above) | Design choice |
 | VACUUM failure after migration | The migration is kept and verified; a new attempt is made during verification; if it also fails, a warning is shown: old free pages remain in the file (zeroed by `secure_delete` in our tests, without formal guarantee) | Known |
-| Final verification failure after a committed migration | The vault (already v4) is not opened and the migration backup is kept; a later opening will open it normally, without a new full verification | After RC1 |
-| Migration backups | Each upgrade attempt creates a backup, never deleted automatically | After RC1 |
-| Clipboard and sleep | The clearing delay does not count time spent asleep; no effect if "lock on sleep" is enabled (default setting), because locking clears the clipboard | After RC1 |
-| Interrupted exports | After a sudden stop during an export, a `.tmp-export-*` temporary file (plaintext for a CSV or an unprotected PDF) may remain in the destination folder | After RC1 |
-| Exported CSV | Values starting with `=`, `+`, `-` or `@` are not neutralized (spreadsheet formulas) | After RC1 |
-| PDF | Tags are not included in the paper copy | After RC1 |
+| Final verification failure after a committed migration | The vault (already v4) is not opened and the migration backup is kept; a later opening will open it normally, without a new full verification | After 1.7.0 |
+| Migration backups | Each upgrade attempt creates a backup, never deleted automatically | After 1.7.0 |
+| Clipboard and sleep | The clearing delay does not count time spent asleep; no effect if "lock on sleep" is enabled (default setting), because locking clears the clipboard | After 1.7.0 |
+| Interrupted exports | After a sudden stop during an export, a `.tmp-export-*` temporary file (plaintext for a CSV or an unprotected PDF) may remain in the destination folder | After 1.7.0 |
+| Exported CSV | Values starting with `=`, `+`, `-` or `@` are not neutralized (spreadsheet formulas) | After 1.7.0 |
+| PDF | Tags are not included in the paper copy | After 1.7.0 |
 | `#` search | A tag containing both a quote and a space in certain positions (e.g. `a" b`) cannot be searched exactly | Marginal |
 | Tags of a version older than 1.7 | When displayed, it shows the tags of the more recent version; when restored, it keeps the current tags | Documented choice |
 | Python memory | No guaranteed erasure of strings (see above) | Language limitation |
-| Recovery of an old vault | If the upgrade following a recovery were interrupted by a system exception (not an application error), the new key would not be shown; no reachable case is known in the interface | After RC1 |
+| Recovery of an old vault | If the upgrade following a recovery were interrupted by a system exception (not an application error), the new key would not be shown; no reachable case is known in the interface | After 1.7.0 |
 | Offline by design | No shared vault and no sync | Out of scope |
 
 ---
 
 ## Roadmap
 
-**RC1 preparation**: done (Debian 13 validation, package build and inspection, final
+**1.7.0 release preparation**: done (Debian 13 validation, package build and inspection, final
 audit).
 
-**After RC1** (not implemented): authenticated global integrity manifest for the vault;
+**After 1.7.0** (not implemented): authenticated global integrity manifest for the vault;
 tags in the PDF; clipboard delay that accounts for sleep; cleanup of export temporary
 files after a sudden stop; neutralization of formulas in the CSV export; handling of
 multiple migration backups; re-verification after a post-migration verification failure;
